@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">garmin-fit</string>
+    <string name="w_recovery">Recovery</string>
+    <string name="w_recovery_desc">HRV semalam dan Training Readiness</string>
+    <string name="w_morning">Pagi ini</string>
+    <string name="w_morning_desc">HRV, RHR, tidur, Body Battery, dan catatan hari ini</string>
+    <string name="w_week">Minggu ini</string>
+    <string name="w_week_desc">Sesi, jarak, durasi, dan hari aktif 7 hari terakhir</string>
+    <string name="w_trend">Tren 7 hari</string>
+    <string name="w_trend_desc">Grafik HRV dan RHR seminggu</string>
+    <string name="w_last">Aktivitas terakhir</string>
+    <string name="w_last_desc">Jarak, durasi, pace, dan HR aktivitas terakhir</string>
+</resources>
