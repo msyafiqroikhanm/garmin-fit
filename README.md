@@ -11,8 +11,9 @@ Family members get read-only access through invite tokens.
 3. **Garmin login** (from the laptop, never from Vercel): `.venv/bin/python backend/cli.py login`
 4. **Backfill**: test with `backend/cli.py backfill --from <7 days ago>`, check the numbers against Garmin Connect,
    then run `backend/cli.py backfill` for full history (resumable, ~1s per day).
-5. **Vercel**: import the GitHub repo, set Root Directory to `backend`, add env vars
-   `MONGODB_URI`, `FERNET_KEY`, `CRON_SECRET` (same values as `.env`). Cron runs daily at 03:00 UTC (10:00 WIB).
+5. **Vercel**: project `garmin-fit` is connected to this repo with Root Directory `backend`; every push to `main`
+   deploys to https://garmin-fit.vercel.app. Env vars `MONGODB_URI`, `MONGODB_DB`, `FERNET_KEY`, `CRON_SECRET`, `APP_TZ`
+   match `.env`. Cron runs daily at 03:00 UTC (10:00 WIB).
 6. **Tokens**: `backend/cli.py token create saya --role owner`, `backend/cli.py token create ibu` (viewer by default).
    Tokens are shown once. `token list` / `token revoke <name>`.
 7. **Android**: set `api.baseUrl=https://<project>.vercel.app/` in `android/local.properties`, then
