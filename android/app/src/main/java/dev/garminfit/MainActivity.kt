@@ -3,10 +3,30 @@ package dev.garminfit
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import dev.garminfit.ui.AccentButton
+import dev.garminfit.ui.K
+import dev.garminfit.ui.T
+import dev.garminfit.ui.body
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,12 +36,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -35,25 +49,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.garminfit.ui.ActivitiesScreen
 import dev.garminfit.ui.AppTheme
 import dev.garminfit.ui.Centered
-import dev.garminfit.ui.Status
 import dev.garminfit.ui.TodayScreen
 import dev.garminfit.ui.TrainingScreen
 import dev.garminfit.ui.TrendsScreen
-import dev.garminfit.ui.color
 import dev.garminfit.widget.RefreshWorker
 import kotlinx.coroutines.launch
 
-enum class Tab(val label: String, val icon: Int) {
-    TODAY("Hari Ini", R.drawable.ic_today),
-    TRENDS("Tren", R.drawable.ic_trends),
-    ACTIVITIES("Aktivitas", R.drawable.ic_activities),
-    TRAINING("Latihan", R.drawable.ic_training),
+enum class Tab(val label: String) {
+    TODAY("Hari Ini"),
+    TRENDS("Tren"),
+    ACTIVITIES("Aktivitas"),
+    TRAINING("Latihan"),
 }
 
 const val EXTRA_TAB = "tab"
@@ -64,7 +75,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Dark-only app: force light system bar icons regardless of the phone's theme.
+        enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         RefreshWorker.schedule(this)
         launch = intent
         setContent { AppTheme { Root(launch) } }
@@ -105,18 +117,8 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
     }
     BackHandler(enabled = tab != Tab.TODAY) { tab = Tab.TODAY }
     Scaffold(
-        bottomBar = {
-            NavigationBar {
-                Tab.entries.forEach { t ->
-                    NavigationBarItem(
-                        selected = tab == t,
-                        onClick = { tab = t; if (t != Tab.ACTIVITIES) activityId = null },
-                        icon = { Icon(painterResource(t.icon), contentDescription = null) },
-                        label = { Text(t.label) },
-                    )
-                }
-            }
-        },
+        containerColor = K.base,
+        bottomBar = { BottomNav(tab) { t -> tab = t; if (t != Tab.ACTIVITIES) activityId = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
@@ -124,6 +126,35 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
                 Tab.TRENDS -> TrendsScreen()
                 Tab.ACTIVITIES -> ActivitiesScreen(activityId)
                 Tab.TRAINING -> TrainingScreen()
+            }
+        }
+    }
+}
+
+/** Text-only pills: four short Indonesian labels read faster than icons we'd have to invent. */
+@Composable
+private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
+    Column(Modifier.background(K.navBg)) {
+        HorizontalDivider(color = K.track)
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 14.dp)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.SpaceAround,
+        ) {
+            Tab.entries.forEach { t ->
+                val on = t == selected
+                Box(
+                    Modifier.sizeIn(minHeight = 48.dp).clip(CircleShape).selectable(on, role = Role.Tab) { onSelect(t) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        t.label,
+                        Modifier.clip(CircleShape).background(if (on) K.good else Color.Transparent)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        style = body(13.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, 1.2f),
+                        color = if (on) K.onAccent else K.muted,
+                    )
+                }
             }
         }
     }
@@ -148,14 +179,15 @@ private fun SetupScreen(onDone: (String) -> Unit) {
             busy = false
         }
     }
-    Scaffold { pad ->
+    Scaffold(containerColor = K.base) { pad ->
         Centered {
             Column(Modifier.padding(pad).fillMaxWidth().imePadding()) {
-                Text("garmin-fit", style = MaterialTheme.typography.headlineMedium)
+                Text("GARMIN-FIT", style = T.screenTitle, color = K.ink)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Masukkan token akses dari pemilik akun. Token cukup dimasukkan sekali.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = T.body,
+                    color = K.muted,
                 )
                 Spacer(Modifier.height(24.dp))
                 OutlinedTextField(
@@ -164,16 +196,13 @@ private fun SetupScreen(onDone: (String) -> Unit) {
                     label = { Text("Token akses") },
                     singleLine = true,
                     isError = error != null,
-                    supportingText = error?.let { { Text(it, color = Status.LOW.color()) } },
+                    supportingText = error?.let { { Text(it, color = K.low) } },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = ::submit, enabled = !busy, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                    if (busy) CircularProgressIndicator(Modifier.height(20.dp), strokeWidth = 2.dp)
-                    else Text("Hubungkan")
-                }
+                AccentButton(if (busy) "Menghubungkan…" else "Hubungkan", ::submit, Modifier.fillMaxWidth(), enabled = !busy)
             }
         }
     }

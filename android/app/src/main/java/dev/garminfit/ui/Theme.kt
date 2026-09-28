@@ -1,91 +1,118 @@
 package dev.garminfit.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import dev.garminfit.R
 
-// Warm paper neutrals keep morning reading calm; teal is the single interactive accent.
-// Status colors are reserved for recovery meaning only. All text pairs checked >= 4.5:1.
-private val Light = lightColorScheme(
-    primary = Color(0xFF1F5E57),
-    onPrimary = Color.White,
-    secondaryContainer = Color(0xFFD7E8E4),
-    onSecondaryContainer = Color(0xFF123B36),
-    background = Color(0xFFF6F4EF),
-    onBackground = Color(0xFF1C1F1E),
-    surface = Color(0xFFF6F4EF),
-    onSurface = Color(0xFF1C1F1E),
-    surfaceContainer = Color(0xFFFFFFFF),
-    surfaceContainerHigh = Color(0xFFEDEAE3),
-    onSurfaceVariant = Color(0xFF5B605D),
-    outlineVariant = Color(0xFFDAD6CD),
-)
-
-private val Dark = darkColorScheme(
-    primary = Color(0xFF7CC4B8),
-    onPrimary = Color(0xFF0B2E2A),
-    secondaryContainer = Color(0xFF214640),
-    onSecondaryContainer = Color(0xFFCDE8E2),
-    background = Color(0xFF121413),
-    onBackground = Color(0xFFECEDEA),
-    surface = Color(0xFF121413),
-    onSurface = Color(0xFFECEDEA),
-    surfaceContainer = Color(0xFF1C1F1E),
-    surfaceContainerHigh = Color(0xFF262A28),
-    onSurfaceVariant = Color(0xFFA5AAA6),
-    outlineVariant = Color(0xFF363B38),
-)
-
-@Immutable
-data class StatusColors(val good: Color, val fair: Color, val low: Color, val band: Color)
-
-private val LightStatus = StatusColors(Color(0xFF2E7D4F), Color(0xFF946000), Color(0xFFB3261E), Color(0x332E7D4F))
-private val DarkStatus = StatusColors(Color(0xFF7BC89A), Color(0xFFE0B25B), Color(0xFFF2A29A), Color(0x407BC89A))
-
-val LocalStatus = staticCompositionLocalOf { LightStatus }
+// Kinetik: dark only. The app is read first thing in the morning and right after a run, next to a
+// dark watch face; big condensed numbers on near-black read at a glance. Volt doubles as "good" on purpose.
+object K {
+    val base = Color(0xFF0A0F0B)
+    val navBg = Color(0xFF0F130F)
+    val surface = Color(0xFF141A15)
+    val track = Color(0xFF222823)
+    val border = Color(0xFF2A2F2B)
+    val ink = Color(0xFFF4F6F2)
+    val muted = Color(0xFFA0A6A1)
+    val body2 = Color(0xFFB9C0BA)
+    val body3 = Color(0xFFC9D0CA)
+    val good = Color(0xFFB1EF4A)
+    val fair = Color(0xFFFFB330)
+    val low = Color(0xFFFF645F)
+    val onAccent = Color(0xFF0A0F0B)
+    val blue = Color(0xFF67ADDD)
+    val zones = listOf(Color(0xFF67ADDD), Color(0xFF37D8C9), good, fair, low)
+    val deep = Color(0xFF4671B7)
+    val light = Color(0xFF93C7D9)
+}
 
 enum class Status { GOOD, FAIR, LOW }
 
-@Composable
-fun Status.color(): Color = LocalStatus.current.let {
-    when (this) {
-        Status.GOOD -> it.good
-        Status.FAIR -> it.fair
-        Status.LOW -> it.low
-    }
+fun Status.color(): Color = when (this) {
+    Status.GOOD -> K.good
+    Status.FAIR -> K.fair
+    Status.LOW -> K.low
 }
 
-// System font (Roboto): native on every family phone, clear tabular numerals.
-private val base = Typography()
-private val Type = base.copy(
-    displayMedium = base.displayMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
-    headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
-    titleMedium = base.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-    labelMedium = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium),
+// Barlow Condensed carries numbers and headlines (sporty, narrow enough for 80sp distances on a phone);
+// Barlow for reading; JetBrains Mono only for axis labels and small load numbers.
+val Condensed = FontFamily(
+    Font(R.font.barlow_condensed_medium, FontWeight.Medium),
+    Font(R.font.barlow_condensed_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_condensed_bold, FontWeight.Bold),
+    Font(R.font.barlow_condensed_extrabold, FontWeight.ExtraBold),
+    Font(R.font.barlow_condensed_extrabolditalic, FontWeight.ExtraBold, FontStyle.Italic),
+)
+val Barlow = FontFamily(
+    Font(R.font.barlow_regular, FontWeight.Normal),
+    Font(R.font.barlow_medium, FontWeight.Medium),
+    Font(R.font.barlow_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_bold, FontWeight.Bold),
+)
+val Mono = FontFamily(Font(R.font.jetbrains_mono_medium, FontWeight.Medium))
+
+fun num(size: TextUnit, weight: FontWeight = FontWeight.ExtraBold, italic: Boolean = false, lh: Float = 1f) = TextStyle(
+    fontFamily = Condensed,
+    fontSize = size,
+    lineHeight = size * lh,
+    fontWeight = weight,
+    fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+    fontFeatureSettings = "tnum",
 )
 
-private val AppShapes = Shapes(
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
+fun body(size: TextUnit, weight: FontWeight = FontWeight.Normal, lh: Float = 1.4f) =
+    TextStyle(fontFamily = Barlow, fontSize = size, lineHeight = size * lh, fontWeight = weight, fontFeatureSettings = "tnum")
+
+object T {
+    val hero = num(80.sp, italic = true, lh = 0.85f)
+    val statusWord = num(40.sp, italic = true, lh = 0.9f)
+    val screenTitle = num(36.sp)
+    val cardTitle = num(20.sp, FontWeight.Bold)
+    val greeting = num(28.sp, FontWeight.Bold)
+    val label = TextStyle(
+        fontFamily = Condensed, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.12.em,
+    )
+    val body = body(15.sp, lh = 1.45f)
+    val bodyS = body(13.sp)
+    val caption = body(12.sp)
+    val mono = TextStyle(fontFamily = Mono, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
+}
+
+private val Scheme = darkColorScheme(
+    primary = K.good,
+    onPrimary = K.onAccent,
+    background = K.base,
+    onBackground = K.ink,
+    surface = K.base,
+    onSurface = K.ink,
+    surfaceContainer = K.surface,
+    surfaceContainerHigh = K.track,
+    surfaceContainerHighest = K.track,
+    onSurfaceVariant = K.muted,
+    outline = K.border,
+    outlineVariant = K.track,
+    error = K.low,
 )
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    androidx.compose.runtime.CompositionLocalProvider(LocalStatus provides if (dark) DarkStatus else LightStatus) {
-        MaterialTheme(colorScheme = if (dark) Dark else Light, typography = Type, shapes = AppShapes, content = content)
-    }
+    val base = MaterialTheme.typography
+    val type = base.copy(
+        bodyLarge = base.bodyLarge.copy(fontFamily = Barlow),
+        bodyMedium = base.bodyMedium.copy(fontFamily = Barlow),
+        bodySmall = base.bodySmall.copy(fontFamily = Barlow),
+        labelLarge = base.labelLarge.copy(fontFamily = Barlow, fontWeight = FontWeight.SemiBold),
+    )
+    MaterialTheme(colorScheme = Scheme, typography = type, content = content)
 }

@@ -40,7 +40,8 @@ def _daily(uid: str, frm: str, to: str) -> list[dict]:
 
 @app.get("/me")
 def me(user: dict = Depends(auth)):
-    return {"name": user["name"], "role": user["role"]}
+    profile = core.db().profile.find_one({"_id": user["data_user_id"]}, {"_id": 0})
+    return {"name": user["name"], "role": user["role"], "profile": profile}
 
 
 @app.get("/daily")
@@ -73,8 +74,13 @@ def today_view(user: dict = Depends(auth)):
     last_act = week_acts[0] if week_acts else core.db().activities.find_one({"user_id": uid}, NO_RAW, sort=[("start_time", -1)])
     summary = core.db().summaries.find_one({"user_id": uid, "period": "weekly"}, {"_id": 0}, sort=[("generated_at", -1)])
     last7 = days[-7:]
+    load_by_date = {}
+    for a in week_acts:
+        load_by_date[a["date"]] = load_by_date.get(a["date"], 0) + (a.get("training_load") or 0)
+    week_dates = [(core.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
     return {
         "role": user["role"],
+        "name": user["name"],
         "latest": latest,
         **core.insights(days),
         "spark": {k: [d.get(k) for d in last7] for k in ("date", "hrv_last_night", "rhr", "sleep_score", "bb_high", "stress_avg")},
@@ -85,6 +91,7 @@ def today_view(user: dict = Depends(auth)):
             "load": sum(a.get("training_load") or 0 for a in week_acts),
             "active_days": len({a["date"] for a in week_acts}),
             "dates": sorted({a["date"] for a in week_acts}),
+            "daily_load": [{"date": d, "load": round(load_by_date.get(d, 0))} for d in week_dates],
         },
         "last_activity": last_act,
         "summary": summary,

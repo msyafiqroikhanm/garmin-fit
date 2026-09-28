@@ -1,0 +1,90 @@
+# DESIGN.md: Kinetik
+
+Visual direction for the garmin-fit Android app. Source: the Claude Design handoff "Kinetik" (2026-09). Code truth lives in `android/app/src/main/java/dev/garminfit/ui/Theme.kt` (`K` colors, `T` type styles) and `ui/Components.kt`.
+
+Dial: ENERGY 3 / RHYTHM 2 / MOTION 1
+
+## Identity
+
+- Sporty, for a young runner, read at a glance in the morning and right after a run.
+- The Today screen answers one question first: **"Hari ini boleh latihan apa?"** Numbers come after, each compared to the personal baseline.
+- Identity motif: the **baseline band**. A track, a volt band for the personal normal range, and a status-colored dot for today's value (`FactorBar`). The same idea shows up as the green band in Tren charts and the optimal zone on the load gauge.
+- Copy: Bahasa Indonesia, casual and short. Garmin terms stay as they are (Body Battery, Training Readiness, VO2max, Training load). Decimals use a comma ("1,05"), thousands use a dot ("4.812").
+
+## Principles
+
+1. Answer "what can I train today" first, then show the numbers.
+2. Compare every number to the personal baseline, not to an absolute value.
+3. Color means something. Status colors appear only for good, caution, or low.
+
+## Color (dark only)
+
+The app is always dark. Reason: it sits next to a dark watch face and gets read early in the morning and right after a run, and big condensed numbers on near-black read fastest. System bar icons are forced light.
+
+| Token | Hex | Use |
+|---|---|---|
+| base | `#0A0F0B` | screen background, inner box in the hero |
+| navBg | `#0F130F` | bottom nav |
+| surface | `#141A15` | cards, tiles |
+| track | `#222823` | bar tracks, neutral chips, dividers, nav top border |
+| border | `#2A2F2B` | chart baseline |
+| ink | `#F4F6F2` | primary text |
+| muted | `#A0A6A1` | labels, captions, inactive nav |
+| body2 | `#B9C0BA` | factor names |
+| body3 | `#C9D0CA` | insight text under charts |
+| good / volt | `#B1EF4A` | good status, the single accent, active nav, CTA |
+| fair | `#FFB330` | caution |
+| low | `#FF645F` | low / danger |
+| onAccent | `#0A0F0B` | text on good/fair/low fills |
+
+- Volt is both the accent and "good", on purpose. A card filled with volt (weekly summary, training status) is the loudest element on its screen.
+- Alphas: baseline band in factor bars good@0.30; chart normal band good@0.12; status chip and flag backgrounds status@0.12 to 0.14 (low 0.14); other days' load bars good@0.45; slower splits good@0.5; VO2 categories below current good@0.30; load gauge zones @0.60.
+- HR zones Z1 to Z5: `#67ADDD`, `#37D8C9`, `#B1EF4A`, `#FFB330`, `#FF645F`.
+- Sleep stages: Deep `#4671B7`, REM `#67ADDD`, Light `#93C7D9`, Awake `#FF645F`.
+
+## Type
+
+- **Barlow Condensed** (500 to 800, 800 italic): numbers, headlines, caps labels. It is narrow enough to set an 80sp distance on a phone and has an athletic character.
+- **Barlow** (400 to 700): reading text. It pairs with the condensed cut.
+- **JetBrains Mono** 500: only for chart axis dates and small load numbers, where it reads as measurement.
+- Every number uses `tnum`.
+
+| Style | Spec |
+|---|---|
+| hero | Condensed 80sp 800 italic, lh 0.85 (activity distance) |
+| display | Condensed 52 to 56sp 800 (readiness, VO2max) |
+| statusWord | Condensed 40 to 48sp 800 italic, uppercase ("GAS!", "PRODUKTIF") |
+| screenTitle | Condensed 36sp 800 uppercase |
+| metric L / M / S | Condensed 36 / 28 to 30 / 20 to 24sp |
+| cardTitle | Condensed 20sp 700 uppercase |
+| label | Condensed 13sp 600 uppercase, tracking 0.12em, muted |
+| body | Barlow 15sp, lh 1.45 |
+| bodyS / caption | Barlow 13 to 14sp / 11 to 12sp |
+| mono | JetBrains Mono 10 to 11sp |
+
+## Space and shape
+
+- Screen padding 16dp sides, 16 top, 24 bottom. 12dp between cards, 10dp between tiles.
+- Padding marks weight: hero 20, card 18, tile 14.
+- Radius: card 24, tile 20, inner box 16, bars 3 to 6, chips and pills fully round.
+- No shadows or elevation. Hierarchy comes from fill color and size.
+
+## Components
+
+`Panel`, `Label`, `CardTitle`, `ScreenTitle`, `Value`, `Stat`, `StatusChip`, `NeutralChip`, `ChipRow`, `DeltaPill`, `ReadinessRing`, `FactorBar`, `SpanBar`, `SegmentBar`, `StackedBar`, `LineChart` (optional band, dashed second series, no axis column), `ChartDates`, `Segmented`, `AccentButton`, and the text-only pill bottom nav in `MainActivity`.
+
+## Motion
+
+Only the weekly summary expand/collapse (`animateContentSize`) and the standard pull-to-refresh. Nothing loops.
+
+## Screen map
+
+- **Hari Ini**: header (date, greeting, Sync pill), readiness hero with training advice, "Kenapa skornya segini?" factor bars, flags, Body Battery and steps tiles, sleep tile, 7-day load bars, last activity, weekly summary card.
+- **Tren**: 7/30/90 day picker, four line charts (HRV, RHR, sleep score, Body Battery peak) with delta pill and one insight line each.
+- **Aktivitas**: list, and detail with hero distance, stat grid, training effect, HR zones with the user's bpm ranges, per-km splits.
+- **Latihan**: training status card, VO2max with category scale, training load with gauge and acute/chronic chart.
+
+## Known limits
+
+- VO2 category scale only has the Cooper Institute rows for age 20 to 29; outside that band the scale hides.
+- Widgets (`widget/Widgets.kt`) still use the previous palette.

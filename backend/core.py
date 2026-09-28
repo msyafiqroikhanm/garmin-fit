@@ -106,6 +106,8 @@ def extract_daily(raw: dict) -> dict:
         "light_s": sleep_dto.get("lightSleepSeconds"),
         "awake_s": sleep_dto.get("awakeSleepSeconds"),
         "readiness": ready.get("score"),
+        "recovery_time_min": ready.get("recoveryTime"),
+        "step_goal": stats.get("dailyStepGoal"),
         "readiness_level": ready.get("level"),
         "training_status": re.sub(r"_\d+$", "", phrase) if phrase else None,
         "acute_load": acute.get("dailyTrainingLoadAcute"),
@@ -167,12 +169,32 @@ def sync_day(g: Garmin, user_id: str, d: date) -> list[str]:
     return errors
 
 
+def extract_splits(raw: dict) -> list[dict]:
+    return [{"distance_m": lap.get("distance"), "duration_s": lap.get("duration"), "avg_hr": lap.get("averageHR")}
+            for lap in raw.get("lapDTOs") or []]
+
+
 def sync_activities(g: Garmin, user_id: str, start: date, end: date) -> int:
     acts = g.get_activities_by_date(start.isoformat(), end.isoformat())
     for a in acts:
         doc = extract_activity(a, user_id)
+        if "running" in (doc["type"] or ""):
+            old = db().activities.find_one({"_id": doc["_id"]}, {"splits": 1}) or {}
+            doc["splits"] = old.get("splits") or extract_splits(g.get_activity_splits(doc["_id"]))
         db().activities.replace_one({"_id": doc["_id"]}, doc, upsert=True)
     return len(acts)
+
+
+def sync_profile(g: Garmin, user_id: str) -> None:
+    ud = (g.get_user_profile() or {}).get("userData") or {}
+    zones = next(iter(g.get_heart_rate_zones() or []), {})
+    floors = [zones.get(f"zone{i}Floor") for i in range(1, 6)]
+    db().profile.replace_one({"_id": user_id}, {
+        "gender": ud.get("gender"),
+        "birth_date": ud.get("birthDate"),
+        "hr_zone_floors": floors if all(floors) else None,
+        "max_hr": zones.get("maxHeartRateUsed"),
+    }, upsert=True)
 
 
 def sync_range(user_id: str, start: date, end: date, skip_existing=False, pause=0.0, log=print,
@@ -182,6 +204,12 @@ def sync_range(user_id: str, start: date, end: date, skip_existing=False, pause=
     try:
         n = sync_activities(g, user_id, start, end)
         log(f"activities {start}..{end}: {n}")
+        try:
+            sync_profile(g, user_id)
+        except GarminConnectTooManyRequestsError:
+            raise
+        except Exception as e:
+            errors.append(f"profile: {e}")
         existing = set()
         if skip_existing:
             existing = {x["date"] for x in db().daily.find({"user_id": user_id}, {"date": 1})}
@@ -238,9 +266,9 @@ def insights(days: list[dict]) -> dict:
         mean, sd, recent = statistics.fmean(hrv_base), statistics.pstdev(hrv_base), statistics.fmean(hrv_recent)
         baseline["hrv"] = {"mean": round(mean, 1), "sd": round(sd, 1), "recent_avg": round(recent, 1)}
         if recent < mean - HRV_SD * sd:
-            flags.append({"key": "hrv_low", "level": "warn", "text": "HRV 7 hari terakhir di bawah rentang normal"})
+            flags.append({"key": "hrv_low", "level": "warn", "text": "HRV 7 hari terakhir di bawah rentang normal. Tubuh butuh pemulihan lebih."})
         elif recent > mean + HRV_SD * sd:
-            flags.append({"key": "hrv_high", "level": "good", "text": "HRV 7 hari terakhir di atas rentang normal"})
+            flags.append({"key": "hrv_high", "level": "good", "text": "HRV 7 hari terakhir di atas rentang normal. Adaptasi latihanmu jalan."})
 
     rhr_base = _vals(days[-RHR_BASELINE_DAYS - 1:-1], "rhr")
     if len(rhr_base) >= MIN_DAYS:
@@ -248,13 +276,14 @@ def insights(days: list[dict]) -> dict:
         baseline["rhr"] = {"mean": round(mean, 1)}
         if latest.get("rhr") is not None and latest["rhr"] > mean + RHR_DELTA_BPM:
             flags.append({"key": "rhr_high", "level": "warn",
-                          "text": f"RHR {latest['rhr']} bpm, {round(latest['rhr'] - mean)} di atas rata-rata 30 hari"})
+                          "text": f"RHR {latest['rhr']} bpm, {round(latest['rhr'] - mean)} di atas rata-rata 30 hari. "
+                                  "Bisa tanda kelelahan atau mau sakit."})
 
     acute, chronic = latest.get("acute_load"), latest.get("chronic_load")
     if acute and chronic:
         ratio = acute / chronic
         baseline["load"] = {"acute": acute, "chronic": chronic, "ratio": round(ratio, 2)}
         if ratio > LOAD_RATIO:
-            flags.append({"key": "load_spike", "level": "warn", "text": "Beban latihan melonjak dibanding 4 minggu terakhir"})
+            flags.append({"key": "load_spike", "level": "warn", "text": "Beban latihan melonjak dibanding 4 minggu terakhir."})
 
     return {"baseline": baseline, "flags": flags}

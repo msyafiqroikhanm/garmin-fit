@@ -44,6 +44,9 @@ data class Daily(
     @SerialName("acute_load") val acuteLoad: Double? = null,
     @SerialName("chronic_load") val chronicLoad: Double? = null,
     val vo2max: Double? = null,
+    @SerialName("recovery_time_min") val recoveryMin: Double? = null,
+    @SerialName("step_goal") val stepGoal: Double? = null,
+    @SerialName("synced_at") val syncedAt: String? = null,
 )
 
 @Serializable
@@ -64,6 +67,14 @@ data class Activity(
     @SerialName("anaerobic_te") val anaerobicTe: Double? = null,
     @SerialName("training_load") val trainingLoad: Double? = null,
     @SerialName("hr_zones_s") val hrZonesS: List<Double?>? = null,
+    val splits: List<Split>? = null,
+)
+
+@Serializable
+data class Split(
+    @SerialName("distance_m") val distanceM: Double? = null,
+    @SerialName("duration_s") val durationS: Double? = null,
+    @SerialName("avg_hr") val avgHr: Double? = null,
 )
 
 @Serializable
@@ -103,7 +114,11 @@ data class Week(
     val load: Double = 0.0,
     @SerialName("active_days") val activeDays: Int = 0,
     val dates: List<String> = emptyList(),
+    @SerialName("daily_load") val dailyLoad: List<DayLoad> = emptyList(),
 )
+
+@Serializable
+data class DayLoad(val date: String, val load: Double = 0.0)
 
 @Serializable
 data class Section(val title: String, val body: String)
@@ -123,6 +138,7 @@ data class Summary(
 @Serializable
 data class Today(
     val role: String,
+    val name: String? = null,
     val latest: Daily? = null,
     val baseline: Baseline = Baseline(),
     val flags: List<Flag> = emptyList(),
@@ -133,7 +149,15 @@ data class Today(
 )
 
 @Serializable
-data class Me(val name: String, val role: String)
+data class Me(val name: String, val role: String, val profile: Profile? = null)
+
+@Serializable
+data class Profile(
+    val gender: String? = null,
+    @SerialName("birth_date") val birthDate: String? = null,
+    @SerialName("hr_zone_floors") val hrZoneFloors: List<Double>? = null,
+    @SerialName("max_hr") val maxHr: Double? = null,
+)
 
 @Serializable
 data class SyncResult(val ok: Boolean, val errors: List<String> = emptyList())
@@ -180,6 +204,15 @@ object Repo {
     }
 
     suspend fun api(ctx: Context): ApiService = api(token(ctx) ?: error("Belum ada token"))
+
+    @Volatile private var me: Pair<String, Me>? = null
+
+    // ponytail: in-memory only; profile (zones, sex, age) changes rarely and /me is cheap on a cold start
+    suspend fun me(ctx: Context): Me {
+        val t = token(ctx) ?: error("Belum ada token")
+        me?.let { (k, m) -> if (k == t) return m }
+        return api(t).me().also { me = t to it }
+    }
 
     suspend fun fetchToday(ctx: Context): Today {
         val today = api(ctx).today()

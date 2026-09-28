@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.GarminFit" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">#F6F4EF</item>
+    <style name="Theme.GarminFit" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0A0F0B</item>
     </style>
 </resources>
