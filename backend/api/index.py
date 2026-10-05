@@ -60,6 +60,30 @@ def activities(frm: date | None = Query(None, alias="from"), to: date | None = N
     return acts
 
 
+@app.get("/recap")
+def recap_view(period: str = Query("month", pattern="^(month|year)$"), key: str | None = None, user: dict = Depends(auth)):
+    uid = user["data_user_id"]
+    key = key or (core.today().isoformat()[:7] if period == "month" else str(core.today().year))
+    try:
+        start, end = core.period_range(period, key)
+        pstart, pend = core.period_range(period, core.previous_key(period, key))
+    except ValueError:
+        raise HTTPException(400, "bad period key")
+    proj = {"date": 1, "start_time": 1, "type": 1, "name": 1, "distance_m": 1, "duration_s": 1}
+    def acts(a, b):
+        return list(core.db().activities.find({"user_id": uid, "date": {"$gte": a.isoformat(), "$lte": b.isoformat()}}, proj))
+    all_dates = {d["date"] for d in core.db().activities.find({"user_id": uid, "date": {"$lte": end.isoformat()}}, {"date": 1})}
+    marks, _ = core.pr_history(core.runs_with_splits(uid))
+    return core.recap(period, start, end, acts(start, end), acts(pstart, pend), all_dates, marks)
+
+
+@app.get("/routes")
+def routes(frm: date | None = Query(None, alias="from"), to: date | None = None, user: dict = Depends(auth)):
+    f, t = _range(frm, to, 30)
+    q = {"user_id": user["data_user_id"], "date": {"$gte": f, "$lte": t}, "route": {"$type": "array"}}
+    return core.home_routes([d["route"] for d in core.db().activities.find(q, {"route": 1})])
+
+
 @app.get("/records")
 def records(user: dict = Depends(auth)):
     _, best = core.pr_history(core.runs_with_splits(user["data_user_id"]))

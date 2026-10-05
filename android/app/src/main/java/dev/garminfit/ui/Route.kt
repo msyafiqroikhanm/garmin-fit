@@ -98,3 +98,31 @@ fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<
     dot.color = (color ?: K.good).toArgb()
     c.drawCircle(xy.last().first, xy.last().second, stroke * 1.3f, dot)
 }
+
+/**
+ * Many routes on one shared projection, each at low alpha, so streets that are run often build up
+ * brighter than one-off detours.
+ */
+fun drawHeatmap(c: Canvas, left: Float, top: Float, w: Float, h: Float, routes: List<List<RoutePoint>>, stroke: Float, color: Color) {
+    val all = routes.flatten()
+    if (all.size < 2) return
+    val pad = stroke * 2
+    val xy = project(all, w - pad * 2, h - pad * 2)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = stroke
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        this.color = color.copy(alpha = (1.4f / kotlin.math.sqrt(routes.size.toFloat())).coerceIn(0.3f, 1f)).toArgb()
+    }
+    var i = 0
+    for (r in routes) {
+        val path = android.graphics.Path()
+        r.indices.forEach { j ->
+            val (x, y) = xy[i + j]
+            if (j == 0) path.moveTo(left + pad + x, top + pad + y) else path.lineTo(left + pad + x, top + pad + y)
+        }
+        c.drawPath(path, p)
+        i += r.size
+    }
+}

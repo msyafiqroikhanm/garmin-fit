@@ -404,6 +404,115 @@ def similar_runs(doc: dict, previous: list[dict]) -> dict | None:
     }
 
 
+def period_range(period: str, key: str) -> tuple[date, date]:
+    """'month' + 'YYYY-MM' or 'year' + 'YYYY' -> first and last day."""
+    if period == "year":
+        y = int(key[:4])
+        return date(y, 1, 1), date(y, 12, 31)
+    y, m = int(key[:4]), int(key[5:7])
+    nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
+    return date(y, m, 1), nxt - timedelta(days=1)
+
+
+def previous_key(period: str, key: str) -> str:
+    start, _ = period_range(period, key)
+    prev = (start - timedelta(days=1))
+    return str(prev.year) if period == "year" else prev.isoformat()[:7]
+
+
+def _kind(t: str | None) -> str:
+    t = t or ""
+    return "run" if "running" in t else "strength" if t == "strength_training" else "other"
+
+
+def period_totals(acts: list[dict]) -> dict:
+    by = {"run": 0, "strength": 0, "other": 0}
+    for a in acts:
+        by[_kind(a.get("type"))] += 1
+    return {
+        "count": len(acts),
+        "distance_m": sum(a.get("distance_m") or 0 for a in acts),
+        "duration_s": sum(a.get("duration_s") or 0 for a in acts),
+        "active_days": len({a["date"] for a in acts}),
+        "by_kind": by,
+    }
+
+
+def week_start(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def active_week_streak(dates: set[str], end: date) -> int:
+    """Consecutive Monday-start weeks with at least one activity, counting back from the week of `end`
+    (the current week counts only once it has an activity)."""
+    weeks = {week_start(date.fromisoformat(d)) for d in dates}
+    w = week_start(end)
+    if w not in weeks:
+        w -= timedelta(days=7)
+    n = 0
+    while w in weeks:
+        n += 1
+        w -= timedelta(days=7)
+    return n
+
+
+def recap(period: str, start: date, end: date, acts: list[dict], prev: list[dict], all_dates: set[str],
+          marks: dict) -> dict:
+    """acts: activities inside [start, end]; prev: the previous period's; all_dates: every activity date up to end."""
+    runs = [a for a in acts if _kind(a.get("type")) == "run" and a.get("distance_m")]
+    longest = max(runs, key=lambda a: a["distance_m"], default=None)
+    buckets = {}
+    for a in acts:
+        d = date.fromisoformat(a["date"])
+        k = d.isoformat()[:7] if period == "year" else week_start(d).isoformat()
+        b = buckets.setdefault(k, {"key": k, "distance_m": 0, "duration_s": 0, "count": 0})
+        b["distance_m"] += a.get("distance_m") or 0
+        b["duration_s"] += a.get("duration_s") or 0
+        b["count"] += 1
+    if period == "year":
+        keys = [f"{start.year}-{m:02d}" for m in range(1, 13)]
+    else:
+        keys, w = [], week_start(start)
+        while w <= end:
+            keys.append(w.isoformat())
+            w += timedelta(days=7)
+    return {
+        "period": period,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        **period_totals(acts),
+        "previous": period_totals(prev),
+        "longest_run": {k: longest.get(k) for k in ("_id", "date", "name", "distance_m", "duration_s")} if longest else None,
+        "streak_weeks": active_week_streak(all_dates, min(end, today())),
+        "buckets": [buckets.get(k, {"key": k, "distance_m": 0, "duration_s": 0, "count": 0}) for k in keys],
+        "prs": [{"activity_id": a["_id"], "date": a["date"], "name": a.get("name"), "distances": marks[a["_id"]]}
+                for a in sorted(acts, key=lambda a: a["start_time"]) if a["_id"] in marks],
+    }
+
+
+HEATMAP_POINTS = 80
+HOME_RADIUS_M = 3_000
+
+
+def home_routes(routes: list[list[list]]) -> list[list[list]]:
+    """Routes thinned to [[lat, lon]] and limited to those starting within 3 km of the busiest start
+    (the start with the most other starts nearby), so runs elsewhere do not spread the map thin."""
+    routes = [r for r in routes if r and len(r) > 1]
+    if not routes:
+        return []
+    starts = [{"lat": r[0][0], "lon": r[0][1]} for r in routes]
+    # ponytail: O(n^2) over starts, fine for a few hundred routes per period
+    centre = max(starts, key=lambda a: sum(_haversine_m(a, b) <= HOME_RADIUS_M for b in starts))
+    out = []
+    for r, st in zip(routes, starts):
+        if _haversine_m(centre, st) > HOME_RADIUS_M:
+            continue
+        step = max(1, -(-len(r) // HEATMAP_POINTS))
+        pts = r[::step] + ([r[-1]] if (len(r) - 1) % step else [])
+        out.append([[p[0], p[1]] for p in pts])
+    return out
+
+
 KEEP_ON_RESYNC = ("splits", "route", "series", "details_v")
 
 

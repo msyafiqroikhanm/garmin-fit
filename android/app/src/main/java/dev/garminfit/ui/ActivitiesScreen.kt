@@ -105,7 +105,7 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
         val current = list.firstOrNull { it.id == selected }
         val share = sharing
         if (share != null && share.id == selected) {
-            ShareScreen(share) { sharing = null }
+            ShareScreen(share.shareContent(), onBack = { sharing = null })
         } else if (current != null) {
             // clearing the caller's id too lets the same activity be opened again from another tab
             val close = { selected = null; onClosed() }

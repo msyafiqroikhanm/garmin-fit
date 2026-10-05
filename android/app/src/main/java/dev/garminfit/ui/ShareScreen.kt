@@ -56,7 +56,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import dev.garminfit.Activity
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -64,16 +63,26 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareScreen(a: Activity, onBack: () -> Unit) {
+fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = "‹ Kembali ke detail") {
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val fonts = remember { ShareFonts(ctx) }
-    val available = remember(a) { shareStats(a) }
-    // the big-visual layout only makes sense with a route or a body map to show
-    val layouts = if (a.route != null || a.strength?.muscles?.isNotEmpty() == true) Layout.entries else Layout.entries - Layout.ROUTE
-    var spec by remember(a) {
-        mutableStateOf(ShareSpec(stats = available.take(4).map { it.key }.toSet(), layout = if (a.route != null) Layout.BOLD else Layout.GRID))
+    val available = content.stats
+    // the big-visual layout only makes sense with a route, body map or heatmap to show
+    val layouts = if (content.graphic != null) Layout.entries else Layout.entries - Layout.ROUTE
+    val graphicLabel = when (content.graphic) {
+        is ShareGraphic.Body -> "Otot"
+        is ShareGraphic.Heat -> "Peta"
+        else -> Layout.ROUTE.label
+    }
+    var spec by remember(content) {
+        mutableStateOf(
+            ShareSpec(
+                stats = available.take(content.defaultStats).map { it.key }.toSet(),
+                layout = if (content.graphic is ShareGraphic.Body || content.graphic == null) Layout.GRID else Layout.BOLD,
+            ),
+        )
     }
     var photo by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -92,7 +101,7 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
         if (busy) return
         busy = true
         scope.launch {
-            val bmp = withContext(Dispatchers.Default) { exportShare(spec, a, photo, fonts) }
+            val bmp = withContext(Dispatchers.Default) { exportShare(spec, content, photo, fonts) }
             then(bmp)
             busy = false
         }
@@ -101,7 +110,7 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
     // preview stays in view while the options scroll under it, so every change is visible as it is made
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-            Text("‹ Kembali ke detail", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+            Text(backLabel, style = body(14.sp, FontWeight.SemiBold), color = K.good)
         }
         val ratio = SHARE_W.toFloat() / spec.ratio.h
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -118,7 +127,7 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
                     .pointerInput(Unit) { detectTapGestures(onDoubleTap = { spec = spec.copy(dx = 0f, dy = 0f, zoom = 1f) }) }
                     .semantics { contentDescription = "Pratinjau gambar untuk dibagikan. Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset." },
             ) {
-                drawIntoCanvas { box.value = renderShare(it.nativeCanvas, size.width, size.height, spec, a, photo, fonts) }
+                drawIntoCanvas { box.value = renderShare(it.nativeCanvas, size.width, size.height, spec, content, photo, fonts) }
             }
         }
         Text("Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset.", style = T.caption, color = K.muted)
@@ -129,7 +138,7 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
                     Text(if (photo == null) "Pilih foto" else "Ganti foto", style = body(14.sp, FontWeight.SemiBold), color = K.good)
                 }
             }
-            Option("Gaya") { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE && a.route == null) "Otot" else it.label }) { spec = spec.copy(layout = it, dx = 0f, dy = 0f, zoom = 1f) } }
+            Option("Gaya") { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE) graphicLabel else it.label }) { spec = spec.copy(layout = it, dx = 0f, dy = 0f, zoom = 1f) } }
             Option("Ukuran") { Segmented(Ratio.entries, spec.ratio, { it.label }) { spec = spec.copy(ratio = it, dx = 0f, dy = 0f, zoom = 1f) } }
             Option("Warna") { Segmented(Ink.entries, spec.ink, { it.label }) { spec = spec.copy(ink = it) } }
             Option("Data") {

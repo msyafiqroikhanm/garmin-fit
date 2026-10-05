@@ -87,6 +87,47 @@ data class Similar(
 )
 
 @Serializable
+data class Totals(
+    val count: Int = 0,
+    @SerialName("distance_m") val distanceM: Double = 0.0,
+    @SerialName("duration_s") val durationS: Double = 0.0,
+    @SerialName("active_days") val activeDays: Int = 0,
+    @SerialName("by_kind") val byKind: Map<String, Int> = emptyMap(),
+)
+
+@Serializable
+data class Recap(
+    val period: String,
+    val start: String,
+    val end: String,
+    val count: Int = 0,
+    @SerialName("distance_m") val distanceM: Double = 0.0,
+    @SerialName("duration_s") val durationS: Double = 0.0,
+    @SerialName("active_days") val activeDays: Int = 0,
+    @SerialName("by_kind") val byKind: Map<String, Int> = emptyMap(),
+    val previous: Totals = Totals(),
+    @SerialName("longest_run") val longestRun: LongestRun? = null,
+    @SerialName("streak_weeks") val streakWeeks: Int = 0,
+    val buckets: List<Bucket> = emptyList(),
+    val prs: List<RecapPr> = emptyList(),
+)
+
+@Serializable
+data class LongestRun(
+    @SerialName("_id") val id: Long,
+    val date: String,
+    val name: String? = null,
+    @SerialName("distance_m") val distanceM: Double = 0.0,
+    @SerialName("duration_s") val durationS: Double = 0.0,
+)
+
+@Serializable
+data class Bucket(val key: String, @SerialName("distance_m") val distanceM: Double = 0.0, @SerialName("duration_s") val durationS: Double = 0.0, val count: Int = 0)
+
+@Serializable
+data class RecapPr(@SerialName("activity_id") val activityId: Long, val date: String, val name: String? = null, val distances: List<Int> = emptyList())
+
+@Serializable
 data class Record(
     @SerialName("distance_m") val distanceM: Double,
     @SerialName("duration_s") val durationS: Double,
@@ -252,6 +293,8 @@ interface ApiService {
     @GET("activities/{id}") suspend fun activity(@Path("id") id: Long): Activity
     @POST("sync") suspend fun sync(): SyncResult
     @GET("records") suspend fun records(): List<Record>
+    @GET("recap") suspend fun recap(@Query("period") period: String, @Query("key") key: String): Recap
+    @GET("routes") suspend fun routes(@Query("from") from: String, @Query("to") to: String): List<List<List<Double>>>
 }
 
 val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import dev.garminfit.Daily
 import dev.garminfit.Profile
 import dev.garminfit.Repo
+import androidx.compose.runtime.mutableStateOf
 import dev.garminfit.Record
 import dev.garminfit.raceTime
 import dev.garminfit.splitLabel
@@ -160,6 +161,8 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
         Repo.api(ctx).daily(from(90)) to runCatching { Repo.me(ctx).profile }.getOrNull()
     }
     val records = rememberLoad { Repo.api(ctx).records() }
+    var recap by rememberSaveable { mutableStateOf(false) }
+    if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
     LoadView(loader, loadingText = "Memuat data latihan 90 hari") { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
@@ -167,6 +170,7 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
         ) {
             ScreenTitle("Kebugaran")
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
+            RecapEntry { recap = true }
             CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
             if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
             if (days.hasAny { it.acuteLoad }) LoadCard(days)
@@ -174,6 +178,21 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
                 Text("Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda.", style = T.body, color = K.muted)
             }
         }
+    }
+}
+
+@Composable
+private fun RecapEntry(onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(K.surface).clickable(role = Role.Button, onClick = onOpen)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            CardTitle("Rekap")
+            Text("Total bulanan dan tahunan, peta lari, sorotan", style = T.bodyS, color = K.muted)
+        }
+        Text("›", style = num(32.sp), color = K.good)
     }
 }
 

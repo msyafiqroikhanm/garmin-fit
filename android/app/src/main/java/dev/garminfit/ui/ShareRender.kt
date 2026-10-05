@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.content.res.ResourcesCompat
 import dev.garminfit.Activity
+import dev.garminfit.MuscleLoad
 import dev.garminfit.R
 import dev.garminfit.activityType
 import dev.garminfit.dayMonth
@@ -43,6 +44,27 @@ data class ShareSpec(
     val zoom: Float = 1f,
 )
 
+sealed interface ShareGraphic {
+    data class Route(val points: List<RoutePoint>) : ShareGraphic
+    data class Body(val muscles: Map<String, MuscleLoad>) : ShareGraphic
+    data class Heat(val routes: List<List<RoutePoint>>) : ShareGraphic
+}
+
+/** Everything a share image shows; built from an activity or a recap so both share one renderer. */
+data class ShareContent(
+    val title: String,
+    val stats: List<ShareStat>,
+    val graphic: ShareGraphic?,
+    val defaultStats: Int = 4,
+)
+
+fun Activity.shareContent(): ShareContent {
+    val pr = prs.takeIf { it.isNotEmpty() }?.let { " · PR " + it.joinToString(" ") { d -> splitShort(d) } }.orEmpty()
+    val graphic = route?.let { trimEnds(it) }?.takeIf { it.size > 1 }?.let { ShareGraphic.Route(it) }
+        ?: strength?.muscles?.takeIf { m -> m.values.any { it.primary > 0 } }?.let { ShareGraphic.Body(it) }
+    return ShareContent("${activityType(type).uppercase()} · ${dayMonth(date).uppercase()}$pr", shareStats(this), graphic)
+}
+
 fun shareStats(a: Activity): List<ShareStat> = listOfNotNull(
     a.distanceM?.takeIf { it > 0 }?.let { ShareStat("dist", km(it), "km", "jarak") },
     a.avgSpeed?.takeIf { (a.distanceM ?: 0.0) > 0 }?.let { ShareStat("pace", pace(it), "/km", "pace") },
@@ -64,7 +86,7 @@ class ShareFonts(ctx: Context) {
  * Draws the share image at any size; every measure is in units of a 1080 px wide canvas so the
  * preview (drawn straight into a Compose canvas) and the exported bitmap come out identical.
  */
-fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, photo: Bitmap?, fonts: ShareFonts): RectF {
+fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, content: ShareContent, photo: Bitmap?, fonts: ShareFonts): RectF {
     val u = w / SHARE_W
     // area the overlay covers before drag and zoom, so the editor can keep it inside the frame
     val box = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
@@ -81,23 +103,24 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
         color = ink.toArgb()
         if (shadow) setShadowLayer(18 * u, 0f, 3 * u, 0x8C000000.toInt())
     }
-    val all = shareStats(a)
+    val all = content.stats
     val stats = all.filter { it.key in spec.stats }.ifEmpty { all.take(1) }
-    val route = a.route?.let { trimEnds(it) }?.takeIf { it.size > 1 }
-    val muscles = a.strength?.muscles?.takeIf { m -> m.values.any { it.primary > 0 } }
 
     c.save()
     c.translate(spec.dx * w, spec.dy * h)
     c.scale(spec.zoom, spec.zoom, w / 2, h / 2)
     val m = 72 * u
-    val pr = a.prs.takeIf { it.isNotEmpty() }?.let { " · PR " + it.joinToString(" ") { d -> splitShort(d) } }.orEmpty()
-    val title = "${activityType(a.type).uppercase()} · ${dayMonth(a.date).uppercase()}$pr"
+    val title = content.title
     fun graphic(left: Float, top: Float, gw: Float, gh: Float) {
-        if (route != null || muscles != null) box.union(left, top, left + gw, top + gh)
-        if (route != null) drawRoute(c, left, top, gw, gh, route, 9 * u, ink)
-        else if (muscles != null) drawBody(c, left, top, gw, gh, muscles, ink, ink.copy(alpha = 0.16f))
+        val g = content.graphic ?: return
+        box.union(left, top, left + gw, top + gh)
+        when (g) {
+            is ShareGraphic.Route -> drawRoute(c, left, top, gw, gh, g.points, 9 * u, ink)
+            is ShareGraphic.Body -> drawBody(c, left, top, gw, gh, g.muscles, ink, ink.copy(alpha = 0.16f))
+            is ShareGraphic.Heat -> drawHeatmap(c, left, top, gw, gh, g.routes, 5 * u, ink)
+        }
     }
-    val hasGraphic = route != null || muscles != null
+    val hasGraphic = content.graphic != null
     when (spec.layout) {
         Layout.BOLD -> {
             val hero = stats.first()
@@ -200,9 +223,9 @@ private fun drawCover(c: Canvas, b: Bitmap, w: Float, h: Float) {
     c.drawBitmap(b, Rect(sx, sy, sx + sw, sy + sh), RectF(0f, 0f, w, h), Paint(Paint.FILTER_BITMAP_FLAG))
 }
 
-fun exportShare(spec: ShareSpec, a: Activity, photo: Bitmap?, fonts: ShareFonts): Bitmap =
+fun exportShare(spec: ShareSpec, content: ShareContent, photo: Bitmap?, fonts: ShareFonts): Bitmap =
     Bitmap.createBitmap(SHARE_W, spec.ratio.h, Bitmap.Config.ARGB_8888).also {
-        renderShare(Canvas(it), SHARE_W.toFloat(), spec.ratio.h.toFloat(), spec, a, photo, fonts)
+        renderShare(Canvas(it), SHARE_W.toFloat(), spec.ratio.h.toFloat(), spec, content, photo, fonts)
     }
 
 /**
