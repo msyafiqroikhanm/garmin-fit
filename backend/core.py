@@ -275,6 +275,40 @@ def strength_summary(raw: dict, catalog: dict) -> dict | None:
             "total_reps": raw.get("totalReps")}
 
 
+EXTRA_FIELDS = {
+    "elapsed_s": "elapsedDuration",
+    "moving_s": "movingDuration",
+    "max_speed": "maxSpeed",
+    "gap_speed": "avgGradeAdjustedSpeed",
+    "cadence": "averageRunningCadenceInStepsPerMinute",
+    "cadence_max": "maxRunningCadenceInStepsPerMinute",
+    "stride_cm": "avgStrideLength",
+    "gct_ms": "avgGroundContactTime",
+    "vo_cm": "avgVerticalOscillation",
+    "vr_pct": "avgVerticalRatio",
+    "power": "avgPower",
+    "power_max": "maxPower",
+    "elevation_loss": "elevationLoss",
+    "steps": "steps",
+    "bb_delta": "differenceBodyBattery",
+    "water_ml": "waterEstimated",
+    "moderate_min": "moderateIntensityMinutes",
+    "vigorous_min": "vigorousIntensityMinutes",
+    "te_label": "trainingEffectLabel",
+    "vo2max": "vO2MaxValue",
+}
+BEST_SPLITS = (1000, 1609, 5000, 10000, 21098, 42195)
+
+
+def activity_extra(raw: dict) -> dict:
+    """Summary fields the detail screen shows beyond the stored basics, read straight from Garmin's summary."""
+    out = {k: raw[src] for k, src in EXTRA_FIELDS.items() if raw.get(src) not in (None, "", 0)}
+    best = [{"distance_m": d, "duration_s": raw[f"fastestSplit_{d}"]} for d in BEST_SPLITS if raw.get(f"fastestSplit_{d}")]
+    if best:
+        out["best_splits"] = best
+    return out
+
+
 KEEP_ON_RESYNC = ("splits", "route", "route_checked")
 
 

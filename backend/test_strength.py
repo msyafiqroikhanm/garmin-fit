@@ -28,3 +28,9 @@ def test_counts_sets_per_muscle_and_puts_unknown_last():
 def test_empty_catalog_and_no_sets():
     assert strength_summary({}, CATALOG) is None
     assert strength_summary({"summarizedExerciseSets": [{"category": "CURL", "sets": 3}]}, {})["muscles"] == {}
+
+
+def test_extra_drops_empty_and_lists_best_splits():
+    from core import activity_extra
+    e = activity_extra({"avgPower": 250.0, "maxPower": 0, "steps": None, "fastestSplit_1000": 396.0, "fastestSplit_5000": 2018.0})
+    assert e == {"power": 250.0, "best_splits": [{"distance_m": 1000, "duration_s": 396.0}, {"distance_m": 5000, "duration_s": 2018.0}]}

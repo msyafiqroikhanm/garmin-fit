@@ -71,6 +71,7 @@ def activity(activity_id: int, user: dict = Depends(auth)):
             pass  # route is optional, the rest of the detail still renders
     if doc.get("type") == "strength_training":
         doc["strength"] = core.strength_summary(doc.get("raw") or {}, core.muscle_catalog())
+    doc["extra"] = core.activity_extra(doc.get("raw") or {})
     doc.pop("raw", None)
     return doc
 

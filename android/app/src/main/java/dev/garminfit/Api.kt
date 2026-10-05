@@ -71,6 +71,32 @@ data class Activity(
     val splits: List<Split>? = null,
     val route: List<List<Double>>? = null,
     val strength: Strength? = null,
+    val extra: Extra? = null,
+)
+
+@Serializable
+data class Extra(
+    @SerialName("elapsed_s") val elapsedS: Double? = null,
+    @SerialName("moving_s") val movingS: Double? = null,
+    @SerialName("max_speed") val maxSpeed: Double? = null,
+    @SerialName("gap_speed") val gapSpeed: Double? = null,
+    val cadence: Double? = null,
+    @SerialName("cadence_max") val cadenceMax: Double? = null,
+    @SerialName("stride_cm") val strideCm: Double? = null,
+    @SerialName("gct_ms") val gctMs: Double? = null,
+    @SerialName("vo_cm") val voCm: Double? = null,
+    @SerialName("vr_pct") val vrPct: Double? = null,
+    val power: Double? = null,
+    @SerialName("power_max") val powerMax: Double? = null,
+    @SerialName("elevation_loss") val elevationLoss: Double? = null,
+    val steps: Double? = null,
+    @SerialName("bb_delta") val bbDelta: Double? = null,
+    @SerialName("water_ml") val waterMl: Double? = null,
+    @SerialName("moderate_min") val moderateMin: Double? = null,
+    @SerialName("vigorous_min") val vigorousMin: Double? = null,
+    @SerialName("te_label") val teLabel: String? = null,
+    val vo2max: Double? = null,
+    @SerialName("best_splits") val bestSplits: List<Split> = emptyList(),
 )
 
 @Serializable

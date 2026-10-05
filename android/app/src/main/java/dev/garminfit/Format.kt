@@ -234,6 +234,54 @@ fun activityType(t: String?): String = when (t) {
     else -> t.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
+/** One running-dynamics reading placed on Garmin's five color bands (purple, blue, green, orange, red). */
+data class DynamicsBand(val label: String, val status: Status?)
+
+private val BANDS = listOf(
+    DynamicsBand("Top 5%", Status.GOOD),
+    DynamicsBand("Top 30%", Status.GOOD),
+    DynamicsBand("Rata-rata", null),
+    DynamicsBand("Di bawah rata-rata", Status.FAIR),
+    DynamicsBand("Bawah 5%", Status.LOW),
+)
+
+/**
+ * Garmin's running dynamics color scale, which ranks a reading against other runners
+ * (purple > 95th percentile, blue 70–95, green 30–69, orange 5–29, red < 5).
+ * [cuts] are the four band edges from best to worst; [higherIsBetter] flips the comparison.
+ */
+private fun band(v: Double, cuts: List<Double>, higherIsBetter: Boolean): DynamicsBand {
+    val i = cuts.indexOfFirst { if (higherIsBetter) v > it else v < it }
+    return BANDS[if (i < 0) 4 else i]
+}
+
+fun cadenceBand(spm: Double) = band(spm, listOf(183.0, 173.0, 163.0, 152.0), higherIsBetter = true)
+fun gctBand(ms: Double) = band(ms, listOf(208.0, 241.0, 273.0, 306.0), higherIsBetter = false)
+fun oscillationBand(cm: Double) = band(cm, listOf(6.4, 8.2, 9.8, 11.6), higherIsBetter = false)
+fun ratioBand(pct: Double) = band(pct, listOf(6.1, 7.5, 8.7, 10.2), higherIsBetter = false)
+
+fun splitLabel(m: Double?): String = when (m?.roundToInt()) {
+    1000 -> "1 km"
+    1609 -> "1 mil"
+    5000 -> "5 km"
+    10000 -> "10 km"
+    21098 -> "Half marathon"
+    42195 -> "Marathon"
+    else -> "${km(m)} km"
+}
+
+fun teFocus(label: String?): String? = when (label) {
+    "RECOVERY" -> "Pemulihan"
+    "BASE" -> "Dasar aerobik"
+    "TEMPO" -> "Tempo"
+    "THRESHOLD" -> "Ambang laktat"
+    "VO2MAX" -> "VO2 max"
+    "ANAEROBIC_CAPACITY" -> "Kapasitas anaerobik"
+    "SPEED" -> "Kecepatan"
+    null, "", "UNKNOWN", "NO_BENEFIT" -> null
+    else -> label.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
 /** Garmin exercise key → readable name: the specific exercise when the watch named it, else its category. */
 fun exerciseLabel(category: String, sub: String?): String =
     if (category == "UNKNOWN") "Lainnya"

@@ -50,6 +50,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.garminfit.Activity
 import dev.garminfit.Strength
+import dev.garminfit.Extra
+import dev.garminfit.DynamicsBand
+import dev.garminfit.cadenceBand
+import dev.garminfit.gctBand
+import dev.garminfit.oscillationBand
+import dev.garminfit.ratioBand
+import dev.garminfit.splitLabel
+import dev.garminfit.teFocus
+import dev.garminfit.one
+import dev.garminfit.two
 import dev.garminfit.exerciseLabel
 import dev.garminfit.muscleLabel
 import dev.garminfit.Profile
@@ -155,11 +165,16 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         val strength = a.type == "strength_training"
         DetailCard("Rute", detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) }
         DetailCard("Otot yang dilatih", detail, expected = strength, pick = { it.strength }) { BodyView(it) }
-        StatsCard(a, (detail.state as? Load.Ok)?.data?.strength)
-        (detail.state as? Load.Ok)?.data?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
+        val full = (detail.state as? Load.Ok)?.data
+        val extra = full?.extra
+        StatsCard(a, full?.strength, extra)
+        full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
             Panel(Modifier.fillMaxWidth()) { CardTitle("Latihan"); ExercisesView(it) }
         }
-        EffectCard(a, all)
+        extra?.let { DynamicsCard(it) }
+        extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it) }
+        EffectCard(a, all, teFocus(extra?.teLabel))
+        extra?.let { ImpactCard(it) }
         a.hrZonesS?.let { ZonesCard(it, profile?.hrZoneFloors) }
         a.splits?.let { SplitsCard(it) }
     }
@@ -247,16 +262,23 @@ private fun ExercisesView(s: Strength) {
 }
 
 @Composable
-private fun StatsCard(a: Activity, strength: Strength?) {
+private fun StatsCard(a: Activity, strength: Strength?, e: Extra?) {
+    val paused = (e?.elapsedS ?: 0.0) - (a.durationS ?: 0.0) > 60
     val stats = listOfNotNull(
         strength?.totalSets?.let { "$it" to "set" },
         strength?.totalReps?.let { "$it" to "rep" },
         duration(a.durationS) to "durasi",
+        e?.elapsedS?.takeIf { paused }?.let { duration(it) to "total dengan jeda" },
         a.avgSpeed?.takeIf { a.hasDistance() }?.let { pace(it) to "pace /km" },
+        e?.maxSpeed?.takeIf { a.hasDistance() }?.let { pace(it) to "pace tercepat" },
+        // grade-adjusted pace only says something new on a hilly route
+        e?.gapSpeed?.takeIf { a.hasDistance() && (a.elevationGain ?: 0.0) >= 30 }?.let { pace(it) to "pace setara datar" },
         a.avgHr?.let { it.int() to "HR rata-rata" },
         a.maxHr?.let { it.int() to "HR maks" },
         a.calories?.let { it.int() to "kkal" },
         a.elevationGain?.takeIf { it > 0 }?.let { "${it.int()} m" to "elevasi naik" },
+        e?.elevationLoss?.takeIf { it > 0 }?.let { "${it.int()} m" to "elevasi turun" },
+        e?.steps?.takeIf { a.hasDistance() }?.let { it.int() to "langkah" },
     )
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
         if (a.hasDistance()) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp), gap = 6.dp)
@@ -272,14 +294,17 @@ private fun StatsCard(a: Activity, strength: Strength?) {
 }
 
 @Composable
-private fun EffectCard(a: Activity, all: List<Activity>) {
+private fun EffectCard(a: Activity, all: List<Activity>, focus: String?) {
     val rows = listOfNotNull(
         a.aerobicTe?.let { Triple("Aerobik", it, K.good) to "daya tahan" },
         a.anaerobicTe?.let { Triple("Anaerobik", it, K.blue) to "kecepatan" },
     )
     if (rows.isEmpty() && a.trainingLoad == null) return
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
-        CardTitle("Efek ke tubuh")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CardTitle("Efek ke tubuh", Modifier.weight(1f))
+            focus?.let { NeutralChip("Fokus: $it") }
+        }
         rows.forEach { (r, target) ->
             val (name, v, c) = r
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -308,6 +333,72 @@ private fun EffectCard(a: Activity, all: List<Activity>) {
                 )
             }
         }
+    }
+}
+
+/** One labelled reading with its value on the right and a one-line explanation under it. */
+@Composable
+private fun InfoRow(name: String, value: String, unit: String, note: String, chip: (@Composable () -> Unit)? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+            chip?.invoke()
+            Value(value, unit, num(22.sp, FontWeight.Bold), gap = 4.dp)
+        }
+        Text(note, style = T.bodyS, color = K.muted)
+    }
+}
+
+@Composable
+private fun BandChip(b: DynamicsBand) = if (b.status != null) StatusChip(b.label, b.status) else NeutralChip(b.label)
+
+@Composable
+private fun DynamicsCard(e: Extra) {
+    if (e.cadence == null && e.gctMs == null && e.power == null) return
+    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
+        CardTitle("Teknik lari")
+        e.cadence?.let { InfoRow("Kadens", it.int(), "spm", "Langkah per menit. Kadens tinggi biasanya berarti langkah pendek dan ringan.") { BandChip(cadenceBand(it)) } }
+        e.strideCm?.let { InfoRow("Panjang langkah", (it / 100).two(), "m", "Jarak rata-rata satu langkah.") }
+        e.gctMs?.let { InfoRow("Kontak tanah", it.int(), "ms", "Lama kaki menempel di tanah tiap langkah. Makin singkat makin reaktif.") { BandChip(gctBand(it)) } }
+        e.voCm?.let { InfoRow("Osilasi vertikal", it.one(), "cm", "Seberapa tinggi badan memantul tiap langkah.") { BandChip(oscillationBand(it)) } }
+        e.vrPct?.let { InfoRow("Rasio vertikal", it.one(), "%", "Pantulan dibanding panjang langkah. Makin kecil makin efisien.") { BandChip(ratioBand(it)) } }
+        e.power?.let { p ->
+            InfoRow("Power", p.int(), "W", "Tenaga rata-rata yang kamu hasilkan" + (e.powerMax?.let { ", puncaknya ${it.int()} W." } ?: "."))
+        }
+        if (e.cadence != null || e.gctMs != null) {
+            Text("Label mengikuti skala dinamika lari Garmin, dibandingkan dengan pelari lain.", style = T.caption, color = K.muted)
+        }
+    }
+}
+
+@Composable
+private fun BestSplitsCard(splits: List<Split>) {
+    Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
+        CardTitle("Waktu tercepat di sesi ini")
+        splits.forEachIndexed { i, s ->
+            if (i > 0) HorizontalDivider(color = K.track)
+            Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(splitLabel(s.distanceM), Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                val secs = s.durationS ?: 0.0
+                Text(paceSec(secs * 1000 / (s.distanceM ?: 1000.0)) + " /km", Modifier.padding(end = 16.dp), style = T.bodyS, color = K.muted)
+                Text(if (secs >= 3600) secs.roundToInt().let { "%d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) } else paceSec(secs), style = num(20.sp, FontWeight.Bold), color = K.ink)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImpactCard(e: Extra) {
+    val intensity = (e.moderateMin ?: 0.0) + 2 * (e.vigorousMin ?: 0.0)
+    if (e.bbDelta == null && e.waterMl == null && intensity <= 0) return
+    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
+        CardTitle("Dampak sesi ini")
+        e.bbDelta?.let { InfoRow("Body Battery", if (it < 0) "−${(-it).int()}" else "+${it.int()}", "", "Energi yang terpakai selama sesi.") }
+        e.waterMl?.let { InfoRow("Keringat", (it / 1000).one(), "L", "Perkiraan cairan yang keluar. Ganti pelan-pelan setelah sesi.") }
+        if (intensity > 0) {
+            InfoRow("Menit intensitas", intensity.int(), "mnt", "Menit berat dihitung dua kali, seperti di Garmin. Target mingguan WHO 150 menit.")
+        }
+        e.vo2max?.let { InfoRow("VO2 max", it.int(), "", "Perkiraan Garmin setelah sesi ini.") }
     }
 }
 
