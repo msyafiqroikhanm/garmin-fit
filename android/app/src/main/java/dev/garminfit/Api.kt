@@ -72,6 +72,18 @@ data class Activity(
     val route: List<List<Double>>? = null,
     val strength: Strength? = null,
     val extra: Extra? = null,
+    val series: Series? = null,
+)
+
+/** ~200 bucket averages over the session; speed in cm/s, elev in dm, nulls where the watch stopped. */
+@Serializable
+data class Series(
+    val t: List<Int> = emptyList(),
+    val hr: List<Int?>? = null,
+    val speed: List<Int?>? = null,
+    val cadence: List<Int?>? = null,
+    val power: List<Int?>? = null,
+    val elev: List<Int?>? = null,
 )
 
 @Serializable

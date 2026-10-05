@@ -208,18 +208,65 @@ def extract_route(details: dict) -> list[list] | None:
     return [[round(pts[i]["lat"], 5), round(pts[i]["lon"], 5), round(smooth[i] * 100)] for i in keep]
 
 
-def ensure_route(g: Garmin, doc: dict) -> dict:
-    """Fetch and store the GPS route once per activity. Failures are stored as checked so they are not retried."""
-    if doc.get("route_checked") or not dig(doc, "raw", "hasPolyline"):
+SERIES_POINTS = 200
+SERIES_KEYS = {
+    "hr": "directHeartRate",
+    "speed": "directSpeed",
+    "cadence": "directDoubleCadence",
+    "power": "directPower",
+    "elev": "directElevation",
+}
+
+
+def extract_series(details: dict) -> dict | None:
+    """Time series averaged into ~SERIES_POINTS buckets: t in timer seconds, speed in cm/s, elev in dm."""
+    idx = {d["key"]: d["metricsIndex"] for d in details.get("metricDescriptors") or []}
+    rows = [r.get("metrics") or [] for r in details.get("activityDetailMetrics") or []]
+    if "sumDuration" not in idx or len(rows) < 2:
+        return None
+
+    def col(key):
+        i = idx.get(key)
+        return [r[i] if i is not None and i < len(r) else None for r in rows]
+
+    t = col("sumDuration")
+    raw = {name: col(key) for name, key in SERIES_KEYS.items() if key in idx}
+    # a stopped watch reports 0 for speed, cadence and power; that is a gap, not a reading
+    for name in ("speed", "cadence", "power", "hr"):
+        if name in raw:
+            raw[name] = [v if v else None for v in raw[name]]
+    size = max(1, -(-len(rows) // SERIES_POINTS))
+    scale = {"speed": 100, "elev": 10}
+    out = {"t": []}
+    for name in raw:
+        out[name] = []
+    for start in range(0, len(rows), size):
+        end = min(len(rows), start + size)
+        out["t"].append(round(next((x for x in reversed(t[start:end]) if x is not None), 0)))
+        for name, vals in raw.items():
+            vs = [v for v in vals[start:end] if v is not None]
+            out[name].append(round(statistics.fmean(vs) * scale.get(name, 1)) if vs else None)
+    return {k: v for k, v in out.items() if k == "t" or any(x is not None for x in v)}
+
+
+DETAILS_V = 2  # bump to refetch details for every activity when the stored shape changes
+
+
+def ensure_details(g: Garmin, doc: dict) -> dict:
+    """Fetch Garmin's per-activity details once and keep only the route and a compact time series."""
+    if doc.get("details_v") == DETAILS_V:
         return doc
     try:
-        route = extract_route(g.get_activity_details(doc["_id"], maxchart=10, maxpoly=4000))
+        details = g.get_activity_details(doc["_id"], maxchart=2000, maxpoly=4000)
+        route = extract_route(details) if dig(doc, "raw", "hasPolyline") else None
+        series = extract_series(details)
     except GarminConnectTooManyRequestsError:
         raise
     except Exception:
-        route = None
-    doc.update(route=route, route_checked=True)
-    db().activities.update_one({"_id": doc["_id"]}, {"$set": {"route": route, "route_checked": True}})
+        return doc  # not marked as fetched, so the next sync or detail view tries again
+    fields = {"route": route, "series": series, "details_v": DETAILS_V}
+    doc.update(fields)
+    db().activities.update_one({"_id": doc["_id"]}, {"$set": fields, "$unset": {"route_checked": 1}})
     return doc
 
 
@@ -309,7 +356,7 @@ def activity_extra(raw: dict) -> dict:
     return out
 
 
-KEEP_ON_RESYNC = ("splits", "route", "route_checked")
+KEEP_ON_RESYNC = ("splits", "route", "series", "details_v")
 
 
 def sync_activity(g: Garmin, doc: dict) -> bool:
@@ -321,8 +368,8 @@ def sync_activity(g: Garmin, doc: dict) -> bool:
         doc["splits"] = extract_splits(g.get_activity_splits(doc["_id"]))
         fetched = True
     db().activities.replace_one({"_id": doc["_id"]}, doc, upsert=True)
-    if not doc.get("route_checked") and dig(doc, "raw", "hasPolyline"):
-        ensure_route(g, doc)
+    if doc.get("details_v") != DETAILS_V:
+        ensure_details(g, doc)
         fetched = True
     return fetched
 

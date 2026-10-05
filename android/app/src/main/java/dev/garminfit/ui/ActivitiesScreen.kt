@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import dev.garminfit.Activity
 import dev.garminfit.Strength
 import dev.garminfit.Extra
+import dev.garminfit.Series
 import dev.garminfit.DynamicsBand
 import dev.garminfit.cadenceBand
 import dev.garminfit.gctBand
@@ -171,6 +173,7 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
             Panel(Modifier.fillMaxWidth()) { CardTitle("Latihan"); ExercisesView(it) }
         }
+        full?.series?.let { SeriesCard(it, a.hasDistance()) }
         extra?.let { DynamicsCard(it) }
         extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it) }
         EffectCard(a, all, teFocus(extra?.teLabel))
@@ -332,6 +335,46 @@ private fun EffectCard(a: Activity, all: List<Activity>, focus: String?) {
                     color = K.body2,
                 )
             }
+        }
+    }
+}
+
+private class Track(val name: String, val values: List<Double?>, val color: Color, val summary: String, val description: String)
+
+@Composable
+private fun SeriesCard(s: Series, distance: Boolean) {
+    fun List<Int?>?.d(scale: Double = 1.0) = this?.map { it?.div(scale) }
+    // values are bucket averages, so only averages are summarized here; true peaks live in the stat cards
+    fun List<Double?>.stats() = filterNotNull().takeIf { it.isNotEmpty() }
+    val tracks = listOfNotNull(
+        s.speed.d(100.0)?.takeIf { distance }?.let { v ->
+            // speed is plotted so faster sits higher; labels convert it back to pace
+            v.stats()?.let { Track("Pace", v, K.good, "rata-rata ${pace(it.average())} /km", "Grafik pace sepanjang sesi") }
+        },
+        s.hr.d()?.let { v -> v.stats()?.let { Track("Detak jantung", v, K.low, "rata-rata ${it.average().int()} bpm", "Grafik detak jantung sepanjang sesi") } },
+        s.cadence.d()?.takeIf { distance }?.let { v -> v.stats()?.let { Track("Kadens", v, K.blue, "rata-rata ${it.average().int()} spm", "Grafik kadens sepanjang sesi") } },
+        s.power.d()?.let { v -> v.stats()?.let { Track("Power", v, K.fair, "rata-rata ${it.average().int()} W", "Grafik power sepanjang sesi") } },
+        s.elev.d(10.0)?.takeIf { distance }?.let { v ->
+            v.stats()?.takeIf { it.max() - it.min() >= 3 }?.let { Track("Elevasi", v, K.muted, "${it.min().int()} sampai ${it.max().int()} m", "Grafik elevasi sepanjang sesi") }
+        },
+    )
+    if (tracks.isEmpty()) return
+    val end = duration(s.t.lastOrNull()?.toDouble())
+    Panel(Modifier.fillMaxWidth(), gap = 18.dp) {
+        CardTitle("Sepanjang sesi")
+        tracks.forEach { tr ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(tr.name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    Text(tr.summary, style = T.caption, color = K.muted)
+                }
+                LineChart(tr.values, "${tr.description}, ${tr.summary}", height = 72.dp, color = tr.color, width = 1.8.dp)
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text("mulai", style = T.mono, color = K.muted)
+            Spacer(Modifier.weight(1f))
+            Text(end, style = T.mono, color = K.muted)
         }
     }
 }

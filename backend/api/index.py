@@ -11,7 +11,7 @@ import core  # noqa: E402
 
 app = FastAPI(title="garmin-fit")
 
-NO_RAW = {"raw": 0, "route": 0}
+NO_RAW = {"raw": 0, "route": 0, "series": 0}
 
 
 def auth(authorization: str = Header("")) -> dict:
@@ -62,10 +62,10 @@ def activity(activity_id: int, user: dict = Depends(auth)):
     doc = core.db().activities.find_one({"_id": activity_id, "user_id": uid})
     if not doc:
         raise HTTPException(404, "not found")
-    if not doc.get("route_checked") and core.dig(doc, "raw", "hasPolyline"):
+    if doc.get("details_v") != core.DETAILS_V:
         try:
             g, token = core.garmin_client(uid)
-            core.ensure_route(g, doc)
+            core.ensure_details(g, doc)
             core.persist_if_refreshed(g, uid, token)
         except Exception:
             pass  # route is optional, the rest of the detail still renders
