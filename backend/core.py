@@ -513,6 +513,84 @@ def home_routes(routes: list[list[list]]) -> list[list[list]]:
     return out
 
 
+PREDICTION_FIELDS = {"5k": "time5K", "10k": "time10K", "half": "timeHalfMarathon", "marathon": "timeMarathon"}
+
+
+def store_predictions(user_id: str, rows: list[dict] | dict) -> int:
+    rows = rows if isinstance(rows, list) else [rows]
+    n = 0
+    for r in rows:
+        d = r.get("calendarDate")
+        if not d:
+            continue
+        db().race_predictions.replace_one(
+            {"_id": f"{user_id}:{d}"},
+            {"user_id": user_id, "date": d, **{k: r.get(src) for k, src in PREDICTION_FIELDS.items()}},
+            upsert=True,
+        )
+        n += 1
+    return n
+
+
+def backfill_predictions(user_id: str, start: date, end: date, log=print) -> int:
+    """Garmin serves daily predictions for at most a year per call, so walk the range in yearly windows."""
+    g, token = garmin_client(user_id)
+    n, a = 0, start
+    try:
+        while a <= end:
+            b = min(end, a + timedelta(days=364))
+            n += store_predictions(user_id, g.get_race_predictions(a.isoformat(), b.isoformat(), "daily") or [])
+            log(f"predictions {a}..{b}: {n}")
+            a = b + timedelta(days=1)
+    finally:
+        persist_if_refreshed(g, user_id, token)
+    return n
+
+
+BIG_GROUPS = {
+    "Dada": ("CHEST",),
+    "Punggung": ("LATS", "TRAPS", "LOWER_BACK"),
+    "Bahu": ("SHOULDERS",),
+    "Lengan": ("BICEPS", "TRICEPS", "FOREARM"),
+    "Perut": ("ABS", "OBLIQUES"),
+    "Kaki": ("QUADS", "HAMSTRINGS", "GLUTES", "CALVES", "ADDUCTORS", "ABDUCTORS", "HIPS"),
+}
+
+
+def merge_muscles(summaries: list[dict]) -> dict:
+    """Sum per-muscle sets over several strength sessions and list the big groups with no primary work."""
+    muscles = {}
+    for s in summaries:
+        for k, v in (s.get("muscles") or {}).items():
+            m = muscles.setdefault(k, {"primary": 0, "secondary": 0})
+            m["primary"] += v["primary"]
+            m["secondary"] += v["secondary"]
+    untrained = [g for g, keys in BIG_GROUPS.items() if not any(muscles.get(k, {}).get("primary") for k in keys)]
+    return {"sessions": len(summaries), "muscles": muscles, "untrained": untrained,
+            "sets": sum(s.get("total_sets") or 0 for s in summaries)}
+
+
+DYNAMICS_FIELDS = {"cadence": "averageRunningCadenceInStepsPerMinute", "gct_ms": "avgGroundContactTime",
+                   "vr_pct": "avgVerticalRatio", "vo_cm": "avgVerticalOscillation", "power": "avgPower"}
+
+
+def weekly_dynamics(runs: list[dict], end: date, weeks: int) -> list[dict]:
+    """Duration-weighted weekly averages of running dynamics, oldest week first; empty weeks keep None."""
+    first = week_start(end) - timedelta(days=7 * (weeks - 1))
+    out = []
+    for i in range(weeks):
+        ws = first + timedelta(days=7 * i)
+        we = ws + timedelta(days=6)
+        inside = [r for r in runs if ws.isoformat() <= r["date"] <= we.isoformat()]
+        row = {"week": ws.isoformat(), "runs": len(inside)}
+        for name, src in DYNAMICS_FIELDS.items():
+            pairs = [(dig(r, "raw", src), r.get("duration_s") or 0) for r in inside if dig(r, "raw", src)]
+            total = sum(w for _, w in pairs)
+            row[name] = sum(v * w for v, w in pairs) / total if total else None
+        out.append(row)
+    return out
+
+
 KEEP_ON_RESYNC = ("splits", "route", "series", "details_v")
 
 
@@ -541,6 +619,12 @@ def sync_activities(g: Garmin, user_id: str, start: date, end: date, pause=0.0, 
 
 
 def sync_profile(g: Garmin, user_id: str) -> None:
+    try:
+        store_predictions(user_id, g.get_race_predictions() or {})
+    except GarminConnectTooManyRequestsError:
+        raise
+    except Exception:
+        pass  # predictions are a nice-to-have; the profile below matters more
     ud = (g.get_user_profile() or {}).get("userData") or {}
     zones = next(iter(g.get_heart_rate_zones() or []), {})
     floors = [zones.get(f"zone{i}Floor") for i in range(1, 6)]

@@ -128,6 +128,34 @@ data class Bucket(val key: String, @SerialName("distance_m") val distanceM: Doub
 data class RecapPr(@SerialName("activity_id") val activityId: Long, val date: String, val name: String? = null, val distances: List<Int> = emptyList())
 
 @Serializable
+data class Prediction(
+    val date: String,
+    @SerialName("5k") val k5: Double? = null,
+    @SerialName("10k") val k10: Double? = null,
+    val half: Double? = null,
+    val marathon: Double? = null,
+)
+
+@Serializable
+data class WeekMuscles(
+    val sessions: Int = 0,
+    val sets: Int = 0,
+    val muscles: Map<String, MuscleLoad> = emptyMap(),
+    val untrained: List<String> = emptyList(),
+)
+
+@Serializable
+data class DynamicsWeek(
+    val week: String,
+    val runs: Int = 0,
+    val cadence: Double? = null,
+    @SerialName("gct_ms") val gctMs: Double? = null,
+    @SerialName("vr_pct") val vrPct: Double? = null,
+    @SerialName("vo_cm") val voCm: Double? = null,
+    val power: Double? = null,
+)
+
+@Serializable
 data class Record(
     @SerialName("distance_m") val distanceM: Double,
     @SerialName("duration_s") val durationS: Double,
@@ -293,6 +321,9 @@ interface ApiService {
     @GET("activities/{id}") suspend fun activity(@Path("id") id: Long): Activity
     @POST("sync") suspend fun sync(): SyncResult
     @GET("records") suspend fun records(): List<Record>
+    @GET("race-predictions") suspend fun predictions(@Query("days") days: Int): List<Prediction>
+    @GET("muscles/week") suspend fun weekMuscles(): WeekMuscles
+    @GET("trends/running") suspend fun runningTrends(@Query("weeks") weeks: Int): List<DynamicsWeek>
     @GET("recap") suspend fun recap(@Query("period") period: String, @Query("key") key: String): Recap
     @GET("routes") suspend fun routes(@Query("from") from: String, @Query("to") to: String): List<List<List<Double>>>
 }

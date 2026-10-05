@@ -38,6 +38,11 @@ def cmd_backfill(a):
         print("  ", e)
 
 
+def cmd_predictions(a):
+    start = date.fromisoformat(a.from_) if a.from_ else core.today() - timedelta(days=364)
+    print(f"done, {core.backfill_predictions(core.OWNER, start, core.today())} days")
+
+
 def cmd_sync(a):
     d = date.fromisoformat(a.date) if a.date else core.today()
     errors = core.sync_range(core.OWNER, d - timedelta(days=1), d)
@@ -98,6 +103,9 @@ def main():
     b.add_argument("--from", dest="from_")
     b.add_argument("--force", action="store_true")
     b.set_defaults(fn=cmd_backfill)
+    pr = sub.add_parser("predictions", help="backfill Garmin race predictions")
+    pr.add_argument("--from", dest="from_")
+    pr.set_defaults(fn=cmd_predictions)
     s = sub.add_parser("sync")
     s.add_argument("--date")
     s.set_defaults(fn=cmd_sync)

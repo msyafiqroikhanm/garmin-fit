@@ -37,6 +37,15 @@ import androidx.compose.ui.unit.sp
 import dev.garminfit.Daily
 import dev.garminfit.Profile
 import dev.garminfit.Repo
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.foundation.Canvas
+import dev.garminfit.ratioBand
+import dev.garminfit.gctBand
+import dev.garminfit.cadenceBand
+import dev.garminfit.DynamicsWeek
+import dev.garminfit.WeekMuscles
+import dev.garminfit.Prediction
 import androidx.compose.runtime.mutableStateOf
 import dev.garminfit.Record
 import dev.garminfit.raceTime
@@ -70,6 +79,8 @@ fun TrendsScreen() {
     val ctx = LocalContext.current
     var range by rememberSaveable { mutableIntStateOf(30) }
     val loader = rememberLoad(range) { Repo.api(ctx).daily(from(range)) }
+    // weekly technique needs a few weeks to say anything, so 7/30/90 days map to 4/8/13 weeks
+    val dynamics = rememberLoad(range) { Repo.api(ctx).runningTrends(mapOf(7 to 4, 30 to 8, 90 to 13)[range] ?: 8) }
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenTitle("Tren tubuh")
         Segmented(listOf(7, 30, 90), range, { "$it hari" }) { range = it }
@@ -105,8 +116,34 @@ fun TrendsScreen() {
                     days, start, "Body Battery tertinggi", "", { it.bbHigh }, K.fair, higherIsBetter = true,
                     insight = "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang.",
                 )
+                CardLoad(dynamics, isEmpty = { w -> w.none { it.cadence != null } }) { DynamicsTrendCard(it) }
             }
         }
+    }
+}
+
+@Composable
+private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
+    val rows = listOfNotNull(
+        Triple("Kadens", "spm", weeks.map { it.cadence }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> cadenceBand(v) } },
+        Triple("Kontak tanah", "ms", weeks.map { it.gctMs }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> gctBand(v) } },
+        Triple("Rasio vertikal", "%", weeks.map { it.vrPct }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> ratioBand(v) } },
+    )
+    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
+        CardTitle("Teknik lari per minggu")
+        rows.forEach { (r, band) ->
+            val (name, unit, values) = r
+            val latest = values.lastOrNull { it != null } ?: return@forEach
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    band(latest).let { b -> if (b.status != null) StatusChip(b.label, b.status) else NeutralChip(b.label) }
+                    Value(if (unit == "%") latest.one() else latest.int(), unit, num(22.sp, FontWeight.Bold))
+                }
+                LineChart(values, "Grafik $name per minggu, terakhir ${latest.int()} $unit", height = 56.dp, color = K.blue, width = 1.8.dp)
+            }
+        }
+        Text("${weeks.size} minggu terakhir, rata-rata per minggu ditimbang dari durasi tiap lari. Label mengikuti skala Garmin.", style = T.caption, color = K.muted)
     }
 }
 
@@ -161,6 +198,8 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
         Repo.api(ctx).daily(from(90)) to runCatching { Repo.me(ctx).profile }.getOrNull()
     }
     val records = rememberLoad { Repo.api(ctx).records() }
+    val predictions = rememberLoad { Repo.api(ctx).predictions(90) }
+    val muscles = rememberLoad { Repo.api(ctx).weekMuscles() }
     var recap by rememberSaveable { mutableStateOf(false) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
     LoadView(loader, loadingText = "Memuat data latihan 90 hari") { (days, profile) ->
@@ -171,12 +210,70 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
             ScreenTitle("Kebugaran")
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             RecapEntry { recap = true }
+            CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }
             CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
+            CardLoad(muscles) { WeekMusclesCard(it) }
             if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
             if (days.hasAny { it.acuteLoad }) LoadCard(days)
             if (!days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad }) {
                 Text("Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda.", style = T.body, color = K.muted)
             }
+        }
+    }
+}
+
+@Composable
+private fun PredictionsCard(rows: List<Prediction>) {
+    val last = rows.last()
+    val month = rows.lastOrNull { it.date <= LocalDate.parse(last.date).minusDays(30).toString() } ?: rows.first()
+    val items = listOf(
+        Triple("5K", last.k5, month.k5),
+        Triple("10K", last.k10, month.k10),
+        Triple("Half marathon", last.half, month.half),
+        Triple("Marathon", last.marathon, month.marathon),
+    )
+    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
+        CardTitle("Prediksi lomba")
+        Text("Perkiraan Garmin kalau kamu lomba hari ini, dari VO2 max dan riwayat latihan.", style = T.bodyS, color = K.muted)
+        items.forEach { (name, now, before) ->
+            now ?: return@forEach
+            HorizontalDivider(Modifier.padding(top = 8.dp), color = K.track)
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                before?.let { b ->
+                    val d = (now - b).roundToInt()
+                    // a lower predicted time is the improvement
+                    if (d != 0) DeltaPill("${if (d < 0) "−" else "+"}${raceTime(kotlin.math.abs(d).toDouble())}", if (d < 0) Status.GOOD else Status.FAIR)
+                }
+                Text(raceTime(now), Modifier.padding(start = 10.dp), style = num(22.sp, FontWeight.Bold), color = K.ink)
+            }
+        }
+        val half = rows.map { it.half }
+        if (half.count { it != null } > 2) {
+            Text("Half marathon, ${rows.size} hari terakhir", Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
+            // negated so a faster prediction draws higher
+            LineChart(half.map { it?.let { v -> -v } }, "Grafik prediksi half marathon", height = 64.dp, color = K.good, width = 1.8.dp)
+        }
+        Text("Perubahan dibanding 30 hari lalu.", Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
+    }
+}
+
+@Composable
+private fun WeekMusclesCard(w: WeekMuscles) {
+    Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
+        CardTitle("Otot 7 hari terakhir")
+        if (w.sessions == 0) {
+            Text("Belum ada sesi strength minggu ini.", style = T.body, color = K.muted)
+            return@Panel
+        }
+        Text("${w.sessions} sesi strength · ${w.sets} set", style = T.bodyS, color = K.muted)
+        Canvas(Modifier.fillMaxWidth().height(240.dp).semantics { contentDescription = "Body map otot yang dilatih 7 hari terakhir" }) {
+            drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, w.muscles, K.good, K.track) }
+        }
+        if (w.untrained.isNotEmpty()) {
+            StatusChip("Belum dilatih: ${w.untrained.joinToString(", ")}", Status.FAIR)
+        } else {
+            StatusChip("Semua kelompok otot besar kena minggu ini", Status.GOOD)
         }
     }
 }

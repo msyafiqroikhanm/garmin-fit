@@ -84,6 +84,29 @@ def routes(frm: date | None = Query(None, alias="from"), to: date | None = None,
     return core.home_routes([d["route"] for d in core.db().activities.find(q, {"route": 1})])
 
 
+@app.get("/race-predictions")
+def race_predictions(days: int = Query(90, ge=1, le=730), user: dict = Depends(auth)):
+    since = (core.today() - timedelta(days=days - 1)).isoformat()
+    return list(core.db().race_predictions.find({"user_id": user["data_user_id"], "date": {"$gte": since}}, {"_id": 0, "user_id": 0}).sort("date", 1))
+
+
+@app.get("/muscles/week")
+def muscles_week(user: dict = Depends(auth)):
+    since = (core.today() - timedelta(days=6)).isoformat()
+    docs = core.db().activities.find({"user_id": user["data_user_id"], "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
+    catalog = core.muscle_catalog()
+    return core.merge_muscles([s for d in docs if (s := core.strength_summary(d.get("raw") or {}, catalog))])
+
+
+@app.get("/trends/running")
+def running_trends(weeks: int = Query(12, ge=1, le=52), user: dict = Depends(auth)):
+    end = core.today()
+    since = (core.week_start(end) - timedelta(days=7 * (weeks - 1))).isoformat()
+    proj = {"date": 1, "duration_s": 1, **{f"raw.{f}": 1 for f in core.DYNAMICS_FIELDS.values()}}
+    runs = list(core.db().activities.find({"user_id": user["data_user_id"], "type": {"$regex": "running"}, "date": {"$gte": since}}, proj))
+    return core.weekly_dynamics(runs, end, weeks)
+
+
 @app.get("/records")
 def records(user: dict = Depends(auth)):
     _, best = core.pr_history(core.runs_with_splits(user["data_user_id"]))
