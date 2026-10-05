@@ -147,7 +147,9 @@ def today_view(user: dict = Depends(auth)):
     uid = user["data_user_id"]
     days = _daily(uid, *_range(None, None, core.HRV_BASELINE_DAYS + 1))
     latest = days[-1] if days else None
-    week_start = (core.today() - timedelta(days=6)).isoformat()
+    # calendar week, Monday first, so "this week" resets every Monday
+    monday = core.week_start(core.today())
+    week_start = monday.isoformat()
     week_acts = list(core.db().activities.find({"user_id": uid, "date": {"$gte": week_start}}, NO_RAW).sort("start_time", -1))
     last_act = week_acts[0] if week_acts else core.db().activities.find_one({"user_id": uid}, NO_RAW, sort=[("start_time", -1)])
     summary = core.db().summaries.find_one({"user_id": uid, "period": "weekly"}, {"_id": 0}, sort=[("generated_at", -1)])
@@ -155,7 +157,7 @@ def today_view(user: dict = Depends(auth)):
     load_by_date = {}
     for a in week_acts:
         load_by_date[a["date"]] = load_by_date.get(a["date"], 0) + (a.get("training_load") or 0)
-    week_dates = [(core.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
+    week_dates = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
     return {
         "role": user["role"],
         "name": user["name"],

@@ -9,7 +9,9 @@ Dial: ENERGY 3 / RHYTHM 2 / MOTION 1
 - Sporty, for a young runner, read at a glance in the morning and right after a run.
 - The Today screen answers one question first: **"Hari ini boleh latihan apa?"** Numbers come after, each compared to the personal baseline.
 - Identity motif: the **baseline band**. A track, a volt band for the personal normal range, and a status-colored dot for today's value (`FactorBar`). The same idea shows up as the green band in Tren charts and the optimal zone on the load gauge.
-- Copy: Bahasa Indonesia, casual and short. Garmin terms stay as they are (Body Battery, Training Readiness, VO2max, Training load). Decimals use a comma ("1,05"), thousands use a dot ("4.812").
+- Copy: English by default, Bahasa Indonesia when the app language is set to it (Android Settings > Apps > garmin-fit > Language, from `res/xml/locales_config.xml`). Both casual and short, no em dashes. Garmin terms stay as they are (Body Battery, Training Readiness, VO2max, Training load).
+- Every user-facing string is written at its call site as `tr("English", "Indonesia")` (`Format.kt`), so widgets and plain helpers need no Context. Numbers and dates follow the app locale: "1,234" and "1.05" in English, "1.234" and "1,05" in Indonesian. Formatters are getters because a language change keeps the process alive.
+- Backend text follows the app language: flags are worded in the app from their `key`, muscle groups come as keys (`CHEST`, `BACK`, ...), and the weekly summary carries an optional `en` copy next to the Indonesian one.
 
 ## Principles
 
@@ -83,7 +85,7 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 
 ## Screen map
 
-- **Hari Ini**: header (date, greeting, Sync pill), readiness hero with training advice, "Kenapa skornya segini?" factor bars, flags, Body Battery and steps tiles, sleep tile, 7-day load bars, last activity, weekly summary card.
+- **Hari Ini**: header (date, greeting, Sync pill), readiness hero with training advice, "Why this score?" factor bars, flags, Body Battery and steps tiles, sleep tile, this week's load bars (Monday to Sunday), last activity, weekly summary card.
 - **Tren**: 7/30/90 day picker, four line charts (HRV, RHR, sleep score, Body Battery peak) with delta pill and one insight line each.
 - **Aktivitas**: list, and detail with route card (GPS activities, loaded from `/activities/{id}`), body map and exercise list for strength, hero distance, stat grid (moving vs total time, fastest pace, steps), "Sepanjang sesi" line charts (pace plotted as speed so faster is up, HR, cadence, power, elevation; summaries show averages only because points are bucket averages), running technique with Garmin's running-dynamics bands, fastest splits, comparison with the last 5 similar-distance runs (pace, HR, meters per heartbeat), impact (Body Battery, sweat, intensity minutes, VO2 max), training effect, HR zones with the user's bpm ranges, per-km splits.
 - **Bagikan** (from the detail header): live preview of the share image on top, options below. Backdrop Foto / Kartu / Stiker (transparent PNG), layouts Bold / Minimal / Grid / Rute (Otot for strength), 9:16 or 4:5, ink Putih / Hitam / Volt, stat toggles, KINETIK wordmark. Drag and pinch move the overlay. `renderShare` (`ui/ShareRender.kt`) draws both the preview and the 1080 px export, so they match. Routes lose their first and last 200 m in shared images.
@@ -96,3 +98,10 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 
 - VO2 category scale only has the Cooper Institute rows for age 20 to 29; outside that band the scale hides.
 - Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts.
+- Widgets are responsive (`SizeMode.Responsive`): each adds detail as it grows, and every header shows freshness ("Sync 17:20", or "Data from <day>" when stale).
+  - Readiness 2×2: score, verdict word in its status color, tagline; taller adds HRV and the steps bar.
+  - Today 4×2: verdict and score, HRV / RHR / Sleep / Battery, steps bar; tallest adds the first flag or the advice.
+  - This week 4×2: sessions, distance, time, and daily load bars Monday to Sunday, same as the Today card.
+  - 7 day trend 4×2: HRV line in its status color with the normal range, RHR with the 30 day average.
+  - Last activity 4×1: one line; two rows show a hero (distance, or time when there is none) and a stat row.
+- Widget picker previews are screenshots of the real widgets (`res/drawable-nodpi/preview_*.png`), so they show the owner's data from the day they were taken and are English only. Retake them when a widget layout changes.
