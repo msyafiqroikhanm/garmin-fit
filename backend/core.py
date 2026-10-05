@@ -1,10 +1,12 @@
 import hashlib
 import itertools
+import json
 import math
 import os
 import re
 import statistics
 import time
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -219,6 +221,58 @@ def ensure_route(g: Garmin, doc: dict) -> dict:
     doc.update(route=route, route_checked=True)
     db().activities.update_one({"_id": doc["_id"]}, {"$set": {"route": route, "route_checked": True}})
     return doc
+
+
+CATALOG_URL = "https://connect.garmin.com/web-data/exercises/Exercises.json"
+CATALOG_MAX_AGE = timedelta(days=30)
+
+
+def _muscles(entry: dict) -> dict | None:
+    p, s = [m for m in entry.get("primaryMuscles") or [] if m], [m for m in entry.get("secondaryMuscles") or [] if m]
+    return {"p": p, "s": s} if p or s else None
+
+
+def trim_catalog(raw: dict) -> dict:
+    out = {}
+    for cat, v in (raw.get("categories") or {}).items():
+        ex = {name: m for name, e in (v.get("exercises") or {}).items() if (m := _muscles(e))}
+        out[cat] = {**(_muscles(v) or {"p": [], "s": []}), "ex": ex}
+    return out
+
+
+def muscle_catalog() -> dict:
+    """Garmin's public exercise catalog reduced to category/exercise -> muscles, cached in Mongo for 30 days."""
+    doc = db().meta.find_one({"_id": "exercise_catalog"})
+    now = datetime.now(timezone.utc)
+    if doc and now - doc["fetched_at"].replace(tzinfo=timezone.utc) < CATALOG_MAX_AGE:
+        return doc["data"]
+    try:
+        req = urllib.request.Request(CATALOG_URL, headers={"User-Agent": "Mozilla/5.0"})
+        data = trim_catalog(json.load(urllib.request.urlopen(req, timeout=10)))
+    except Exception:
+        return doc["data"] if doc else {}
+    db().meta.replace_one({"_id": "exercise_catalog"}, {"data": data, "fetched_at": now}, upsert=True)
+    return data
+
+
+def strength_summary(raw: dict, catalog: dict) -> dict | None:
+    """Per-exercise rows and set counts per muscle from Garmin's summarizedExerciseSets (auto-detected on the watch)."""
+    rows = raw.get("summarizedExerciseSets") or []
+    if not rows:
+        return None
+    exercises, muscles = [], {}
+    for r in rows:
+        cat, sub, sets = r.get("category") or "UNKNOWN", r.get("subCategory"), r.get("sets") or 0
+        exercises.append({"category": cat, "sub": sub, "sets": sets, "reps": r.get("reps") or 0,
+                          "duration_s": (r.get("duration") or 0) / 1000})
+        c = catalog.get(cat) or {}
+        m = (c.get("ex") or {}).get(sub) or c
+        for kind, key in (("p", "primary"), ("s", "secondary")):
+            for name in m.get(kind) or []:
+                muscles.setdefault(name, {"primary": 0, "secondary": 0})[key] += sets
+    exercises.sort(key=lambda e: (e["category"] == "UNKNOWN", -e["sets"]))
+    return {"exercises": exercises, "muscles": muscles, "total_sets": raw.get("activeSets") or raw.get("totalSets"),
+            "total_reps": raw.get("totalReps")}
 
 
 KEEP_ON_RESYNC = ("splits", "route", "route_checked")

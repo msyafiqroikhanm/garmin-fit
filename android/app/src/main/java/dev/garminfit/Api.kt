@@ -70,7 +70,28 @@ data class Activity(
     @SerialName("hr_zones_s") val hrZonesS: List<Double?>? = null,
     val splits: List<Split>? = null,
     val route: List<List<Double>>? = null,
+    val strength: Strength? = null,
 )
+
+@Serializable
+data class Strength(
+    val exercises: List<ExerciseRow> = emptyList(),
+    val muscles: Map<String, MuscleLoad> = emptyMap(),
+    @SerialName("total_sets") val totalSets: Int? = null,
+    @SerialName("total_reps") val totalReps: Int? = null,
+)
+
+@Serializable
+data class ExerciseRow(
+    val category: String,
+    val sub: String? = null,
+    val sets: Int = 0,
+    val reps: Int = 0,
+    @SerialName("duration_s") val durationS: Double = 0.0,
+)
+
+@Serializable
+data class MuscleLoad(val primary: Int = 0, val secondary: Int = 0)
 
 @Serializable
 data class Split(

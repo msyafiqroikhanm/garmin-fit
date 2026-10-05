@@ -234,6 +234,32 @@ fun activityType(t: String?): String = when (t) {
     else -> t.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
+/** Garmin exercise key → readable name: the specific exercise when the watch named it, else its category. */
+fun exerciseLabel(category: String, sub: String?): String =
+    if (category == "UNKNOWN") "Lainnya"
+    else (sub ?: category).lowercase().split('_').joinToString(" ").replaceFirstChar { it.uppercase() }
+
+fun muscleLabel(key: String): String = when (key) {
+    "QUADS" -> "Paha depan"
+    "HAMSTRINGS" -> "Paha belakang"
+    "GLUTES" -> "Bokong"
+    "CHEST" -> "Dada"
+    "LATS" -> "Punggung atas"
+    "LOWER_BACK" -> "Punggung bawah"
+    "SHOULDERS" -> "Bahu"
+    "TRAPS" -> "Trapezius"
+    "BICEPS" -> "Bisep"
+    "TRICEPS" -> "Trisep"
+    "FOREARM" -> "Lengan bawah"
+    "ABS" -> "Perut"
+    "OBLIQUES" -> "Perut samping"
+    "CALVES" -> "Betis"
+    "ADDUCTORS" -> "Paha dalam"
+    "ABDUCTORS" -> "Pinggul luar"
+    "HIPS" -> "Fleksor pinggul"
+    else -> key.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
 fun Throwable.friendly(): String = when (this) {
     is HttpException -> when (code()) {
         401 -> "Token tidak valid atau sudah dicabut. Minta token baru ke pemilik."

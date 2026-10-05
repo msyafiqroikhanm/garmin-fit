@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
@@ -46,6 +48,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.garminfit.Activity
+import dev.garminfit.Strength
+import dev.garminfit.exerciseLabel
+import dev.garminfit.muscleLabel
 import dev.garminfit.Profile
 import dev.garminfit.Repo
 import dev.garminfit.Split
@@ -138,36 +143,38 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         }
         val ctx = LocalContext.current
         val detail = rememberLoad(a.id) { Repo.api(ctx).activity(a.id) }
-        RouteCard(detail, expected = a.hasDistance(), onRetry = detail.reload)
-        StatsCard(a)
+        val strength = a.type == "strength_training"
+        DetailCard("Rute", detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) }
+        DetailCard("Otot yang dilatih", detail, expected = strength, pick = { it.strength }) { BodyView(it) }
+        StatsCard(a, (detail.state as? Load.Ok)?.data?.strength)
+        (detail.state as? Load.Ok)?.data?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
+            Panel(Modifier.fillMaxWidth()) { CardTitle("Latihan"); ExercisesView(it) }
+        }
         EffectCard(a, all)
         a.hrZonesS?.let { ZonesCard(it, profile?.hrZoneFloors) }
         a.splits?.let { SplitsCard(it) }
     }
 }
 
+/** Card fed by the per-activity detail request: shows its own loading and error state, hides when the field is absent. */
 @Composable
-private fun RouteCard(detail: Loader<Activity>, expected: Boolean, onRetry: () -> Unit) {
+private fun <T : Any> DetailCard(
+    title: String,
+    detail: Loader<Activity>,
+    expected: Boolean,
+    pick: (Activity) -> T?,
+    content: @Composable (T) -> Unit,
+) {
     val state = detail.state
-    val route = (state as? Load.Ok)?.data?.route
-    if (route == null && (state is Load.Ok || !expected)) return
+    val value = (state as? Load.Ok)?.data?.let(pick)
+    if (value == null && (state is Load.Ok || !expected)) return
     Panel(Modifier.fillMaxWidth()) {
-        CardTitle("Rute")
+        CardTitle(title)
         when {
-            route != null -> {
-                val density = LocalDensity.current
-                Canvas(Modifier.fillMaxWidth().height(240.dp)) {
-                    drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, with(density) { 4.dp.toPx() }) }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Lambat", style = T.caption, color = K.muted)
-                    Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(K.low, K.fair, K.good))))
-                    Text("Cepat", style = T.caption, color = K.muted)
-                }
-            }
+            value != null -> content(value)
             state is Load.Err -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Rute gagal dimuat", style = T.body, color = K.muted, modifier = Modifier.weight(1f))
-                Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onRetry).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                Text("Gagal dimuat", style = T.body, color = K.muted, modifier = Modifier.weight(1f))
+                Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = detail.reload).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
                     Text("Coba lagi", style = body(14.sp, FontWeight.SemiBold), color = K.good)
                 }
             }
@@ -179,8 +186,62 @@ private fun RouteCard(detail: Loader<Activity>, expected: Boolean, onRetry: () -
 }
 
 @Composable
-private fun StatsCard(a: Activity) {
+private fun RouteView(route: List<List<Double>>) {
+    val density = LocalDensity.current
+    Canvas(Modifier.fillMaxWidth().height(240.dp)) {
+        drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, with(density) { 4.dp.toPx() }) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Lambat", style = T.caption, color = K.muted)
+        Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(K.low, K.fair, K.good))))
+        Text("Cepat", style = T.caption, color = K.muted)
+    }
+}
+
+@Composable
+private fun BodyView(s: Strength) {
+    Canvas(Modifier.fillMaxWidth().height(280.dp)) {
+        drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, s.muscles, K.good, K.track) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        LegendDot(K.good, "Utama")
+        LegendDot(K.good.copy(alpha = 0.28f), "Pendukung")
+    }
+    val main = s.muscles.entries.filter { it.value.primary > 0 }.sortedByDescending { it.value.primary }.map { muscleLabel(it.key) }
+    if (main.isNotEmpty()) Text(main.joinToString(", "), style = T.body, color = K.body2)
+    else Text("Jam belum mengenali latihannya, jadi otot yang dilatih belum bisa ditandai.", style = T.body, color = K.muted)
+}
+
+@Composable
+private fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
+        Text(text, style = T.caption, color = K.muted)
+    }
+}
+
+@Composable
+private fun ExercisesView(s: Strength) {
+    Column {
+        s.exercises.forEachIndexed { i, e ->
+            if (i > 0) HorizontalDivider(color = K.track)
+            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(exerciseLabel(e.category, e.sub), style = body(15.sp, FontWeight.SemiBold), color = if (e.category == "UNKNOWN") K.muted else K.ink, modifier = Modifier.weight(1f))
+                Text(
+                    if (e.category == "UNKNOWN") "${e.sets} set" else "${e.sets} set · ${e.reps} rep",
+                    style = num(18.sp, FontWeight.Bold),
+                    color = K.ink,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsCard(a: Activity, strength: Strength?) {
     val stats = listOfNotNull(
+        strength?.totalSets?.let { "$it" to "set" },
+        strength?.totalReps?.let { "$it" to "rep" },
         duration(a.durationS) to "durasi",
         a.avgSpeed?.takeIf { a.hasDistance() }?.let { pace(it) to "pace /km" },
         a.avgHr?.let { it.int() to "HR rata-rata" },

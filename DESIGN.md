@@ -75,6 +75,8 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 
 `drawRoute` (`ui/Route.kt`) draws a route on a native canvas with no map tiles: pace gradient low → fair → good, scaled to the run's own 10th to 90th percentile so every run shows contrast; white dot at start, volt dot at the finish. The same function draws the share image, in a single template color there.
 
+`drawBody` (`ui/BodyMap.kt`, polygons in `ui/BodyData.kt` from react-body-highlighter, MIT) shows front and back figures: untouched muscles in `track`, secondary work as volt at 28%, primary work volt from 55% to full by set count. Muscles come from Garmin's exercise catalog via the backend; sets the watch could not name show as "Lainnya" and are not colored.
+
 ## Motion
 
 Only the weekly summary expand/collapse (`animateContentSize`) and the standard pull-to-refresh. Nothing loops.
@@ -83,7 +85,7 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 
 - **Hari Ini**: header (date, greeting, Sync pill), readiness hero with training advice, "Kenapa skornya segini?" factor bars, flags, Body Battery and steps tiles, sleep tile, 7-day load bars, last activity, weekly summary card.
 - **Tren**: 7/30/90 day picker, four line charts (HRV, RHR, sleep score, Body Battery peak) with delta pill and one insight line each.
-- **Aktivitas**: list, and detail with route card (GPS activities, loaded from `/activities/{id}`), hero distance, stat grid, training effect, HR zones with the user's bpm ranges, per-km splits.
+- **Aktivitas**: list, and detail with route card (GPS activities, loaded from `/activities/{id}`), body map and exercise list for strength, hero distance, stat grid, training effect, HR zones with the user's bpm ranges, per-km splits.
 - **Latihan**: training status card, VO2max with category scale, training load with gauge and acute/chronic chart.
 
 ## Known limits
