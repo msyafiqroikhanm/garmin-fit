@@ -27,6 +27,13 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // CI passes the laptop's debug key here so installed copies accept the update.
+            (findProperty("debugKeystore") as String?)?.let { storeFile = file(it) }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

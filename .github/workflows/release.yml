@@ -23,15 +23,20 @@ jobs:
 
       # Same key the installed app was signed with; a different key makes Android reject the update.
       - name: Restore signing key
-        run: |
-          mkdir -p ~/.android
-          echo "${{ secrets.DEBUG_KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
+        run: echo "${{ secrets.DEBUG_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/debug.keystore"
 
       - name: Build
         run: >
           ./gradlew assembleRelease
+          -PdebugKeystore="$RUNNER_TEMP/debug.keystore"
           -PversionName=${GITHUB_REF_NAME#v}
           -PversionCode=${{ github.run_number }}
+
+      - name: Check signing key
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk \
+            | grep -q 65623e2286154f335b7da499bf1ed3dcb436008252306ea67980046ce2324597
 
       - name: Publish release
         env:
