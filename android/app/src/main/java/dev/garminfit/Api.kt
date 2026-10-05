@@ -73,6 +73,27 @@ data class Activity(
     val strength: Strength? = null,
     val extra: Extra? = null,
     val series: Series? = null,
+    val prs: List<Int> = emptyList(),
+    val similar: Similar? = null,
+)
+
+@Serializable
+data class Similar(
+    val count: Int,
+    @SerialName("avg_speed") val avgSpeed: Double,
+    @SerialName("avg_hr") val avgHr: Double? = null,
+    val efficiency: Double? = null,
+    @SerialName("this_efficiency") val thisEfficiency: Double? = null,
+)
+
+@Serializable
+data class Record(
+    @SerialName("distance_m") val distanceM: Double,
+    @SerialName("duration_s") val durationS: Double,
+    @SerialName("activity_id") val activityId: Long,
+    val date: String,
+    val name: String? = null,
+    @SerialName("times_broken") val timesBroken: Int = 0,
 )
 
 /** ~200 bucket averages over the session; speed in cm/s, elev in dm, nulls where the watch stopped. */
@@ -230,6 +251,7 @@ interface ApiService {
     @GET("activities") suspend fun activities(@Query("from") from: String): List<Activity>
     @GET("activities/{id}") suspend fun activity(@Path("id") id: Long): Activity
     @POST("sync") suspend fun sync(): SyncResult
+    @GET("records") suspend fun records(): List<Record>
 }
 
 val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }

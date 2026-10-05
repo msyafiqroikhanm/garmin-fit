@@ -356,6 +356,54 @@ def activity_extra(raw: dict) -> dict:
     return out
 
 
+def pr_history(acts: list[dict]) -> tuple[dict, dict]:
+    """acts sorted by start_time. Returns ({activity_id: [distances it set a new best for]},
+    {distance: current best as {duration_s, activity_id, date, name, times_broken}})."""
+    marks, best = {}, {}
+    for a in acts:
+        for d in BEST_SPLITS:
+            t = dig(a, "raw", f"fastestSplit_{d}")
+            if not t or (d in best and t >= best[d]["duration_s"]):
+                continue
+            broken = best[d]["times_broken"] + 1 if d in best else 0
+            best[d] = {"distance_m": d, "duration_s": t, "activity_id": a["_id"], "date": a["date"], "name": a.get("name"),
+                       "times_broken": broken}
+            if broken:  # the first run with a split is the baseline, not a record worth a badge
+                marks.setdefault(a["_id"], []).append(d)
+    return marks, best
+
+
+def runs_with_splits(user_id: str) -> list[dict]:
+    proj = {"date": 1, "name": 1, "start_time": 1, **{f"raw.fastestSplit_{d}": 1 for d in BEST_SPLITS}}
+    return list(db().activities.find({"user_id": user_id, "type": {"$regex": "running"}}, proj).sort("start_time", 1))
+
+
+SIMILAR_RUNS = 5
+SIMILAR_MIN = 3
+
+
+def similar_runs(doc: dict, previous: list[dict]) -> dict | None:
+    """Compare a run with the latest earlier runs of the same type and similar distance (+-25%)."""
+    dist, speed, hr = doc.get("distance_m") or 0, doc.get("avg_speed"), doc.get("avg_hr")
+    if not dist or not speed:
+        return None
+    match = [p for p in previous if p.get("avg_speed") and abs((p.get("distance_m") or 0) - dist) <= dist * 0.25][:SIMILAR_RUNS]
+    if len(match) < SIMILAR_MIN:
+        return None
+    avg_speed = statistics.fmean(p["avg_speed"] for p in match)
+    hrs = [p["avg_hr"] for p in match if p.get("avg_hr")]
+    avg_hr = statistics.fmean(hrs) if hrs else None
+    effs = [p["avg_speed"] * 60 / p["avg_hr"] for p in match if p.get("avg_hr")]
+    return {
+        "count": len(match),
+        "avg_speed": avg_speed,
+        "avg_hr": avg_hr,
+        # meters per minute per heartbeat: higher means the same effort moves you further
+        "efficiency": statistics.fmean(effs) if effs else None,
+        "this_efficiency": speed * 60 / hr if hr else None,
+    }
+
+
 KEEP_ON_RESYNC = ("splits", "route", "series", "details_v")
 
 

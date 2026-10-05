@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +53,9 @@ import androidx.compose.ui.unit.sp
 import dev.garminfit.Activity
 import dev.garminfit.Strength
 import dev.garminfit.Extra
+import dev.garminfit.Similar
+import dev.garminfit.raceTime
+import dev.garminfit.splitShort
 import dev.garminfit.Series
 import dev.garminfit.DynamicsBand
 import dev.garminfit.cadenceBand
@@ -85,7 +89,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-fun ActivitiesScreen(initialId: Long?) {
+fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberLoad {
         Repo.api(ctx).activities(LocalDate.now().minusDays(365).toString()) to runCatching { Repo.me(ctx).profile }.getOrNull()
@@ -103,8 +107,10 @@ fun ActivitiesScreen(initialId: Long?) {
         if (share != null && share.id == selected) {
             ShareScreen(share) { sharing = null }
         } else if (current != null) {
-            BackHandler { selected = null }
-            ActivityDetail(current, list, profile, onBack = { selected = null }, onShare = { sharing = it })
+            // clearing the caller's id too lets the same activity be opened again from another tab
+            val close = { selected = null; onClosed() }
+            BackHandler(onBack = close)
+            ActivityDetail(current, list, profile, onBack = close, onShare = { sharing = it })
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 item { Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) { ScreenTitle("Aktivitas") } }
@@ -126,7 +132,10 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(a.name ?: activityType(a.type), style = num(20.sp, FontWeight.Bold), color = K.ink)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(a.name ?: activityType(a.type), Modifier.weight(1f, fill = false), style = num(20.sp, FontWeight.Bold), color = K.ink)
+                if (a.prs.isNotEmpty()) PrChip(a.prs)
+            }
             Text(
                 "${dayLabel(a.date)}, ${time(a.startTime)}" + if (a.name != null) " · ${activityType(a.type)}" else "",
                 style = T.caption,
@@ -175,7 +184,8 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         }
         full?.series?.let { SeriesCard(it, a.hasDistance()) }
         extra?.let { DynamicsCard(it) }
-        extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it) }
+        extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it, full.prs) }
+        full?.similar?.let { SimilarCard(a, it) }
         EffectCard(a, all, teFocus(extra?.teLabel))
         extra?.let { ImpactCard(it) }
         a.hrZonesS?.let { ZonesCard(it, profile?.hrZoneFloors) }
@@ -415,17 +425,63 @@ private fun DynamicsCard(e: Extra) {
 }
 
 @Composable
-private fun BestSplitsCard(splits: List<Split>) {
+private fun BestSplitsCard(splits: List<Split>, prs: List<Int>) {
     Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
         CardTitle("Waktu tercepat di sesi ini")
         splits.forEachIndexed { i, s ->
             if (i > 0) HorizontalDivider(color = K.track)
             Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(splitLabel(s.distanceM), Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(splitLabel(s.distanceM), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    if (s.distanceM?.roundToInt() in prs) StatusChip("Rekor baru", Status.GOOD)
+                }
                 val secs = s.durationS ?: 0.0
                 Text(paceSec(secs * 1000 / (s.distanceM ?: 1000.0)) + " /km", Modifier.padding(end = 16.dp), style = T.bodyS, color = K.muted)
-                Text(if (secs >= 3600) secs.roundToInt().let { "%d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) } else paceSec(secs), style = num(20.sp, FontWeight.Bold), color = K.ink)
+                Text(raceTime(secs), style = num(20.sp, FontWeight.Bold), color = K.ink)
             }
+        }
+    }
+}
+
+@Composable
+private fun PrChip(prs: List<Int>) {
+    Text(
+        "PR " + prs.joinToString(" · ") { splitShort(it) },
+        Modifier.clip(CircleShape).background(K.good).padding(horizontal = 8.dp, vertical = 2.dp),
+        style = body(12.sp, FontWeight.Bold, 1.2f),
+        color = K.onAccent,
+    )
+}
+
+@Composable
+private fun SimilarCard(a: Activity, s: Similar) {
+    val speed = a.avgSpeed ?: return
+    // seconds per km: negative means this run was faster
+    val paceDiff = (1000 / speed - 1000 / s.avgSpeed).roundToInt()
+    val hrDiff = a.avgHr?.let { h -> s.avgHr?.let { (h - it).roundToInt() } }
+    val pacePart = when {
+        paceDiff < 0 -> "${-paceDiff} detik/km lebih cepat"
+        paceDiff > 0 -> "$paceDiff detik/km lebih lambat"
+        else -> "Pace sama"
+    }
+    val hrPart = hrDiff?.let {
+        when {
+            it < 0 -> ", HR ${-it} bpm lebih rendah"
+            it > 0 -> ", HR $it bpm lebih tinggi"
+            else -> ", HR sama"
+        }
+    }.orEmpty()
+    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
+        CardTitle("Dibanding run serupa")
+        Text("$pacePart$hrPart dari rata-rata ${s.count} run terakhir dengan jarak mirip.", style = T.body, color = K.body2)
+        InfoRow("Pace rata-rata", pace(s.avgSpeed), "/km", "Run ini ${pace(speed)} /km.")
+        s.avgHr?.let { InfoRow("HR rata-rata", it.int(), "bpm", "Run ini ${a.avgHr.int()} bpm.") }
+        if (s.efficiency != null && s.thisEfficiency != null) {
+            val better = s.thisEfficiency >= s.efficiency
+            InfoRow(
+                "Efisiensi", s.thisEfficiency.two(), "m/detak",
+                "Meter per detak jantung, rata-rata run serupa ${s.efficiency.two()}. Naik dari waktu ke waktu berarti makin bugar.",
+            ) { StatusChip(if (better) "Lebih efisien" else "Kurang efisien", if (better) Status.GOOD else Status.FAIR) }
         }
     }
 }

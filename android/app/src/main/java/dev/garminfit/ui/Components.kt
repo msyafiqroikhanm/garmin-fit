@@ -109,6 +109,18 @@ fun <T> LoadView(
     }
 }
 
+/** Loader for one card inside a screen: a short placeholder while loading, nothing on error or empty. */
+@Composable
+fun <T> CardLoad(loader: Loader<T>, isEmpty: (T) -> Boolean = { false }, content: @Composable (T) -> Unit) {
+    when (val s = loader.state) {
+        Load.Loading -> Panel(Modifier.fillMaxWidth().height(96.dp)) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = K.good, trackColor = K.track) }
+        }
+        is Load.Err -> Unit // the screen-level loader already reports connection and token problems
+        is Load.Ok -> if (!isEmpty(s.data)) content(s.data)
+    }
+}
+
 @Composable
 fun AccentButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(

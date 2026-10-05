@@ -18,6 +18,7 @@ import dev.garminfit.duration
 import dev.garminfit.int
 import dev.garminfit.km
 import dev.garminfit.pace
+import dev.garminfit.splitShort
 import kotlin.math.max
 
 enum class Ratio(val label: String, val h: Int) { STORY("9:16", 1920), FEED("4:5", 1350) }
@@ -89,7 +90,8 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
     c.translate(spec.dx * w, spec.dy * h)
     c.scale(spec.zoom, spec.zoom, w / 2, h / 2)
     val m = 72 * u
-    val title = "${activityType(a.type).uppercase()} · ${dayMonth(a.date).uppercase()}"
+    val pr = a.prs.takeIf { it.isNotEmpty() }?.let { " · PR " + it.joinToString(" ") { d -> splitShort(d) } }.orEmpty()
+    val title = "${activityType(a.type).uppercase()} · ${dayMonth(a.date).uppercase()}$pr"
     fun graphic(left: Float, top: Float, gw: Float, gh: Float) {
         if (route != null || muscles != null) box.union(left, top, left + gw, top + gh)
         if (route != null) drawRoute(c, left, top, gw, gh, route, 9 * u, ink)

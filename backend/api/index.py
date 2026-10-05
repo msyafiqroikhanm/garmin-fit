@@ -53,7 +53,17 @@ def daily(frm: date | None = Query(None, alias="from"), to: date | None = None, 
 def activities(frm: date | None = Query(None, alias="from"), to: date | None = None, user: dict = Depends(auth)):
     f, t = _range(frm, to, 90)
     q = {"user_id": user["data_user_id"], "date": {"$gte": f, "$lte": t}}
-    return list(core.db().activities.find(q, NO_RAW).sort("start_time", -1))
+    acts = list(core.db().activities.find(q, NO_RAW).sort("start_time", -1))
+    marks, _ = core.pr_history(core.runs_with_splits(user["data_user_id"]))
+    for a in acts:
+        a["prs"] = marks.get(a["_id"], [])
+    return acts
+
+
+@app.get("/records")
+def records(user: dict = Depends(auth)):
+    _, best = core.pr_history(core.runs_with_splits(user["data_user_id"]))
+    return [best[d] for d in core.BEST_SPLITS if d in best]
 
 
 @app.get("/activities/{activity_id}")
@@ -72,6 +82,15 @@ def activity(activity_id: int, user: dict = Depends(auth)):
     if doc.get("type") == "strength_training":
         doc["strength"] = core.strength_summary(doc.get("raw") or {}, core.muscle_catalog())
     doc["extra"] = core.activity_extra(doc.get("raw") or {})
+    if "running" in (doc.get("type") or ""):
+        marks, _ = core.pr_history(core.runs_with_splits(uid))
+        doc["prs"] = marks.get(doc["_id"], [])
+        since = (date.fromisoformat(doc["date"]) - timedelta(days=120)).isoformat()
+        prev = core.db().activities.find(
+            {"user_id": uid, "type": doc["type"], "start_time": {"$lt": doc["start_time"]}, "date": {"$gte": since}},
+            {"distance_m": 1, "avg_speed": 1, "avg_hr": 1},
+        ).sort("start_time", -1)
+        doc["similar"] = core.similar_runs(doc, list(prev))
     doc.pop("raw", None)
     return doc
 

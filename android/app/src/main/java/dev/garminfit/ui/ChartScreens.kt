@@ -37,6 +37,14 @@ import androidx.compose.ui.unit.sp
 import dev.garminfit.Daily
 import dev.garminfit.Profile
 import dev.garminfit.Repo
+import dev.garminfit.Record
+import dev.garminfit.raceTime
+import dev.garminfit.splitLabel
+import dev.garminfit.paceSec
+import dev.garminfit.dateLabel
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.HorizontalDivider
 import dev.garminfit.VO2_CATEGORIES
 import dev.garminfit.dayMonth
 import dev.garminfit.int
@@ -146,26 +154,50 @@ private fun TrendCard(
 }
 
 @Composable
-fun TrainingScreen() {
+fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberLoad {
         Repo.api(ctx).daily(from(90)) to runCatching { Repo.me(ctx).profile }.getOrNull()
     }
-    LoadView(
-        loader,
-        loadingText = "Memuat data latihan 90 hari",
-        isEmpty = { (days, _) -> !days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad } && days.none { it.trainingStatus != null } },
-        emptyText = "Belum ada data latihan. Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda.",
-    ) { (days, profile) ->
+    val records = rememberLoad { Repo.api(ctx).records() }
+    LoadView(loader, loadingText = "Memuat data latihan 90 hari") { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenTitle("Kebugaran")
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
+            CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
             if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
             if (days.hasAny { it.acuteLoad }) LoadCard(days)
+            if (!days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad }) {
+                Text("Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda.", style = T.body, color = K.muted)
+            }
         }
+    }
+}
+
+@Composable
+private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
+    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
+        CardTitle("Rekor pribadi")
+        records.forEachIndexed { i, r ->
+            if (i > 0) HorizontalDivider(color = K.track)
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(r.activityId) }.padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(splitLabel(r.distanceM), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    Text("${dateLabel(r.date)} · ${r.name ?: "Lari"}", style = T.caption, color = K.muted, maxLines = 1)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(raceTime(r.durationS), style = num(22.sp, FontWeight.Bold), color = K.ink)
+                    Text("${paceSec(r.durationS * 1000 / r.distanceM)} /km", style = T.caption, color = K.muted)
+                }
+            }
+        }
+        Text("Dihitung dari lari yang tersimpan di app sejak data pertama masuk.", Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
     }
 }
 

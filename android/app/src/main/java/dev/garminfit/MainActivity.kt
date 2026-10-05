@@ -126,8 +126,8 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
             CompositionLocalProvider(LocalLogout provides onLogout) { when (tab) {
                 Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onLogout = onLogout)
                 Tab.TRENDS -> TrendsScreen()
-                Tab.ACTIVITIES -> ActivitiesScreen(activityId)
-                Tab.TRAINING -> TrainingScreen()
+                Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
+                Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES })
             } }
         }
     }

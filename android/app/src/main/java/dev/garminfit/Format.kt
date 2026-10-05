@@ -260,6 +260,21 @@ fun gctBand(ms: Double) = band(ms, listOf(208.0, 241.0, 273.0, 306.0), higherIsB
 fun oscillationBand(cm: Double) = band(cm, listOf(6.4, 8.2, 9.8, 11.6), higherIsBetter = false)
 fun ratioBand(pct: Double) = band(pct, listOf(6.1, 7.5, 8.7, 10.2), higherIsBetter = false)
 
+/** m:ss under an hour, h:mm:ss above, for race-style times. */
+fun raceTime(secs: Double): String = secs.roundToInt().let {
+    if (it >= 3600) "%d:%02d:%02d".format(it / 3600, it / 60 % 60, it % 60) else "%d:%02d".format(it / 60, it % 60)
+}
+
+fun splitShort(m: Number): String = when (m.toInt()) {
+    1000 -> "1K"
+    1609 -> "1 mil"
+    5000 -> "5K"
+    10000 -> "10K"
+    21098 -> "HM"
+    42195 -> "FM"
+    else -> "${m.toInt() / 1000}K"
+}
+
 fun splitLabel(m: Double?): String = when (m?.roundToInt()) {
     1000 -> "1 km"
     1609 -> "1 mil"
