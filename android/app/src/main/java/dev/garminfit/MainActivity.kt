@@ -62,11 +62,13 @@ import dev.garminfit.ui.TrendsScreen
 import dev.garminfit.widget.RefreshWorker
 import kotlinx.coroutines.launch
 
-enum class Tab(val label: String) {
-    TODAY("Hari Ini"),
-    TRENDS("Tren"),
-    ACTIVITIES("Aktivitas"),
-    TRAINING("Latihan"),
+enum class Tab(private val en: String, private val id: String) {
+    TODAY("Today", "Hari Ini"),
+    TRENDS("Trends", "Tren"),
+    ACTIVITIES("Activities", "Aktivitas"),
+    TRAINING("Training", "Latihan");
+
+    val label: String get() = tr(en, id)
 }
 
 const val EXTRA_TAB = "tab"
@@ -133,7 +135,7 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
     }
 }
 
-/** Text-only pills: four short Indonesian labels read faster than icons we'd have to invent. */
+/** Text-only pills: four short labels read faster than icons we'd have to invent. */
 @Composable
 private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
     Column(Modifier.background(K.navBg)) {
@@ -171,7 +173,7 @@ private fun SetupScreen(onDone: (String) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     fun submit() {
         val t = input.trim()
-        if (t.isEmpty()) { error = "Masukkan token dulu."; return }
+        if (t.isEmpty()) { error = tr("Enter a token first.", "Masukkan token dulu."); return }
         scope.launch {
             busy = true
             error = null
@@ -187,7 +189,7 @@ private fun SetupScreen(onDone: (String) -> Unit) {
                 Text("GARMIN-FIT", style = T.screenTitle, color = K.ink)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Masukkan token akses dari pemilik akun. Token cukup dimasukkan sekali.",
+                    tr("Enter the access token from the account owner. You only need to do this once.", "Masukkan token akses dari pemilik akun. Token cukup dimasukkan sekali."),
                     style = T.body,
                     color = K.muted,
                 )
@@ -195,7 +197,7 @@ private fun SetupScreen(onDone: (String) -> Unit) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it; error = null },
-                    label = { Text("Token akses") },
+                    label = { Text(tr("Access token", "Token akses")) },
                     singleLine = true,
                     isError = error != null,
                     supportingText = error?.let { { Text(it, color = K.low) } },
@@ -204,7 +206,7 @@ private fun SetupScreen(onDone: (String) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(16.dp))
-                AccentButton(if (busy) "Menghubungkan…" else "Hubungkan", ::submit, Modifier.fillMaxWidth(), enabled = !busy)
+                AccentButton(if (busy) tr("Connecting…", "Menghubungkan…") else tr("Connect", "Hubungkan"), ::submit, Modifier.fillMaxWidth(), enabled = !busy)
             }
         }
     }

@@ -1,5 +1,6 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -63,7 +64,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = "‹ Kembali ke detail") {
+fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = tr("‹ Back to details", "‹ Kembali ke detail")) {
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -72,8 +73,8 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = "
     // the big-visual layout only makes sense with a route, body map or heatmap to show
     val layouts = if (content.graphic != null) Layout.entries else Layout.entries - Layout.ROUTE
     val graphicLabel = when (content.graphic) {
-        is ShareGraphic.Body -> "Otot"
-        is ShareGraphic.Heat -> "Peta"
+        is ShareGraphic.Body -> tr("Muscles", "Otot")
+        is ShareGraphic.Heat -> tr("Map", "Peta")
         else -> Layout.ROUTE.label
     }
     var spec by remember(content) {
@@ -91,7 +92,7 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = "
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             photo = withContext(Dispatchers.IO) { runCatching { decodePhoto(ctx, uri) }.getOrNull() }
-            if (photo == null) Toast.makeText(ctx, "Foto tidak bisa dibuka", Toast.LENGTH_SHORT).show()
+            if (photo == null) Toast.makeText(ctx, tr("Couldn't open the photo", "Foto tidak bisa dibuka"), Toast.LENGTH_SHORT).show()
             else spec = spec.copy(backdrop = Backdrop.PHOTO)
         }
     }
@@ -125,34 +126,34 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = "
                         }
                     }
                     .pointerInput(Unit) { detectTapGestures(onDoubleTap = { spec = spec.copy(dx = 0f, dy = 0f, zoom = 1f) }) }
-                    .semantics { contentDescription = "Pratinjau gambar untuk dibagikan. Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset." },
+                    .semantics { contentDescription = tr("Preview of the image to share. Drag and pinch to position it, double tap to reset.", "Pratinjau gambar untuk dibagikan. Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset.") },
             ) {
                 drawIntoCanvas { box.value = renderShare(it.nativeCanvas, size.width, size.height, spec, content, photo, fonts) }
             }
         }
-        Text("Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset.", style = T.caption, color = K.muted)
+        Text(tr("Drag and pinch to position, double tap to reset.", "Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset."), style = T.caption, color = K.muted)
         Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Option("Latar") { Segmented(Backdrop.entries, spec.backdrop, { it.label }) { b -> if (b == Backdrop.PHOTO && photo == null) pick() else spec = spec.copy(backdrop = b) } }
+            Option(tr("Background", "Latar")) { Segmented(Backdrop.entries, spec.backdrop, { it.label }) { b -> if (b == Backdrop.PHOTO && photo == null) pick() else spec = spec.copy(backdrop = b) } }
             if (spec.backdrop == Backdrop.PHOTO) {
                 Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = pick).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(if (photo == null) "Pilih foto" else "Ganti foto", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+                    Text(if (photo == null) tr("Pick photo", "Pilih foto") else tr("Change photo", "Ganti foto"), style = body(14.sp, FontWeight.SemiBold), color = K.good)
                 }
             }
-            Option("Gaya") { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE) graphicLabel else it.label }) { spec = spec.copy(layout = it, dx = 0f, dy = 0f, zoom = 1f) } }
-            Option("Ukuran") { Segmented(Ratio.entries, spec.ratio, { it.label }) { spec = spec.copy(ratio = it, dx = 0f, dy = 0f, zoom = 1f) } }
-            Option("Warna") { Segmented(Ink.entries, spec.ink, { it.label }) { spec = spec.copy(ink = it) } }
+            Option(tr("Style", "Gaya")) { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE) graphicLabel else it.label }) { spec = spec.copy(layout = it, dx = 0f, dy = 0f, zoom = 1f) } }
+            Option(tr("Size", "Ukuran")) { Segmented(Ratio.entries, spec.ratio, { it.label }) { spec = spec.copy(ratio = it, dx = 0f, dy = 0f, zoom = 1f) } }
+            Option(tr("Color", "Warna")) { Segmented(Ink.entries, spec.ink, { it.label }) { spec = spec.copy(ink = it) } }
             Option("Data") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     available.forEach { s ->
                         Toggle(s.label, s.key in spec.stats) { on -> spec = spec.copy(stats = if (on) spec.stats + s.key else spec.stats - s.key) }
                     }
-                    Toggle("Logo KINETIK", spec.wordmark) { spec = spec.copy(wordmark = it) }
+                    Toggle(tr("KINETIK logo", "Logo KINETIK"), spec.wordmark) { spec = spec.copy(wordmark = it) }
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlineButton("Simpan", Modifier.weight(1f), enabled = !busy) { export { saveToGallery(ctx, it, spec.backdrop) } }
-            AccentButton("Bagikan", { export { shareImage(ctx, it, spec.backdrop) } }, Modifier.weight(1f), enabled = !busy)
+            OutlineButton(tr("Save", "Simpan"), Modifier.weight(1f), enabled = !busy) { export { saveToGallery(ctx, it, spec.backdrop) } }
+            AccentButton(tr("Share", "Bagikan"), { export { shareImage(ctx, it, spec.backdrop) } }, Modifier.weight(1f), enabled = !busy)
         }
     }
 }
@@ -208,7 +209,7 @@ private fun shareImage(ctx: Context, bmp: Bitmap, b: Backdrop) {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    ctx.startActivity(Intent.createChooser(send, "Bagikan aktivitas"))
+    ctx.startActivity(Intent.createChooser(send, tr("Share activity", "Bagikan aktivitas")))
 }
 
 private fun saveToGallery(ctx: Context, bmp: Bitmap, b: Backdrop) {
@@ -223,5 +224,5 @@ private fun saveToGallery(ctx: Context, bmp: Bitmap, b: Backdrop) {
             bmp.compress(if (b.png()) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it)
         }
     }.isSuccess
-    Toast.makeText(ctx, if (ok) "Tersimpan di Galeri, folder Kinetik" else "Gagal menyimpan gambar", Toast.LENGTH_SHORT).show()
+    Toast.makeText(ctx, if (ok) tr("Saved to Gallery, Kinetik folder", "Tersimpan di Galeri, folder Kinetik") else tr("Couldn't save the image", "Gagal menyimpan gambar"), Toast.LENGTH_SHORT).show()
 }

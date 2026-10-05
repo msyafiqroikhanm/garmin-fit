@@ -1,5 +1,6 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.HorizontalDivider
 import dev.garminfit.VO2_CATEGORIES
+import dev.garminfit.groupLabel
+import dev.garminfit.isId
 import dev.garminfit.dayMonth
 import dev.garminfit.int
 import dev.garminfit.loadAdvice
@@ -82,13 +85,13 @@ fun TrendsScreen() {
     // weekly technique needs a few weeks to say anything, so 7/30/90 days map to 4/8/13 weeks
     val dynamics = rememberLoad(range) { Repo.api(ctx).runningTrends(mapOf(7 to 4, 30 to 8, 90 to 13)[range] ?: 8) }
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ScreenTitle("Tren tubuh")
-        Segmented(listOf(7, 30, 90), range, { "$it hari" }) { range = it }
+        ScreenTitle(tr("Body trends", "Tren tubuh"))
+        Segmented(listOf(7, 30, 90), range, { tr("$it days", "$it hari") }) { range = it }
         LoadView(
             loader,
-            loadingText = "Memuat tren $range hari",
+            loadingText = tr("Loading $range day trends", "Memuat tren $range hari"),
             isEmpty = { it.isEmpty() },
-            emptyText = "Belum ada data di rentang ini. Pilih rentang lebih panjang atau tunggu sync berikutnya.",
+            emptyText = tr("No data in this range yet. Pick a longer range or wait for the next sync.", "Belum ada data di rentang ini. Pilih rentang lebih panjang atau tunggu sync berikutnya."),
         ) { days ->
             val start = dayMonth(days.first().date)
             Column(
@@ -97,24 +100,24 @@ fun TrendsScreen() {
             ) {
                 val hrvBase = days.lastOrNull { it.hrvLow != null && it.hrvHigh != null }
                 TrendCard(
-                    days, start, "HRV semalam", "ms", { it.hrv }, K.good, higherIsBetter = true,
+                    days, start, tr("Overnight HRV", "HRV semalam"), "ms", { it.hrv }, K.good, higherIsBetter = true,
                     band = hrvBase?.let { it.hrvLow!!..it.hrvHigh!! },
-                    insight = "Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil.",
+                    insight = tr("The green band is your normal range. Staying inside it means steady recovery.", "Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil."),
                 )
                 val rhrMean = days.mapNotNull { it.rhr }.takeIf { it.isNotEmpty() }?.average()
                 TrendCard(
                     days, start, "Resting HR", "bpm", { it.rhr }, K.ink, higherIsBetter = false,
                     band = rhrMean?.let { (it - 4)..(it + 4) },
-                    insight = "Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien.",
+                    insight = tr("Lower usually means fitter. A slow decline means a more efficient heart.", "Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien."),
                 )
                 TrendCard(
-                    days, start, "Skor tidur", "/100", { it.sleepScore }, K.blue, higherIsBetter = true,
+                    days, start, tr("Sleep score", "Skor tidur"), "/100", { it.sleepScore }, K.blue, higherIsBetter = true,
                     band = 70.0..100.0,
-                    insight = "Skor di atas 70 bikin readiness naik keesokan harinya.",
+                    insight = tr("A score above 70 lifts your readiness the next day.", "Skor di atas 70 bikin readiness naik keesokan harinya."),
                 )
                 TrendCard(
-                    days, start, "Body Battery tertinggi", "", { it.bbHigh }, K.fair, higherIsBetter = true,
-                    insight = "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang.",
+                    days, start, tr("Peak Body Battery", "Body Battery tertinggi"), "", { it.bbHigh }, K.fair, higherIsBetter = true,
+                    insight = tr("Daily energy peak after sleep. Below 60 means sleep didn't fully recharge you.", "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang."),
                 )
                 CardLoad(dynamics, isEmpty = { w -> w.none { it.cadence != null } }) { DynamicsTrendCard(it) }
             }
@@ -125,12 +128,12 @@ fun TrendsScreen() {
 @Composable
 private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
     val rows = listOfNotNull(
-        Triple("Kadens", "spm", weeks.map { it.cadence }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> cadenceBand(v) } },
-        Triple("Kontak tanah", "ms", weeks.map { it.gctMs }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> gctBand(v) } },
-        Triple("Rasio vertikal", "%", weeks.map { it.vrPct }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> ratioBand(v) } },
+        Triple(tr("Cadence", "Kadens"), "spm", weeks.map { it.cadence }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> cadenceBand(v) } },
+        Triple(tr("Ground contact", "Kontak tanah"), "ms", weeks.map { it.gctMs }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> gctBand(v) } },
+        Triple(tr("Vertical ratio", "Rasio vertikal"), "%", weeks.map { it.vrPct }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> ratioBand(v) } },
     )
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle("Teknik lari per minggu")
+        CardTitle(tr("Weekly running form", "Teknik lari per minggu"))
         rows.forEach { (r, band) ->
             val (name, unit, values) = r
             val latest = values.lastOrNull { it != null } ?: return@forEach
@@ -140,10 +143,10 @@ private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
                     band(latest).let { b -> if (b.status != null) StatusChip(b.label, b.status) else NeutralChip(b.label) }
                     Value(if (unit == "%") latest.one() else latest.int(), unit, num(22.sp, FontWeight.Bold))
                 }
-                LineChart(values, "Grafik $name per minggu, terakhir ${latest.int()} $unit", height = 56.dp, color = K.blue, width = 1.8.dp)
+                LineChart(values, tr("Weekly $name chart, latest ${latest.int()} $unit", "Grafik $name per minggu, terakhir ${latest.int()} $unit"), height = 56.dp, color = K.blue, width = 1.8.dp)
             }
         }
-        Text("${weeks.size} minggu terakhir, rata-rata per minggu ditimbang dari durasi tiap lari. Label mengikuti skala Garmin.", style = T.caption, color = K.muted)
+        Text(tr("Last ${weeks.size} weeks, each week averaged by run duration. Labels follow Garmin's scale.", "${weeks.size} minggu terakhir, rata-rata per minggu ditimbang dari durasi tiap lari. Label mengikuti skala Garmin."), style = T.caption, color = K.muted)
     }
 }
 
@@ -182,10 +185,10 @@ private fun TrendCard(
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 DeltaPill(deltaText, deltaStatus)
-                Text("rata-rata ${present.average().int()}", style = T.caption, color = K.muted)
+                Text(tr("avg ${present.average().int()}", "rata-rata ${present.average().int()}"), style = T.caption, color = K.muted)
             }
         }
-        LineChart(values, "Grafik $title ${days.size} hari, terakhir $last $unit, berubah $diff", color = color, band = band)
+        LineChart(values, tr("$title chart over ${days.size} days, latest $last $unit, change $diff", "Grafik $title ${days.size} hari, terakhir $last $unit, berubah $diff"), color = color, band = band)
         ChartDates(start)
         Text(insight, style = T.bodyS, color = K.body3)
     }
@@ -202,12 +205,12 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
     val muscles = rememberLoad { Repo.api(ctx).weekMuscles() }
     var recap by rememberSaveable { mutableStateOf(false) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
-    LoadView(loader, loadingText = "Memuat data latihan 90 hari") { (days, profile) ->
+    LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ScreenTitle("Kebugaran")
+            ScreenTitle(tr("Fitness", "Kebugaran"))
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             RecapEntry { recap = true }
             CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }
@@ -216,7 +219,7 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit) {
             if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
             if (days.hasAny { it.acuteLoad }) LoadCard(days)
             if (!days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad }) {
-                Text("Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda.", style = T.body, color = K.muted)
+                Text(tr("VO2max and training load show up after a few runs or rides.", "Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda."), style = T.body, color = K.muted)
             }
         }
     }
@@ -233,8 +236,8 @@ private fun PredictionsCard(rows: List<Prediction>) {
         Triple("Marathon", last.marathon, month.marathon),
     )
     Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        CardTitle("Prediksi lomba")
-        Text("Perkiraan Garmin kalau kamu lomba hari ini, dari VO2 max dan riwayat latihan.", style = T.bodyS, color = K.muted)
+        CardTitle(tr("Race predictions", "Prediksi lomba"))
+        Text(tr("Garmin's estimate if you raced today, based on VO2 max and training history.", "Perkiraan Garmin kalau kamu lomba hari ini, dari VO2 max dan riwayat latihan."), style = T.bodyS, color = K.muted)
         items.forEach { (name, now, before) ->
             now ?: return@forEach
             HorizontalDivider(Modifier.padding(top = 8.dp), color = K.track)
@@ -250,30 +253,30 @@ private fun PredictionsCard(rows: List<Prediction>) {
         }
         val half = rows.map { it.half }
         if (half.count { it != null } > 2) {
-            Text("Half marathon, ${rows.size} hari terakhir", Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
+            Text(tr("Half marathon, last ${rows.size} days", "Half marathon, ${rows.size} hari terakhir"), Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
             // negated so a faster prediction draws higher
-            LineChart(half.map { it?.let { v -> -v } }, "Grafik prediksi half marathon", height = 64.dp, color = K.good, width = 1.8.dp)
+            LineChart(half.map { it?.let { v -> -v } }, tr("Half marathon prediction chart", "Grafik prediksi half marathon"), height = 64.dp, color = K.good, width = 1.8.dp)
         }
-        Text("Perubahan dibanding 30 hari lalu.", Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
+        Text(tr("Change compared with 30 days ago.", "Perubahan dibanding 30 hari lalu."), Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
     }
 }
 
 @Composable
 private fun WeekMusclesCard(w: WeekMuscles) {
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
-        CardTitle("Otot 7 hari terakhir")
+        CardTitle(tr("Muscles, last 7 days", "Otot 7 hari terakhir"))
         if (w.sessions == 0) {
-            Text("Belum ada sesi strength minggu ini.", style = T.body, color = K.muted)
+            Text(tr("No strength sessions this week yet.", "Belum ada sesi strength minggu ini."), style = T.body, color = K.muted)
             return@Panel
         }
-        Text("${w.sessions} sesi strength · ${w.sets} set", style = T.bodyS, color = K.muted)
-        Canvas(Modifier.fillMaxWidth().height(240.dp).semantics { contentDescription = "Body map otot yang dilatih 7 hari terakhir" }) {
+        Text(tr("${w.sessions} strength sessions · ${w.sets} sets", "${w.sessions} sesi strength · ${w.sets} set"), style = T.bodyS, color = K.muted)
+        Canvas(Modifier.fillMaxWidth().height(240.dp).semantics { contentDescription = tr("Body map of muscles worked in the last 7 days", "Body map otot yang dilatih 7 hari terakhir") }) {
             drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, w.muscles, K.good, K.track) }
         }
         if (w.untrained.isNotEmpty()) {
-            StatusChip("Belum dilatih: ${w.untrained.joinToString(", ")}", Status.FAIR)
+            StatusChip(tr("Not trained: ${w.untrained.joinToString(", ") { groupLabel(it) }}", "Belum dilatih: ${w.untrained.joinToString(", ") { groupLabel(it) }}"), Status.FAIR)
         } else {
-            StatusChip("Semua kelompok otot besar kena minggu ini", Status.GOOD)
+            StatusChip(tr("Every major muscle group got work this week", "Semua kelompok otot besar kena minggu ini"), Status.GOOD)
         }
     }
 }
@@ -286,8 +289,8 @@ private fun RecapEntry(onOpen: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            CardTitle("Rekap")
-            Text("Total bulanan dan tahunan, peta lari, sorotan", style = T.bodyS, color = K.muted)
+            CardTitle(tr("Recap", "Rekap"))
+            Text(tr("Monthly and yearly totals, run map, highlights", "Total bulanan dan tahunan, peta lari, sorotan"), style = T.bodyS, color = K.muted)
         }
         Text("›", style = num(32.sp), color = K.good)
     }
@@ -296,7 +299,7 @@ private fun RecapEntry(onOpen: () -> Unit) {
 @Composable
 private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
     Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        CardTitle("Rekor pribadi")
+        CardTitle(tr("Personal records", "Rekor pribadi"))
         records.forEachIndexed { i, r ->
             if (i > 0) HorizontalDivider(color = K.track)
             Row(
@@ -305,7 +308,7 @@ private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(splitLabel(r.distanceM), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-                    Text("${dateLabel(r.date)} · ${r.name ?: "Lari"}", style = T.caption, color = K.muted, maxLines = 1)
+                    Text("${dateLabel(r.date)} · ${r.name ?: tr("Run", "Lari")}", style = T.caption, color = K.muted, maxLines = 1)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(raceTime(r.durationS), style = num(22.sp, FontWeight.Bold), color = K.ink)
@@ -313,7 +316,7 @@ private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
                 }
             }
         }
-        Text("Dihitung dari lari yang tersimpan di app sejak data pertama masuk.", Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
+        Text(tr("Counted from runs stored in the app since the first sync.", "Dihitung dari lari yang tersimpan di app sejak data pertama masuk."), Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
     }
 }
 
@@ -343,16 +346,16 @@ private fun Vo2Card(days: List<Daily>, profile: Profile?) {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Label("VO2max")
-                Value(v.one(), "ml/kg/mnt", num(56.sp, lh = 0.9f), unitStyle = T.bodyS, gap = 6.dp)
+                Value(v.one(), tr("ml/kg/min", "ml/kg/mnt"), num(56.sp, lh = 0.9f), unitStyle = T.bodyS, gap = 6.dp)
             }
-            DeltaPill((if (delta >= 0) "+" else "") + delta.one() + " / ${spanDays(present)} hari", if (delta >= 0) Status.GOOD else Status.FAIR)
+            DeltaPill((if (delta >= 0) "+" else "") + delta.one() + tr(" / ${spanDays(present)} days", " / ${spanDays(present)} hari"), if (delta >= 0) Status.GOOD else Status.FAIR)
         }
         val a = age(profile)
         val g = profile?.gender
         val cat = if (a != null && g != null) vo2Category(v, g == "MALE", a) else null
         if (cat != null) {
             Row(
-                Modifier.semantics { contentDescription = "Kategori ${VO2_CATEGORIES[cat.index]}" },
+                Modifier.semantics { contentDescription = tr("Category ${VO2_CATEGORIES[cat.index]}", "Kategori ${VO2_CATEGORIES[cat.index]}") },
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 VO2_CATEGORIES.forEachIndexed { i, name ->
@@ -374,13 +377,13 @@ private fun Vo2Card(days: List<Daily>, profile: Profile?) {
                 }
             }
             val current = VO2_CATEGORIES[cat.index]
-            val next = cat.toNext?.let { " Kurang ${it.one()} poin lagi ke kategori ${VO2_CATEGORIES[cat.index + 1]}." } ?: ""
-            Text("\"$current\" untuk ${cat.sexLabel} usia ${cat.ageRange}.$next", style = T.bodyS, color = K.body3)
+            val next = cat.toNext?.let { tr(" ${it.one()} points to go until ${VO2_CATEGORIES[cat.index + 1]}.", " Kurang ${it.one()} poin lagi ke kategori ${VO2_CATEGORIES[cat.index + 1]}.") } ?: ""
+            Text(tr("\"$current\" for ${cat.sexLabel} aged ${cat.ageRange}.$next", "\"$current\" untuk ${cat.sexLabel} usia ${cat.ageRange}.$next"), style = T.bodyS, color = K.body3)
         }
     }
 }
 
-// Gauge scale 0.5–1.8; segment weights are the widths of Kurang / Optimal / Tinggi / Rawan on that scale.
+// Gauge scale 0.5–1.8; segment weights are the widths of Low / Optimal / High / Injury risk on that scale.
 private val GAUGE = listOf(0.3f to K.blue, 0.5f to K.good, 0.2f to K.fair, 0.3f to K.low)
 
 @Composable
@@ -388,16 +391,16 @@ private fun LoadCard(days: List<Daily>) {
     val latest = days.last { it.acuteLoad != null }
     val ratio = latest.acuteLoad?.let { a -> latest.chronicLoad?.takeIf { it > 0 }?.let { a / it } }
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
-        CardTitle("Beban latihan")
+        CardTitle(tr("Training load", "Beban latihan"))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stat(latest.acuteLoad.int(), "akut (7 hari)", num(30.sp), Modifier.weight(1f))
-            Stat(latest.chronicLoad.int(), "kronis (28 hari)", num(30.sp), Modifier.weight(1f))
-            Stat(ratio.two(), "rasio", num(30.sp), Modifier.weight(1f), color = ratio?.let { loadStatus(it).color() } ?: K.ink)
+            Stat(latest.acuteLoad.int(), tr("acute (7 days)", "akut (7 hari)"), num(30.sp), Modifier.weight(1f))
+            Stat(latest.chronicLoad.int(), tr("chronic (28 days)", "kronis (28 hari)"), num(30.sp), Modifier.weight(1f))
+            Stat(ratio.two(), tr("ratio", "rasio"), num(30.sp), Modifier.weight(1f), color = ratio?.let { loadStatus(it).color() } ?: K.ink)
         }
         if (ratio != null) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 BoxWithConstraints(
-                    Modifier.fillMaxWidth().height(20.dp).semantics { contentDescription = "Rasio ${ratio.two()}, optimal 0,8 sampai 1,3" },
+                    Modifier.fillMaxWidth().height(20.dp).semantics { contentDescription = tr("Ratio ${ratio.two()}, optimal 0.8 to 1.3", "Rasio ${ratio.two()}, optimal 0,8 sampai 1,3") },
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Row(Modifier.fillMaxWidth().height(12.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -410,7 +413,7 @@ private fun LoadCard(days: List<Daily>) {
                     )
                 }
                 Row {
-                    listOf("Kurang", "Optimal 0,8–1,3", "Tinggi", "Rawan cedera").forEachIndexed { i, s ->
+                    (if (isId()) listOf("Kurang", "Optimal 0,8–1,3", "Tinggi", "Rawan cedera") else listOf("Low", "Optimal 0.8–1.3", "High", "Injury risk")).forEachIndexed { i, s ->
                         if (i > 0) Spacer(Modifier.weight(1f))
                         Text(s, style = body(11.sp, lh = 1.2f), color = K.muted)
                     }
@@ -419,17 +422,17 @@ private fun LoadCard(days: List<Daily>) {
         }
         LineChart(
             days.map { it.acuteLoad },
-            "Grafik beban akut dan kronis 90 hari",
+            tr("Acute and chronic load chart, 90 days", "Grafik beban akut dan kronis 90 hari"),
             height = 110.dp,
             width = 2.4.dp,
             secondDashed = days.map { it.chronicLoad },
             baseline = false,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            LineKey("Akut", K.good)
-            LineKey("Kronis", K.muted)
+            LineKey(tr("Acute", "Akut"), K.good)
+            LineKey(tr("Chronic", "Kronis"), K.muted)
             Spacer(Modifier.weight(1f))
-            Text("${spanDays(days)} hari", style = T.caption, color = K.muted)
+            Text(tr("${spanDays(days)} days", "${spanDays(days)} hari"), style = T.caption, color = K.muted)
         }
         ratio?.let { Text(loadAdvice(it), style = T.bodyS, color = K.body3) }
     }

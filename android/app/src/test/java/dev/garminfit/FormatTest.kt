@@ -5,9 +5,23 @@ import dev.garminfit.ui.project
 import dev.garminfit.ui.trimEnds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 
 class FormatTest {
+    // the Indonesian copy is asserted below; English gets its own test
+    @Before fun indonesian() = Locale.setDefault(Locale("in"))
+
+    @Test fun englishIsTheDefaultCopy() {
+        Locale.setDefault(Locale.ENGLISH)
+        assertEquals("Go!", readinessVerdict("PRIME", 20.0, null)!!.word)
+        assertEquals(listOf("30–45 min", "Zone 2", "Recovery 18 h"), readinessVerdict("MODERATE", 55.0, 1088.0)!!.chips)
+        assertEquals("1h 2m", duration(3725.0))
+        assertEquals("1,234", 1234.0.int())
+        assertEquals("Improving endurance", teLabel(3.6, aerobic = true))
+    }
+
     @Test fun verdictFollowsLevelThenScore() {
         assertEquals("Gas!", readinessVerdict("PRIME", 20.0, null)!!.word)
         assertEquals(listOf("30–45 mnt", "Zona 2", "Pulih 18 jam"), readinessVerdict("MODERATE", 55.0, 1088.0)!!.chips)
@@ -34,8 +48,10 @@ class FormatTest {
     }
 
     @Test fun teLabels() {
-        assertEquals("Meningkatkan daya tahan", teLabel(3.6, "daya tahan"))
-        assertEquals("Efek minim ke kecepatan", teLabel(1.2, "kecepatan"))
+        assertEquals("Meningkatkan daya tahan", teLabel(3.6, aerobic = true))
+        assertEquals("Efek minim ke kecepatan", teLabel(1.2, aerobic = false))
+        assertEquals("1j 2m", duration(3725.0))
+        assertEquals("1.234", 1234.0.int())
     }
 
     @Test fun trimEndsDropsFirstAndLast200m() {

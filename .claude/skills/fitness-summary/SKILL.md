@@ -18,7 +18,7 @@ description: Generate the weekly garmin-fit training and recovery summary from M
    - One to three concrete suggestions for next week, tied to a number above.
    Skip any metric that is null for the whole week. No medical claims or diagnoses.
 
-4. Write `/tmp/garmin-fit-summary.json` in Bahasa Indonesia, casual and direct, no em dashes:
+4. Write `/tmp/garmin-fit-summary.json`. The top level is Bahasa Indonesia; `en` is the same summary in English (the app shows whichever matches its language). Both casual and direct, no em dashes:
    ```json
    {
      "period": "weekly",
@@ -28,7 +28,15 @@ description: Generate the weekly garmin-fit training and recovery summary from M
        {"title": "Recovery", "body": "2-4 sentences"},
        {"title": "Latihan", "body": "2-4 sentences"},
        {"title": "Minggu depan", "body": "bulleted suggestions, one per line starting with '- '"}
-     ]
+     ],
+     "en": {
+       "headline": "same headline in English",
+       "sections": [
+         {"title": "Recovery", "body": "..."},
+         {"title": "Training", "body": "..."},
+         {"title": "Next week", "body": "- ..."}
+       ]
+     }
    }
    ```
 

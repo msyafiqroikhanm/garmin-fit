@@ -1,5 +1,6 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -49,11 +50,10 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val ID = Locale("id", "ID")
 
 private fun periodLabel(period: String, key: String): String =
     if (period == "year") key
-    else YearMonth.parse(key).let { "${it.month.getDisplayName(TextStyle.FULL, ID)} ${it.year}" }
+    else YearMonth.parse(key).let { "${it.month.getDisplayName(TextStyle.FULL, Locale.getDefault()).replaceFirstChar { it.uppercase() }} ${it.year}" }
 
 private fun shift(period: String, key: String, by: Long): String =
     if (period == "year") (key.toInt() + by).toString() else YearMonth.parse(key).plusMonths(by).toString()
@@ -72,38 +72,38 @@ fun RecapScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
     }
     val ok = (loader.state as? Load.Ok)?.data
     if (sharing && ok != null) {
-        ShareScreen(recapContent(ok.first, ok.second, periodLabel(period, key)), onBack = { sharing = false }, backLabel = "‹ Kembali ke rekap")
+        ShareScreen(recapContent(ok.first, ok.second, periodLabel(period, key)), onBack = { sharing = false }, backLabel = tr("‹ Back to recap", "‹ Kembali ke rekap"))
         return
     }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f).sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-                Text("‹ Kebugaran", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+                Text(tr("‹ Fitness", "‹ Kebugaran"), style = body(14.sp, FontWeight.SemiBold), color = K.good)
             }
-            AccentButton("Bagikan", { sharing = true }, enabled = ok != null && ok.first.count > 0)
+            AccentButton(tr("Share", "Bagikan"), { sharing = true }, enabled = ok != null && ok.first.count > 0)
         }
-        Segmented(listOf("month", "year"), period, { if (it == "month") "Bulan" else "Tahun" }) {
+        Segmented(listOf("month", "year"), period, { if (it == "month") tr("Month", "Bulan") else tr("Year", "Tahun") }) {
             period = it
             key = currentKey(it)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Stepper("‹", "Periode sebelumnya", enabled = true) { key = shift(period, key, -1) }
+            Stepper("‹", tr("Previous period", "Periode sebelumnya"), enabled = true) { key = shift(period, key, -1) }
             Text(periodLabel(period, key).uppercase(), Modifier.weight(1f), style = T.screenTitle, color = K.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Stepper("›", "Periode berikutnya", enabled = key < currentKey(period)) { key = shift(period, key, 1) }
+            Stepper("›", tr("Next period", "Periode berikutnya"), enabled = key < currentKey(period)) { key = shift(period, key, 1) }
         }
-        LoadView(loader, loadingText = "Memuat rekap", isEmpty = { it.first.count == 0 }, emptyText = "Belum ada aktivitas di ${periodLabel(period, key)}.") { (r, routes) ->
+        LoadView(loader, loadingText = tr("Loading recap", "Memuat rekap"), isEmpty = { it.first.count == 0 }, emptyText = tr("No activities in ${periodLabel(period, key)}.", "Belum ada aktivitas di ${periodLabel(period, key)}.")) { (r, routes) ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 RecapHero(r, period)
                 BucketsCard(r.buckets, period)
                 if (routes.isNotEmpty()) {
                     Panel(Modifier.fillMaxWidth()) {
-                        CardTitle("Peta lari")
+                        CardTitle(tr("Run map", "Peta lari"))
                         val density = LocalDensity.current
-                        Canvas(Modifier.fillMaxWidth().height(300.dp).semantics { contentDescription = "Peta gabungan ${routes.size} rute" }) {
+                        Canvas(Modifier.fillMaxWidth().height(300.dp).semantics { contentDescription = tr("Combined map of ${routes.size} routes", "Peta gabungan ${routes.size} rute") }) {
                             drawIntoCanvas { drawHeatmap(it.nativeCanvas, 0f, 0f, size.width, size.height, routes, with(density) { 2.5.dp.toPx() }, K.good) }
                         }
-                        Text("${routes.size} rute di area kamu paling sering mulai lari. Jalur yang makin terang makin sering dilewati.", style = T.caption, color = K.muted)
+                        Text(tr("${routes.size} routes around where you start most runs. Brighter paths are run more often.", "${routes.size} rute di area kamu paling sering mulai lari. Jalur yang makin terang makin sering dilewati."), style = T.caption, color = K.muted)
                     }
                 }
                 HighlightsCard(r, onOpenActivity)
@@ -129,18 +129,18 @@ private fun RecapHero(r: Recap, period: String) {
             val diff = r.distanceM - r.previous.distanceM
             if (r.previous.count > 0) {
                 DeltaPill(
-                    "${if (diff >= 0) "+" else "−"}${km(kotlin.math.abs(diff))} km dari ${if (period == "year") "tahun" else "bulan"} lalu",
+                    "${if (diff >= 0) "+" else "−"}${km(kotlin.math.abs(diff))} km " + if (period == "year") tr("vs last year", "dari tahun lalu") else tr("vs last month", "dari bulan lalu"),
                     if (diff >= 0) Status.GOOD else null,
                 )
             }
         }
         val stats = listOf(
-            "${r.count}" to "sesi",
-            duration(r.durationS) to "total waktu",
-            "${r.activeDays}" to "hari aktif",
-            "${r.byKind["run"] ?: 0}" to "lari",
+            "${r.count}" to tr("sessions", "sesi"),
+            duration(r.durationS) to tr("total time", "total waktu"),
+            "${r.activeDays}" to tr("active days", "hari aktif"),
+            "${r.byKind["run"] ?: 0}" to tr("runs", "lari"),
             "${r.byKind["strength"] ?: 0}" to "strength",
-            "${r.streakWeeks} mgg" to "streak aktif",
+            tr("${r.streakWeeks} wk", "${r.streakWeeks} mgg") to tr("active streak", "streak aktif"),
         )
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             stats.chunked(3).forEach { row ->
@@ -149,7 +149,7 @@ private fun RecapHero(r: Recap, period: String) {
                 }
             }
         }
-        Text("Streak dihitung dari minggu berturut-turut yang punya minimal satu aktivitas.", style = T.caption, color = K.muted)
+        Text(tr("Streak counts consecutive weeks with at least one activity.", "Streak dihitung dari minggu berturut-turut yang punya minimal satu aktivitas."), style = T.caption, color = K.muted)
     }
 }
 
@@ -157,11 +157,11 @@ private fun RecapHero(r: Recap, period: String) {
 private fun BucketsCard(buckets: List<Bucket>, period: String) {
     val max = buckets.maxOfOrNull { it.distanceM }?.takeIf { it > 0 } ?: return
     val labels = buckets.map {
-        if (period == "year") YearMonth.parse(it.key).month.getDisplayName(TextStyle.SHORT, ID).take(3)
+        if (period == "year") YearMonth.parse(it.key).month.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(3)
         else LocalDate.parse(it.key).let { d -> "${d.dayOfMonth}/${d.monthValue}" }
     }
     Panel(Modifier.fillMaxWidth(), gap = 8.dp) {
-        CardTitle(if (period == "year") "Jarak per bulan" else "Jarak per minggu")
+        CardTitle(if (period == "year") tr("Distance per month", "Jarak per bulan") else tr("Distance per week", "Jarak per minggu"))
         Canvas(
             Modifier.fillMaxWidth().height(120.dp).semantics {
                 contentDescription = buckets.zip(labels).joinToString(", ") { (b, l) -> "$l ${km(b.distanceM)} km" }
@@ -186,13 +186,13 @@ private fun BucketsCard(buckets: List<Bucket>, period: String) {
 private fun HighlightsCard(r: Recap, onOpen: (Long) -> Unit) {
     if (r.longestRun == null && r.prs.isEmpty()) return
     Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        CardTitle("Sorotan")
+        CardTitle(tr("Highlights", "Sorotan"))
         r.longestRun?.let { l ->
-            HighlightRow("Lari terjauh", "${dateLabel(l.date)} · ${l.name ?: "Lari"}", "${km(l.distanceM)} km") { onOpen(l.id) }
+            HighlightRow(tr("Longest run", "Lari terjauh"), "${dateLabel(l.date)} · ${l.name ?: tr("Run", "Lari")}", "${km(l.distanceM)} km") { onOpen(l.id) }
         }
         r.prs.forEach { p ->
             HorizontalDivider(color = K.track)
-            HighlightRow("Rekor baru " + p.distances.joinToString(" · ") { splitShort(it) }, "${dateLabel(p.date)} · ${p.name ?: "Lari"}", "PR") { onOpen(p.activityId) }
+            HighlightRow(tr("New record ", "Rekor baru ") + p.distances.joinToString(" · ") { splitShort(it) }, "${dateLabel(p.date)} · ${p.name ?: tr("Run", "Lari")}", "PR") { onOpen(p.activityId) }
         }
     }
 }
@@ -209,14 +209,14 @@ private fun HighlightRow(title: String, sub: String, value: String, onClick: () 
 }
 
 private fun recapContent(r: Recap, routes: List<List<List<Double>>>, label: String) = ShareContent(
-    title = "REKAP ${label.uppercase()}",
+    title = tr("RECAP ${label.uppercase()}", "REKAP ${label.uppercase()}"),
     stats = listOf(
-        ShareStat("dist", km(r.distanceM), "km", "jarak"),
-        ShareStat("count", "${r.count}", "", "sesi"),
-        ShareStat("time", "${(r.durationS / 3600).roundToInt()}", "jam", "total waktu"),
-        ShareStat("days", "${r.activeDays}", "", "hari aktif"),
-        ShareStat("runs", "${r.byKind["run"] ?: 0}", "", "lari"),
-        ShareStat("streak", "${r.streakWeeks}", "mgg", "streak"),
+        ShareStat("dist", km(r.distanceM), "km", tr("distance", "jarak")),
+        ShareStat("count", "${r.count}", "", tr("sessions", "sesi")),
+        ShareStat("time", "${(r.durationS / 3600).roundToInt()}", tr("hrs", "jam"), tr("total time", "total waktu")),
+        ShareStat("days", "${r.activeDays}", "", tr("active days", "hari aktif")),
+        ShareStat("runs", "${r.byKind["run"] ?: 0}", "", tr("runs", "lari")),
+        ShareStat("streak", "${r.streakWeeks}", tr("wk", "mgg"), "streak"),
     ),
     // the busiest start is usually home, so shared maps lose each route's first and last 200 m too
     graphic = routes.map { trimEnds(it) }.filter { it.size > 1 }.takeIf { it.isNotEmpty() }?.let { ShareGraphic.Heat(it) },

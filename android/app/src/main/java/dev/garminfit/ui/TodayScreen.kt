@@ -1,5 +1,8 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
+import dev.garminfit.isId
+import dev.garminfit.flagText
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -83,7 +86,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onLogout: () -> Unit) {
     var refreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
 
-    LoadView(loader, loadingText = "Memuat data hari ini") { today ->
+    LoadView(loader, loadingText = tr("Loading today's data", "Memuat data hari ini")) { today ->
         fun refresh() {
             if (refreshing) return
             scope.launch {
@@ -107,8 +110,8 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onLogout: () -> Unit) {
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 if (latest == null) {
                     Text(
-                        if (today.role == "owner") "Belum ada data. Tarik layar ke bawah untuk sync dari Garmin."
-                        else "Belum ada data. Data muncul setelah pemilik melakukan sync.",
+                        if (today.role == "owner") tr("No data yet. Pull down to sync from Garmin.", "Belum ada data. Tarik layar ke bawah untuk sync dari Garmin.")
+                        else tr("No data yet. It shows up after the owner syncs.", "Belum ada data. Data muncul setelah pemilik melakukan sync."),
                         Modifier.padding(horizontal = 4.dp, vertical = 48.dp),
                         style = T.body,
                         color = K.muted,
@@ -117,14 +120,14 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onLogout: () -> Unit) {
                     val verdict = readinessVerdict(latest.readinessLevel, latest.readiness, latest.recoveryMin)
                     if (verdict != null && latest.readiness != null) Hero(latest, verdict)
                     Factors(latest, today)
-                    today.flags.forEach { FlagBox(it.text, flagStatus(it.key, it.level)) }
+                    today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
                     Tiles(latest, verdict?.status ?: Status.GOOD)
                     WeekPanel(today)
                     today.lastActivity?.let { LastActivity(it, onOpenActivity) }
                     today.summary?.let { SummaryCard(it) }
                 }
                 TextButton(onClick = onLogout, Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Ganti token", style = T.bodyS, color = K.muted)
+                    Text(tr("Change token", "Ganti token"), style = T.bodyS, color = K.muted)
                 }
             }
         }
@@ -147,7 +150,7 @@ private fun Header(t: Today, onSync: () -> Unit) {
                 val name = t.name?.replaceFirstChar { it.uppercase() }
                 Text(listOfNotNull(greeting(), name).joinToString(", "), style = T.greeting, color = K.ink)
             }
-            val label = if (t.role == "owner") "Sync" else "Muat ulang"
+            val label = if (t.role == "owner") "Sync" else tr("Reload", "Muat ulang")
             Box(
                 Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onSync),
                 contentAlignment = Alignment.Center,
@@ -163,8 +166,8 @@ private fun Header(t: Today, onSync: () -> Unit) {
         val latest = t.latest
         if (latest != null && latest.date != now.toString()) {
             Text(
-                if (t.role == "owner") "Data terakhir dari ${dayLabel(latest.date)}. Tarik ke bawah untuk sync."
-                else "Data terakhir dari ${dayLabel(latest.date)}.",
+                if (t.role == "owner") tr("Latest data is from ${dayLabel(latest.date)}. Pull down to sync.", "Data terakhir dari ${dayLabel(latest.date)}. Tarik ke bawah untuk sync.")
+                else tr("Latest data is from ${dayLabel(latest.date)}.", "Data terakhir dari ${dayLabel(latest.date)}."),
                 style = T.caption,
                 color = K.muted,
             )
@@ -181,14 +184,14 @@ private fun Hero(d: Daily, v: Verdict) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(v.word.uppercase(), style = T.statusWord, color = c)
                 Text(v.tagline, style = body(15.sp, FontWeight.SemiBold, 1.3f), color = K.ink)
-                readinessStatus(d.readinessLevel)?.let { Text("Level Garmin: ${it.first}", style = T.bodyS, color = K.muted) }
+                readinessStatus(d.readinessLevel)?.let { Text(tr("Garmin level: ${it.first}", "Level Garmin: ${it.first}"), style = T.bodyS, color = K.muted) }
             }
         }
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(K.base).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Label("Saran latihan hari ini", color = c)
+            Label(tr("Today's training advice", "Saran latihan hari ini"), color = c)
             Text(v.advice, style = T.body, color = K.ink)
             ChipRow(v.chips)
         }
@@ -206,23 +209,23 @@ private fun factors(d: Daily, t: Today): List<Factor> = buildList {
     val lo = d.hrvLow
     val hi = d.hrvHigh
     if (hrv != null && lo != null && hi != null) {
-        add(Factor("HRV semalam", hrv.int(), "ms", hrv, lo - 13, hi + 13, lo, hi, hrvFactor(hrv, lo, hi), "normal ${lo.int()}–${hi.int()}"))
+        add(Factor(tr("Overnight HRV", "HRV semalam"), hrv.int(), "ms", hrv, lo - 13, hi + 13, lo, hi, hrvFactor(hrv, lo, hi), "normal ${lo.int()}–${hi.int()}"))
     }
-    d.sleepScore?.let { add(Factor("Tidur", it.int(), "skor", it, 30.0, 100.0, 70.0, 100.0, sleepFactor(it), sleep(d.sleepS))) }
+    d.sleepScore?.let { add(Factor(tr("Sleep", "Tidur"), it.int(), tr("score", "skor"), it, 30.0, 100.0, 70.0, 100.0, sleepFactor(it), sleep(d.sleepS))) }
     val mean = t.baseline.rhr?.mean
     if (d.rhr != null && mean != null) {
-        add(Factor("Resting HR", d.rhr.int(), "bpm", d.rhr, mean - 10, mean + 12, mean - 4, mean + 4, rhrFactor(d.rhr, mean), "rata-rata ${mean.int()}"))
+        add(Factor("Resting HR", d.rhr.int(), "bpm", d.rhr, mean - 10, mean + 12, mean - 4, mean + 4, rhrFactor(d.rhr, mean), tr("avg ${mean.int()}", "rata-rata ${mean.int()}")))
     }
     t.baseline.load?.ratio?.let {
-        add(Factor("Beban akut : kronis", it.two(), "rasio", it, 0.5, 1.8, 0.8, 1.3, loadFactor(it), "optimal 0,8–1,3"))
+        add(Factor(tr("Acute : chronic load", "Beban akut : kronis"), it.two(), tr("ratio", "rasio"), it, 0.5, 1.8, 0.8, 1.3, loadFactor(it), tr("optimal 0.8–1.3", "optimal 0,8–1,3")))
     }
     // Today's stress is still accumulating, so the last complete day is the fair comparison.
     val today = LocalDate.now().toString()
     t.spark.date.indices.lastOrNull { i -> t.spark.date[i].let { it != null && it < today } && t.spark.stress.getOrNull(i) != null }?.let { i ->
         val date = t.spark.date[i]!!
         val s = t.spark.stress[i]!!
-        val note = if (date == LocalDate.now().minusDays(1).toString()) "kemarin" else weekday(date).lowercase()
-        add(Factor("Stres", s.int(), "/100", s, 0.0, 100.0, 0.0, 35.0, stressFactor(s), note))
+        val note = if (date == LocalDate.now().minusDays(1).toString()) tr("yesterday", "kemarin") else weekday(date).lowercase()
+        add(Factor(tr("Stress", "Stres"), s.int(), "/100", s, 0.0, 100.0, 0.0, 35.0, stressFactor(s), note))
     }
 }
 
@@ -231,7 +234,7 @@ private fun Factors(d: Daily, t: Today) {
     val list = factors(d, t)
     if (list.isEmpty()) return
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle("Kenapa skornya segini?")
+        CardTitle(tr("Why this score?", "Kenapa skornya segini?"))
         list.forEach { f ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -270,20 +273,20 @@ private fun Tiles(d: Daily, readiness: Status) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (bb != null) Tile(Modifier.weight(1f).fillMaxHeight()) {
                 Label("Body Battery")
-                Value(bb.int(), if (d.bbNow != null) "sekarang" else "tertinggi", num(36.sp))
+                Value(bb.int(), if (d.bbNow != null) tr("now", "sekarang") else tr("peak", "tertinggi"), num(36.sp))
                 val low = d.bbLow
                 val high = d.bbHigh
                 if (low != null && high != null) {
                     SpanBar((low / 100).toFloat(), (high / 100).toFloat(), readiness.color())
-                    Text("Terendah ${low.int()} · tertinggi ${high.int()}", style = T.caption, color = K.muted)
+                    Text(tr("Low ${low.int()} · high ${high.int()}", "Terendah ${low.int()} · tertinggi ${high.int()}"), style = T.caption, color = K.muted)
                 }
             }
             if (hasSteps) Tile(Modifier.weight(1f).fillMaxHeight()) {
                 val goal = d.stepGoal?.takeIf { it > 0 } ?: 8000.0
-                Label("Langkah")
+                Label(tr("Steps", "Langkah"))
                 Value(d.steps.int(), "/ ${goal.int()}", num(36.sp))
                 SpanBar(0f, (d.steps!! / goal).toFloat(), K.ink)
-                Text("${(d.steps / goal * 100).roundToInt()}% target harian", style = T.caption, color = K.muted)
+                Text(tr("${(d.steps / goal * 100).roundToInt()}% of daily goal", "${(d.steps / goal * 100).roundToInt()}% target harian"), style = T.caption, color = K.muted)
             }
         }
     }
@@ -299,13 +302,13 @@ private fun SleepTile(d: Daily) {
     val stages = listOf(
         Triple("Deep", d.deepS, K.deep),
         Triple("REM", d.remS, K.blue),
-        Triple("Ringan", d.lightS, K.light),
-        Triple("Bangun", d.awakeS, K.low),
+        Triple(tr("Light", "Ringan"), d.lightS, K.light),
+        Triple(tr("Awake", "Bangun"), d.awakeS, K.low),
     )
     Panel(Modifier.fillMaxWidth(), padding = 14.dp, radius = 20.dp, gap = 10.dp) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Label("Tidur semalam", modifier = Modifier.weight(1f).alignByBaseline())
-            Value(sleep(d.sleepS), d.sleepScore?.let { "skor ${it.int()}" } ?: "", num(28.sp), gap = 6.dp, modifier = Modifier.alignByBaseline())
+            Label(tr("Last night's sleep", "Tidur semalam"), modifier = Modifier.weight(1f).alignByBaseline())
+            Value(sleep(d.sleepS), d.sleepScore?.let { tr("score ${it.int()}", "skor ${it.int()}") } ?: "", num(28.sp), gap = 6.dp, modifier = Modifier.alignByBaseline())
         }
         if (stages.any { (it.second ?: 0.0) > 0 }) {
             StackedBar(
@@ -329,17 +332,17 @@ private fun WeekPanel(t: Today) {
     val w = t.week
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
         Row(verticalAlignment = Alignment.Bottom) {
-            CardTitle("7 hari terakhir", Modifier.weight(1f).alignByBaseline())
-            Text("${w.activeDays} hari aktif", Modifier.alignByBaseline(), style = body(13.sp, FontWeight.SemiBold), color = K.good)
+            CardTitle(tr("This week", "Minggu ini"), Modifier.weight(1f).alignByBaseline())
+            Text(tr("${w.activeDays} active days", "${w.activeDays} hari aktif"), Modifier.alignByBaseline(), style = body(13.sp, FontWeight.SemiBold), color = K.good)
         }
         if (w.count == 0) {
-            Text("Belum ada aktivitas 7 hari terakhir.", style = T.body, color = K.muted)
+            Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = T.body, color = K.muted)
             return@Panel
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stat(w.count.toString(), "sesi", num(30.sp), Modifier.weight(1f))
+            Stat(w.count.toString(), tr("sessions", "sesi"), num(30.sp), Modifier.weight(1f))
             Stat((w.distanceM / 1000).one(), "km", num(30.sp), Modifier.weight(1f))
-            Stat(duration(w.durationS), "durasi", num(30.sp), Modifier.weight(1f))
+            Stat(duration(w.durationS), tr("duration", "durasi"), num(30.sp), Modifier.weight(1f))
         }
         val days = w.dailyLoad
         if (days.isNotEmpty()) {
@@ -371,7 +374,7 @@ private fun WeekPanel(t: Today) {
                     }
                 }
             }
-            Text("Tinggi batang = training load per hari · total ${days.sumOf { it.load }.int()}", style = T.caption, color = K.muted)
+            Text(tr("Bar height = training load per day · total ${days.sumOf { it.load }.int()}", "Tinggi batang = training load per hari · total ${days.sumOf { it.load }.int()}"), style = T.caption, color = K.muted)
         }
     }
 }
@@ -380,17 +383,17 @@ private fun WeekPanel(t: Today) {
 private fun LastActivity(a: Activity, onOpen: (Long) -> Unit) {
     val hasDistance = (a.distanceM ?: 0.0) > 0
     val stats = listOfNotNull(
-        if (hasDistance) km(a.distanceM) to "km" else duration(a.durationS) to "durasi",
+        if (hasDistance) km(a.distanceM) to "km" else duration(a.durationS) to tr("duration", "durasi"),
         a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
         a.avgHr?.let { it.int() to "bpm" },
-        a.aerobicTe?.let { it.one() to "TE aerobik" },
+        a.aerobicTe?.let { it.one() to tr("aerobic TE", "TE aerobik") },
     )
     Panel(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClickLabel = "Buka detail aktivitas") { onOpen(a.id) },
+            .clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) },
         gap = 10.dp,
     ) {
-        Label("Aktivitas terakhir · ${weekday(a.date)}")
+        Label(tr("Last activity · ${weekday(a.date)}", "Aktivitas terakhir · ${weekday(a.date)}"))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(a.name ?: activityType(a.type), Modifier.weight(1f), style = num(24.sp, FontWeight.Bold), color = K.ink)
             Text("›", style = body(18.sp), color = K.muted)
@@ -411,21 +414,25 @@ private fun rangeLabel(from: String, to: String): String {
 @Composable
 private fun SummaryCard(s: Summary) {
     var open by remember { mutableStateOf(false) }
+    // English summary when the app is in English and the skill wrote one; older summaries only have Indonesian.
+    val text = s.en?.takeUnless { isId() }
+    val headline = text?.headline ?: s.headline
+    val sections = text?.sections ?: s.sections
     Panel(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).animateContentSize()
-            .clickable(role = Role.Button, onClickLabel = if (open) "Tutup ringkasan" else "Buka ringkasan") { open = !open },
+            .clickable(role = Role.Button, onClickLabel = if (open) tr("Close summary", "Tutup ringkasan") else tr("Open summary", "Buka ringkasan")) { open = !open },
         gap = 8.dp,
         color = K.good,
     ) {
         Text(
-            "Ringkasan minggu · ${rangeLabel(s.range.from, s.range.to)}".uppercase(),
+            tr("Weekly summary · ${rangeLabel(s.range.from, s.range.to)}", "Ringkasan minggu · ${rangeLabel(s.range.from, s.range.to)}").uppercase(),
             style = T.label.copy(fontWeight = FontWeight.Bold),
             color = K.onAccent,
         )
-        Text(s.headline.uppercase(), style = num(24.sp, lh = 1.05f), color = K.onAccent)
+        Text(headline.uppercase(), style = num(24.sp, lh = 1.05f), color = K.onAccent)
         if (open) {
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                s.sections.forEach { sec ->
+                sections.forEach { sec ->
                     Column {
                         Text(sec.title.uppercase(), style = body(12.sp, FontWeight.Bold).copy(letterSpacing = 0.08.em), color = K.onAccent)
                         Text(sec.body, style = body(14.sp, lh = 1.45f), color = K.onAccent)
@@ -433,6 +440,6 @@ private fun SummaryCard(s: Summary) {
                 }
             }
         }
-        Text(if (open) "Tutup ↑" else "Ketuk untuk baca lengkap ↓", style = body(13.sp, FontWeight.SemiBold), color = K.onAccent)
+        Text(if (open) tr("Close ↑", "Tutup ↑") else tr("Tap to read it all ↓", "Ketuk untuk baca lengkap ↓"), style = body(13.sp, FontWeight.SemiBold), color = K.onAccent)
     }
 }

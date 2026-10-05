@@ -10,7 +10,7 @@ def test_merge_muscles_sums_and_lists_untrained_groups():
     assert m["muscles"]["CHEST"] == {"primary": 5, "secondary": 0}
     assert m["sets"] == 11 and m["sessions"] == 2
     # triceps only had secondary work, so arms still count as untrained
-    assert m["untrained"] == ["Punggung", "Bahu", "Lengan", "Perut"]
+    assert m["untrained"] == ["BACK", "SHOULDERS", "ARMS", "CORE"]
 
 
 def test_weekly_dynamics_weights_by_duration_and_keeps_empty_weeks():

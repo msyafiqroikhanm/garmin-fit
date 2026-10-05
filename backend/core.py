@@ -548,12 +548,12 @@ def backfill_predictions(user_id: str, start: date, end: date, log=print) -> int
 
 
 BIG_GROUPS = {
-    "Dada": ("CHEST",),
-    "Punggung": ("LATS", "TRAPS", "LOWER_BACK"),
-    "Bahu": ("SHOULDERS",),
-    "Lengan": ("BICEPS", "TRICEPS", "FOREARM"),
-    "Perut": ("ABS", "OBLIQUES"),
-    "Kaki": ("QUADS", "HAMSTRINGS", "GLUTES", "CALVES", "ADDUCTORS", "ABDUCTORS", "HIPS"),
+    "CHEST": ("CHEST",),
+    "BACK": ("LATS", "TRAPS", "LOWER_BACK"),
+    "SHOULDERS": ("SHOULDERS",),
+    "ARMS": ("BICEPS", "TRICEPS", "FOREARM"),
+    "CORE": ("ABS", "OBLIQUES"),
+    "LEGS": ("QUADS", "HAMSTRINGS", "GLUTES", "CALVES", "ADDUCTORS", "ABDUCTORS", "HIPS"),
 }
 
 

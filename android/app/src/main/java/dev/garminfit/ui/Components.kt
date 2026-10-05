@@ -1,5 +1,6 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -100,8 +101,8 @@ fun <T> LoadView(
             Text(s.message, style = T.body, color = K.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             val logout = LocalLogout.current
-            if (s.auth && logout != null) AccentButton("Masukkan token baru", logout)
-            else AccentButton("Coba lagi", loader.reload)
+            if (s.auth && logout != null) AccentButton(tr("Enter a new token", "Masukkan token baru"), logout)
+            else AccentButton(tr("Try again", "Coba lagi"), loader.reload)
         }
         is Load.Ok -> if (isEmpty(s.data)) Centered {
             Text(emptyText, style = T.body, textAlign = TextAlign.Center, color = K.muted)
@@ -247,7 +248,7 @@ fun DeltaPill(text: String, status: Status?) {
 @Composable
 fun ReadinessRing(score: Int, color: Color) {
     Box(Modifier.size(132.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize().semantics { contentDescription = "Training readiness $score dari 100" }) {
+        Canvas(Modifier.fillMaxSize().semantics { contentDescription = tr("Training readiness $score out of 100", "Training readiness $score dari 100") }) {
             val w = 12.dp.toPx()
             val inset = w / 2 + 4.dp.toPx()
             val arc = Size(size.width - inset * 2, size.height - inset * 2)
@@ -369,7 +370,7 @@ fun ChartDates(start: String) {
     Row(Modifier.fillMaxWidth()) {
         Text(start, style = T.mono, color = K.muted)
         Spacer(Modifier.weight(1f))
-        Text("Hari ini", style = T.mono, color = K.muted)
+        Text(tr("Today", "Hari ini"), style = T.mono, color = K.muted)
     }
 }
 

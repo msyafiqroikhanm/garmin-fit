@@ -79,18 +79,35 @@ def cmd_export(a):
     print(json.dumps(out, default=str, ensure_ascii=False, indent=1))
 
 
-def cmd_save_summary(a):
-    s = json.loads(Path(a.file).read_text())
+def _text_ok(t) -> bool:
+    return (
+        isinstance(t, dict)
+        and isinstance(t.get("headline"), str)
+        and isinstance(t.get("sections"), list)
+        and all(isinstance(x, dict) and isinstance(x.get("title"), str) and isinstance(x.get("body"), str) for x in t["sections"])
+    )
+
+
+def summary_doc(s: dict) -> dict | None:
+    """Top level is the Indonesian text; an optional "en" holds the same summary in English."""
     ok = (
-        isinstance(s.get("headline"), str)
+        _text_ok(s)
         and s.get("period") in ("weekly", "daily")
         and all(isinstance(s.get("range", {}).get(k), str) for k in ("from", "to"))
-        and isinstance(s.get("sections"), list)
-        and all(isinstance(x, dict) and isinstance(x.get("title"), str) and isinstance(x.get("body"), str) for x in s["sections"])
+        and ("en" not in s or _text_ok(s["en"]))
     )
     if not ok:
-        sys.exit("invalid summary: need period, range{from,to}, headline, sections[{title,body}]")
+        return None
     doc = {k: s[k] for k in ("period", "range", "headline", "sections")}
+    if "en" in s:
+        doc["en"] = {k: s["en"][k] for k in ("headline", "sections")}
+    return doc
+
+
+def cmd_save_summary(a):
+    doc = summary_doc(json.loads(Path(a.file).read_text()))
+    if doc is None:
+        sys.exit("invalid summary: need period, range{from,to}, headline, sections[{title,body}], optional en{headline,sections}")
     core.db().summaries.insert_one({**doc, "user_id": core.OWNER, "generated_at": datetime.now(timezone.utc)})
     print(f"saved {doc['period']} summary {doc['range']['from']}..{doc['range']['to']}")
 

@@ -1,5 +1,6 @@
 package dev.garminfit.ui
 
+import dev.garminfit.tr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -23,9 +24,21 @@ import dev.garminfit.splitShort
 import kotlin.math.max
 
 enum class Ratio(val label: String, val h: Int) { STORY("9:16", 1920), FEED("4:5", 1350) }
-enum class Backdrop(val label: String) { PHOTO("Foto"), CARD("Kartu"), STICKER("Stiker") }
-enum class Layout(val label: String) { BOLD("Bold"), MINIMAL("Minimal"), GRID("Grid"), ROUTE("Rute") }
-enum class Ink(val label: String, val color: Color) { WHITE("Putih", Color.White), BLACK("Hitam", K.base), VOLT("Volt", K.good) }
+enum class Backdrop(private val en: String, private val id: String) {
+    PHOTO("Photo", "Foto"), CARD("Card", "Kartu"), STICKER("Sticker", "Stiker");
+
+    val label: String get() = tr(en, id)
+}
+enum class Layout(private val en: String, private val id: String) {
+    BOLD("Bold", "Bold"), MINIMAL("Minimal", "Minimal"), GRID("Grid", "Grid"), ROUTE("Route", "Rute");
+
+    val label: String get() = tr(en, id)
+}
+enum class Ink(private val en: String, private val id: String, val color: Color) {
+    WHITE("White", "Putih", Color.White), BLACK("Black", "Hitam", K.base), VOLT("Volt", "Volt", K.good);
+
+    val label: String get() = tr(en, id)
+}
 
 const val SHARE_W = 1080
 
@@ -66,14 +79,14 @@ fun Activity.shareContent(): ShareContent {
 }
 
 fun shareStats(a: Activity): List<ShareStat> = listOfNotNull(
-    a.distanceM?.takeIf { it > 0 }?.let { ShareStat("dist", km(it), "km", "jarak") },
+    a.distanceM?.takeIf { it > 0 }?.let { ShareStat("dist", km(it), "km", tr("distance", "jarak")) },
     a.avgSpeed?.takeIf { (a.distanceM ?: 0.0) > 0 }?.let { ShareStat("pace", pace(it), "/km", "pace") },
-    ShareStat("time", duration(a.durationS), "", "waktu"),
-    a.strength?.totalSets?.let { ShareStat("sets", "$it", "set", "set") },
-    a.strength?.totalReps?.let { ShareStat("reps", "$it", "rep", "rep") },
-    a.avgHr?.let { ShareStat("hr", it.int(), "bpm", "HR rata-rata") },
-    a.calories?.let { ShareStat("kcal", it.int(), "kkal", "kalori") },
-    a.elevationGain?.takeIf { it > 0 }?.let { ShareStat("elev", it.int(), "m", "elevasi") },
+    ShareStat("time", duration(a.durationS), "", tr("time", "waktu")),
+    a.strength?.totalSets?.let { ShareStat("sets", "$it", "set", tr("sets", "set")) },
+    a.strength?.totalReps?.let { ShareStat("reps", "$it", "rep", tr("reps", "rep")) },
+    a.avgHr?.let { ShareStat("hr", it.int(), "bpm", tr("avg HR", "HR rata-rata")) },
+    a.calories?.let { ShareStat("kcal", it.int(), tr("kcal", "kkal"), tr("calories", "kalori")) },
+    a.elevationGain?.takeIf { it > 0 }?.let { ShareStat("elev", it.int(), "m", tr("elevation", "elevasi")) },
 )
 
 class ShareFonts(ctx: Context) {

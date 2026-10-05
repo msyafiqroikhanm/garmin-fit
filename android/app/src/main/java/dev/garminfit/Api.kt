@@ -278,11 +278,15 @@ data class Section(val title: String, val body: String)
 data class DateRange(val from: String, val to: String)
 
 @Serializable
+data class SummaryText(val headline: String, val sections: List<Section>)
+
+@Serializable
 data class Summary(
     val period: String,
     val range: DateRange,
     val headline: String,
     val sections: List<Section>,
+    val en: SummaryText? = null,
     @SerialName("generated_at") val generatedAt: String? = null,
 )
 
@@ -361,13 +365,13 @@ object Repo {
         return api
     }
 
-    suspend fun api(ctx: Context): ApiService = api(token(ctx) ?: error("Belum ada token"))
+    suspend fun api(ctx: Context): ApiService = api(token(ctx) ?: error(tr("No token yet", "Belum ada token")))
 
     @Volatile private var me: Pair<String, Me>? = null
 
     // ponytail: in-memory only; profile (zones, sex, age) changes rarely and /me is cheap on a cold start
     suspend fun me(ctx: Context): Me {
-        val t = token(ctx) ?: error("Belum ada token")
+        val t = token(ctx) ?: error(tr("No token yet", "Belum ada token"))
         me?.let { (k, m) -> if (k == t) return m }
         return api(t).me().also { me = t to it }
     }
