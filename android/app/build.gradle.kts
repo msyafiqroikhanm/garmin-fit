@@ -19,8 +19,9 @@ android {
         applicationId = "dev.garminfit"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // CI passes these from the release tag so Obtainium sees a new version.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("versionName") as String?) ?: "0.1"
         val baseUrl = (findProperty("apiBaseUrl") as String?)
             ?: localProps.getProperty("api.baseUrl", "https://garmin-fit.vercel.app/")
         buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
