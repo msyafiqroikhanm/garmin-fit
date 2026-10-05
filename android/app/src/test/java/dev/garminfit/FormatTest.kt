@@ -1,6 +1,8 @@
 package dev.garminfit
 
 import dev.garminfit.ui.Status
+import dev.garminfit.ui.project
+import dev.garminfit.ui.trimEnds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -34,5 +36,21 @@ class FormatTest {
     @Test fun teLabels() {
         assertEquals("Meningkatkan daya tahan", teLabel(3.6, "daya tahan"))
         assertEquals("Efek minim ke kecepatan", teLabel(1.2, "kecepatan"))
+    }
+
+    @Test fun trimEndsDropsFirstAndLast200m() {
+        // ~11 m per 1e-4 degree of latitude, 100 points ≈ 1.1 km
+        val pts = (0 until 100).map { listOf(-6.0 + it * 1e-4, 106.0, 300.0) }
+        val t = trimEnds(pts)
+        assertEquals(true, t.first()[0] > -6.0 + 17e-4 && t.first()[0] < -6.0 + 20e-4)
+        assertEquals(true, t.last()[0] < -6.0 + 82e-4)
+        assertEquals(emptyList<List<Double>>(), trimEnds(pts.take(30)))
+    }
+
+    @Test fun projectFitsAndKeepsAspect() {
+        val xy = project(listOf(listOf(0.0, 0.0), listOf(0.001, 0.0)), 200f, 100f)
+        assertEquals(100f, xy[0].first, 0.01f)
+        assertEquals(100f, xy[0].second, 0.01f)
+        assertEquals(0f, xy[1].second, 0.01f)
     }
 }

@@ -14,6 +14,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
@@ -68,6 +69,7 @@ data class Activity(
     @SerialName("training_load") val trainingLoad: Double? = null,
     @SerialName("hr_zones_s") val hrZonesS: List<Double?>? = null,
     val splits: List<Split>? = null,
+    val route: List<List<Double>>? = null,
 )
 
 @Serializable
@@ -167,6 +169,7 @@ interface ApiService {
     @GET("today") suspend fun today(): Today
     @GET("daily") suspend fun daily(@Query("from") from: String, @Query("to") to: String? = null): List<Daily>
     @GET("activities") suspend fun activities(@Query("from") from: String): List<Activity>
+    @GET("activities/{id}") suspend fun activity(@Path("id") id: Long): Activity
     @POST("sync") suspend fun sync(): SyncResult
 }
 

@@ -1,6 +1,12 @@
 package dev.garminfit.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -130,10 +136,45 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
             Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonth(a.date)}, ${time(a.startTime)}")
             Text((a.name ?: activityType(a.type)).uppercase(), style = num(32.sp), color = K.ink)
         }
+        val ctx = LocalContext.current
+        val detail = rememberLoad(a.id) { Repo.api(ctx).activity(a.id) }
+        RouteCard(detail, expected = a.hasDistance(), onRetry = detail.reload)
         StatsCard(a)
         EffectCard(a, all)
         a.hrZonesS?.let { ZonesCard(it, profile?.hrZoneFloors) }
         a.splits?.let { SplitsCard(it) }
+    }
+}
+
+@Composable
+private fun RouteCard(detail: Loader<Activity>, expected: Boolean, onRetry: () -> Unit) {
+    val state = detail.state
+    val route = (state as? Load.Ok)?.data?.route
+    if (route == null && (state is Load.Ok || !expected)) return
+    Panel(Modifier.fillMaxWidth()) {
+        CardTitle("Rute")
+        when {
+            route != null -> {
+                val density = LocalDensity.current
+                Canvas(Modifier.fillMaxWidth().height(240.dp)) {
+                    drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, with(density) { 4.dp.toPx() }) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Lambat", style = T.caption, color = K.muted)
+                    Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(K.low, K.fair, K.good))))
+                    Text("Cepat", style = T.caption, color = K.muted)
+                }
+            }
+            state is Load.Err -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Rute gagal dimuat", style = T.body, color = K.muted, modifier = Modifier.weight(1f))
+                Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onRetry).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                    Text("Coba lagi", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+                }
+            }
+            else -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = K.good, trackColor = K.track)
+            }
+        }
     }
 }
 

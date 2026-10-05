@@ -1,4 +1,6 @@
 import hashlib
+import itertools
+import math
 import os
 import re
 import statistics
@@ -174,14 +176,75 @@ def extract_splits(raw: dict) -> list[dict]:
             for lap in raw.get("lapDTOs") or []]
 
 
-def sync_activities(g: Garmin, user_id: str, start: date, end: date) -> int:
+ROUTE_POINTS = 300
+
+
+def _haversine_m(a: dict, b: dict) -> float:
+    la1, lo1, la2, lo2 = map(math.radians, (a["lat"], a["lon"], b["lat"], b["lon"]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 2 * 6_371_000 * math.asin(math.sqrt(h))
+
+
+def extract_route(details: dict) -> list[list] | None:
+    """[[lat, lon, speed_cm_s], ...], speed smoothed over 5 points, thinned to ~ROUTE_POINTS."""
+    pts = [p for p in dig(details, "geoPolylineDTO", "polyline") or [] if p.get("lat") is not None and p.get("lon") is not None]
+    if len(pts) < 2:
+        return None
+    # Garmin leaves polyline speed at 0, so derive it from distance over time across a 9-point window
+    seg = [0.0] + [_haversine_m(pts[i - 1], pts[i]) for i in range(1, len(pts))]
+    cum = list(itertools.accumulate(seg))
+    smooth = []
+    for i in range(len(pts)):
+        a, b = max(0, i - 4), min(len(pts) - 1, i + 4)
+        dt = ((pts[b].get("time") or 0) - (pts[a].get("time") or 0)) / 1000
+        smooth.append((cum[b] - cum[a]) / dt if dt > 0 else 0)
+    # ponytail: uniform stride, Douglas-Peucker if sharp corners get cut
+    step = max(1, -(-len(pts) // ROUTE_POINTS))
+    keep = list(range(0, len(pts), step))
+    if keep[-1] != len(pts) - 1:
+        keep.append(len(pts) - 1)
+    return [[round(pts[i]["lat"], 5), round(pts[i]["lon"], 5), round(smooth[i] * 100)] for i in keep]
+
+
+def ensure_route(g: Garmin, doc: dict) -> dict:
+    """Fetch and store the GPS route once per activity. Failures are stored as checked so they are not retried."""
+    if doc.get("route_checked") or not dig(doc, "raw", "hasPolyline"):
+        return doc
+    try:
+        route = extract_route(g.get_activity_details(doc["_id"], maxchart=10, maxpoly=4000))
+    except GarminConnectTooManyRequestsError:
+        raise
+    except Exception:
+        route = None
+    doc.update(route=route, route_checked=True)
+    db().activities.update_one({"_id": doc["_id"]}, {"$set": {"route": route, "route_checked": True}})
+    return doc
+
+
+KEEP_ON_RESYNC = ("splits", "route", "route_checked")
+
+
+def sync_activity(g: Garmin, doc: dict) -> bool:
+    """Upsert one activity, keeping fetched extras. Returns True if Garmin was called beyond the list."""
+    old = db().activities.find_one({"_id": doc["_id"]}, dict.fromkeys(KEEP_ON_RESYNC, 1)) or {}
+    doc.update({k: old[k] for k in KEEP_ON_RESYNC if k in old})
+    fetched = False
+    if "running" in (doc["type"] or "") and not doc.get("splits"):
+        doc["splits"] = extract_splits(g.get_activity_splits(doc["_id"]))
+        fetched = True
+    db().activities.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+    if not doc.get("route_checked") and dig(doc, "raw", "hasPolyline"):
+        ensure_route(g, doc)
+        fetched = True
+    return fetched
+
+
+def sync_activities(g: Garmin, user_id: str, start: date, end: date, pause=0.0, log=print, backoff=()) -> int:
     acts = g.get_activities_by_date(start.isoformat(), end.isoformat())
     for a in acts:
         doc = extract_activity(a, user_id)
-        if "running" in (doc["type"] or ""):
-            old = db().activities.find_one({"_id": doc["_id"]}, {"splits": 1}) or {}
-            doc["splits"] = old.get("splits") or extract_splits(g.get_activity_splits(doc["_id"]))
-        db().activities.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+        if _with_backoff(lambda: sync_activity(g, doc), log, backoff):
+            time.sleep(pause)
     return len(acts)
 
 
@@ -202,7 +265,7 @@ def sync_range(user_id: str, start: date, end: date, skip_existing=False, pause=
     g, token = garmin_client(user_id)
     errors = []
     try:
-        n = sync_activities(g, user_id, start, end)
+        n = sync_activities(g, user_id, start, end, pause, log, backoff)
         log(f"activities {start}..{end}: {n}")
         try:
             sync_profile(g, user_id)
