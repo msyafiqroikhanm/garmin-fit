@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -78,6 +79,7 @@ fun ActivitiesScreen(initialId: Long?) {
         Repo.api(ctx).activities(LocalDate.now().minusDays(365).toString()) to runCatching { Repo.me(ctx).profile }.getOrNull()
     }
     var selected by rememberSaveable(initialId) { mutableStateOf(initialId) }
+    var sharing by remember { mutableStateOf<Activity?>(null) }
     LoadView(
         loader,
         loadingText = "Memuat aktivitas setahun terakhir",
@@ -85,9 +87,12 @@ fun ActivitiesScreen(initialId: Long?) {
         emptyText = "Belum ada aktivitas dalam setahun terakhir. Aktivitas dari jam Garmin muncul di sini setelah sync.",
     ) { (list, profile) ->
         val current = list.firstOrNull { it.id == selected }
-        if (current != null) {
+        val share = sharing
+        if (share != null && share.id == selected) {
+            ShareScreen(share) { sharing = null }
+        } else if (current != null) {
             BackHandler { selected = null }
-            ActivityDetail(current, list, profile) { selected = null }
+            ActivityDetail(current, list, profile, onBack = { selected = null }, onShare = { sharing = it })
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 item { Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) { ScreenTitle("Aktivitas") } }
@@ -129,20 +134,24 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, onBack: () -> Unit) {
+private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, onBack: () -> Unit, onShare: (Activity) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-            Text("‹ Semua aktivitas", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+        val ctx = LocalContext.current
+        val detail = rememberLoad(a.id) { Repo.api(ctx).activity(a.id) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
+                Text("‹ Semua aktivitas", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+            }
+            // waits for the detail so the share image can include the route or body map
+            AccentButton("Bagikan", { onShare((detail.state as? Load.Ok)?.data ?: a) }, enabled = detail.state !is Load.Loading)
         }
         Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonth(a.date)}, ${time(a.startTime)}")
             Text((a.name ?: activityType(a.type)).uppercase(), style = num(32.sp), color = K.ink)
         }
-        val ctx = LocalContext.current
-        val detail = rememberLoad(a.id) { Repo.api(ctx).activity(a.id) }
         val strength = a.type == "strength_training"
         DetailCard("Rute", detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) }
         DetailCard("Otot yang dilatih", detail, expected = strength, pick = { it.strength }) { BodyView(it) }

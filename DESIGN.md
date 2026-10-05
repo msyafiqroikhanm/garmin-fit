@@ -86,6 +86,7 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 - **Hari Ini**: header (date, greeting, Sync pill), readiness hero with training advice, "Kenapa skornya segini?" factor bars, flags, Body Battery and steps tiles, sleep tile, 7-day load bars, last activity, weekly summary card.
 - **Tren**: 7/30/90 day picker, four line charts (HRV, RHR, sleep score, Body Battery peak) with delta pill and one insight line each.
 - **Aktivitas**: list, and detail with route card (GPS activities, loaded from `/activities/{id}`), body map and exercise list for strength, hero distance, stat grid, training effect, HR zones with the user's bpm ranges, per-km splits.
+- **Bagikan** (from the detail header): live preview of the share image on top, options below. Backdrop Foto / Kartu / Stiker (transparent PNG), layouts Bold / Minimal / Grid / Rute (Otot for strength), 9:16 or 4:5, ink Putih / Hitam / Volt, stat toggles, KINETIK wordmark. Drag and pinch move the overlay. `renderShare` (`ui/ShareRender.kt`) draws both the preview and the 1080 px export, so they match. Routes lose their first and last 200 m in shared images.
 - **Latihan**: training status card, VO2max with category scale, training load with gauge and acute/chronic chart.
 
 ## Known limits
