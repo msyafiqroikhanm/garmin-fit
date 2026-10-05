@@ -310,7 +310,7 @@ fun muscleLabel(key: String): String = when (key) {
 
 fun Throwable.friendly(): String = when (this) {
     is HttpException -> when (code()) {
-        401 -> "Token tidak valid atau sudah dicabut. Minta token baru ke pemilik."
+        401 -> "Token tidak berlaku atau sudah dicabut. Minta token baru ke pemilik akun."
         403 -> "Hanya pemilik yang bisa sync data."
         502 -> "Server gagal mengambil data dari Garmin. Coba lagi beberapa menit lagi."
         else -> "Server error (${code()}). Coba lagi."

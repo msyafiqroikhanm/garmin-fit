@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import dev.garminfit.ui.AccentButton
 import dev.garminfit.ui.K
+import dev.garminfit.ui.LocalLogout
 import dev.garminfit.ui.T
 import dev.garminfit.ui.body
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -121,12 +123,12 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
         bottomBar = { BottomNav(tab) { t -> tab = t; if (t != Tab.ACTIVITIES) activityId = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
-            when (tab) {
+            CompositionLocalProvider(LocalLogout provides onLogout) { when (tab) {
                 Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onLogout = onLogout)
                 Tab.TRENDS -> TrendsScreen()
                 Tab.ACTIVITIES -> ActivitiesScreen(activityId)
                 Tab.TRAINING -> TrainingScreen()
-            }
+            } }
         }
     }
 }

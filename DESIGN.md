@@ -92,4 +92,4 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 ## Known limits
 
 - VO2 category scale only has the Cooper Institute rows for age 20 to 29; outside that band the scale hides.
-- Widgets (`widget/Widgets.kt`) still use the previous palette.
+- Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts.

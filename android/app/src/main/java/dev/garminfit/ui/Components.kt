@@ -55,12 +55,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import dev.garminfit.friendly
+import retrofit2.HttpException
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlin.math.roundToInt
+
+/** Clears the saved token and returns to the setup screen; provided by Home. */
+val LocalLogout = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 sealed interface Load<out T> {
     data object Loading : Load<Nothing>
     data class Ok<T>(val data: T) : Load<T>
-    data class Err(val message: String) : Load<Nothing>
+    /** [auth] marks a rejected token, which retrying cannot fix. */
+    data class Err(val message: String, val auth: Boolean = false) : Load<Nothing>
 }
 
 class Loader<T>(val state: Load<T>, val reload: () -> Unit)
@@ -71,7 +77,7 @@ fun <T> rememberLoad(vararg keys: Any?, block: suspend () -> T): Loader<T> {
     var attempt by remember(*keys) { mutableIntStateOf(0) }
     LaunchedEffect(attempt, *keys) {
         if (state !is Load.Ok) state = Load.Loading
-        state = runCatching { block() }.fold({ Load.Ok(it) }, { Load.Err(it.friendly()) })
+        state = runCatching { block() }.fold({ Load.Ok(it) }, { Load.Err(it.friendly(), it is HttpException && it.code() == 401) })
     }
     return Loader(state) { attempt++ }
 }
@@ -93,7 +99,9 @@ fun <T> LoadView(
         is Load.Err -> Centered {
             Text(s.message, style = T.body, color = K.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
-            AccentButton("Coba lagi", loader.reload)
+            val logout = LocalLogout.current
+            if (s.auth && logout != null) AccentButton("Masukkan token baru", logout)
+            else AccentButton("Coba lagi", loader.reload)
         }
         is Load.Ok -> if (isEmpty(s.data)) Centered {
             Text(emptyText, style = T.body, textAlign = TextAlign.Center, color = K.muted)

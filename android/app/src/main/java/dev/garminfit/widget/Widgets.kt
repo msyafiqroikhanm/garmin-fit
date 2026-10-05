@@ -2,7 +2,6 @@ package dev.garminfit.widget
 
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -36,6 +35,7 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -55,25 +55,27 @@ import dev.garminfit.km
 import dev.garminfit.pace
 import dev.garminfit.readinessStatus
 import dev.garminfit.sleep
+import dev.garminfit.ui.K
 import dev.garminfit.ui.Status
+import dev.garminfit.ui.color
 import java.time.LocalDate
 import java.util.Locale
 
-// Same palette as the app theme, day/night pairs.
-private val Bg = ColorProvider(Color(0xFFFFFFFF), Color(0xFF1C1F1E))
-private val Ink = ColorProvider(Color(0xFF1C1F1E), Color(0xFFECEDEA))
-private val Muted = ColorProvider(Color(0xFF5B605D), Color(0xFFA5AAA6))
-private val Accent = ColorProvider(Color(0xFF1F5E57), Color(0xFF7CC4B8))
-private val Track = ColorProvider(Color(0xFFEDEAE3), Color(0xFF262A28))
+// Kinetik palette from the app theme (dark only), so a widget reads like a card from the app.
+private fun c(color: Color) = ColorProvider(color, color)
+private val Bg = c(K.surface)
+private val Ink = c(K.ink)
+private val Muted = c(K.muted)
+private val Accent = c(K.good)
+private val Track = c(K.track)
 
-private fun Status.provider(): GColor = when (this) {
-    Status.GOOD -> ColorProvider(Color(0xFF2E7D4F), Color(0xFF7BC89A))
-    Status.FAIR -> ColorProvider(Color(0xFF946000), Color(0xFFE0B25B))
-    Status.LOW -> ColorProvider(Color(0xFFB3261E), Color(0xFFF2A29A))
-}
+private fun Status.provider(): GColor = c(color())
+
+// Glance cannot load bundled fonts; the system condensed face is the nearest to Barlow Condensed.
+private val Condensed = FontFamily("sans-serif-condensed")
 
 private fun label(c: GColor = Muted) = TextStyle(color = c, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-private fun value(size: Int = 22) = TextStyle(color = Ink, fontSize = size.sp, fontWeight = FontWeight.Medium)
+private fun value(size: Int = 22) = TextStyle(color = Ink, fontSize = size.sp, fontWeight = FontWeight.Bold, fontFamily = Condensed)
 private val body = TextStyle(color = Muted, fontSize = 12.sp)
 
 object Widgets {
@@ -119,17 +121,16 @@ private fun stale(t: Today): String? =
 abstract class TodayWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val t = Repo.cachedToday(context)
-        val night = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        provideContent { Content(context, t, night) }
+        provideContent { Content(context, t) }
     }
 
     @Composable
-    abstract fun Content(ctx: Context, t: Today?, night: Boolean)
+    abstract fun Content(ctx: Context, t: Today?)
 }
 
 class RecoveryWidget : TodayWidget() {
     @Composable
-    override fun Content(ctx: Context, t: Today?, night: Boolean) = Card(ctx, Tab.TODAY) {
+    override fun Content(ctx: Context, t: Today?) = Card(ctx, Tab.TODAY) {
         val d = t?.latest
         if (d?.hrv == null) return@Card Placeholder(t)
         Column(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
@@ -153,7 +154,7 @@ class RecoveryWidget : TodayWidget() {
 
 class MorningWidget : TodayWidget() {
     @Composable
-    override fun Content(ctx: Context, t: Today?, night: Boolean) = Card(ctx, Tab.TODAY) {
+    override fun Content(ctx: Context, t: Today?) = Card(ctx, Tab.TODAY) {
         val d = t?.latest ?: return@Card Placeholder(t)
         Column(GlanceModifier.fillMaxSize()) {
             Text(stale(t) ?: "Pagi ini", style = label())
@@ -187,7 +188,7 @@ private fun Stat(title: String, v: String, sub: Pair<String, GColor>?, modifier:
 
 class WeekWidget : TodayWidget() {
     @Composable
-    override fun Content(ctx: Context, t: Today?, night: Boolean) = Card(ctx, Tab.ACTIVITIES) {
+    override fun Content(ctx: Context, t: Today?) = Card(ctx, Tab.ACTIVITIES) {
         if (t == null) return@Card Placeholder(null)
         val w = t.week
         Column(GlanceModifier.fillMaxSize()) {
@@ -220,10 +221,10 @@ class WeekWidget : TodayWidget() {
 
 class TrendWidget : TodayWidget() {
     @Composable
-    override fun Content(ctx: Context, t: Today?, night: Boolean) = Card(ctx, Tab.TRENDS) {
+    override fun Content(ctx: Context, t: Today?) = Card(ctx, Tab.TRENDS) {
         if (t == null || t.spark.hrv.all { it == null } && t.spark.rhr.all { it == null }) return@Card Placeholder(t)
-        val line = if (night) Color(0xFF7CC4B8) else Color(0xFF1F5E57)
-        val muted = if (night) Color(0xFFA5AAA6) else Color(0xFF5B605D)
+        val line = K.good
+        val muted = K.muted
         Column(GlanceModifier.fillMaxSize()) {
             Text("Tren 7 hari", style = label())
             Spacer(GlanceModifier.height(6.dp))
@@ -284,7 +285,7 @@ private fun sparkline(values: List<Double?>, color: Color, w: Int = 480, h: Int 
 
 class LastActivityWidget : TodayWidget() {
     @Composable
-    override fun Content(ctx: Context, t: Today?, night: Boolean) {
+    override fun Content(ctx: Context, t: Today?) {
         val a = t?.lastActivity
         Card(ctx, Tab.ACTIVITIES, a?.id) {
             if (a == null) return@Card Placeholder(t)
