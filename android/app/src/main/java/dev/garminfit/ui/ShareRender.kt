@@ -63,8 +63,10 @@ class ShareFonts(ctx: Context) {
  * Draws the share image at any size; every measure is in units of a 1080 px wide canvas so the
  * preview (drawn straight into a Compose canvas) and the exported bitmap come out identical.
  */
-fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, photo: Bitmap?, fonts: ShareFonts) {
+fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, photo: Bitmap?, fonts: ShareFonts): RectF {
     val u = w / SHARE_W
+    // area the overlay covers before drag and zoom, so the editor can keep it inside the frame
+    val box = RectF(Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
     when (spec.backdrop) {
         Backdrop.PHOTO -> if (photo != null) drawCover(c, photo, w, h) else c.drawColor(K.surface.toArgb())
         // black ink on the dark card would vanish, so the card flips to volt for it
@@ -89,6 +91,7 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
     val m = 72 * u
     val title = "${activityType(a.type).uppercase()} · ${dayMonth(a.date).uppercase()}"
     fun graphic(left: Float, top: Float, gw: Float, gh: Float) {
+        if (route != null || muscles != null) box.union(left, top, left + gw, top + gh)
         if (route != null) drawRoute(c, left, top, gw, gh, route, 9 * u, ink)
         else if (muscles != null) drawBody(c, left, top, gw, gh, muscles, ink, ink.copy(alpha = 0.16f))
     }
@@ -99,25 +102,28 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
             var y = h - m
             val rest = stats.drop(1).take(3)
             if (rest.isNotEmpty()) {
-                statRow(c, text, fonts, u, m, y, w - 2 * m, rest, 64f)
+                statRow(c, text, fonts, u, m, y, w - 2 * m, rest, 64f, box)
                 y -= 150 * u
             }
             val heroSize = 300 * u
             text.typeface = fonts.hero; text.textSize = heroSize
             c.drawText(hero.value, m, y, text)
+            var right = m + text.measureText(hero.value)
             if (hero.unit.isNotEmpty()) {
-                val x = m + text.measureText(hero.value) + 18 * u
+                val x = right + 18 * u
                 text.typeface = fonts.num; text.textSize = 72 * u
                 c.drawText(hero.unit, x, y, text)
+                right = x + text.measureText(hero.unit)
             }
+            box.union(m, y - heroSize * 0.75f, right, y + heroSize * 0.08f)
             y -= heroSize * 0.82f
-            label(c, text, fonts, u, title, m, y)
+            label(c, text, fonts, u, title, m, y, box)
             if (hasGraphic) graphic(m, y - 60 * u - 420 * u, 420 * u, 420 * u)
         }
         Layout.MINIMAL -> {
             val row = stats.take(3)
-            statRow(c, text, fonts, u, m, h - m, w - 2 * m, row, 80f)
-            label(c, text, fonts, u, title, m, h - m - 170 * u)
+            statRow(c, text, fonts, u, m, h - m, w - 2 * m, row, 80f, box)
+            label(c, text, fonts, u, title, m, h - m - 170 * u, box)
         }
         Layout.GRID -> {
             val cells = stats.take(4)
@@ -128,15 +134,15 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
                 val col = i % 2
                 val r = i / 2
                 val by = bottom - (rows - 1 - r) * 230 * u
-                statCell(c, text, fonts, u, m + col * cw, by, s, 110f)
+                statCell(c, text, fonts, u, m + col * cw, by, s, 110f, box)
             }
-            label(c, text, fonts, u, title, m, bottom - rows * 230 * u - 10 * u)
+            label(c, text, fonts, u, title, m, bottom - rows * 230 * u - 10 * u, box)
         }
         Layout.ROUTE -> {
             val row = stats.take(3)
-            statRow(c, text, fonts, u, m, h - m, w - 2 * m, row, 72f)
+            statRow(c, text, fonts, u, m, h - m, w - 2 * m, row, 72f, box)
             val labelY = h - m - 160 * u
-            label(c, text, fonts, u, title, m, labelY)
+            label(c, text, fonts, u, title, m, labelY, box)
             if (hasGraphic) {
                 val top = if (spec.ratio == Ratio.STORY) h * 0.18f else m + 60 * u
                 graphic(m, top, w - 2 * m, labelY - 80 * u - top)
@@ -150,32 +156,37 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, a: Activity, pho
         c.drawText("KINETIK", m, m + 36 * u, text)
         text.letterSpacing = 0f
     }
+    return RectF(box.left / w, box.top / h, box.right / w, box.bottom / h)
 }
 
-private fun label(c: Canvas, p: Paint, f: ShareFonts, u: Float, s: String, x: Float, y: Float) {
+private fun label(c: Canvas, p: Paint, f: ShareFonts, u: Float, s: String, x: Float, y: Float, box: RectF) {
     p.typeface = f.label; p.textSize = 34 * u
     p.letterSpacing = 0.08f
     c.drawText(s, x, y, p)
+    box.union(x, y - 34 * u, x + p.measureText(s), y + 8 * u)
     p.letterSpacing = 0f
 }
 
 /** Value with unit above a small label; [y] is the label baseline. */
-private fun statCell(c: Canvas, p: Paint, f: ShareFonts, u: Float, x: Float, y: Float, s: ShareStat, size: Float) {
+private fun statCell(c: Canvas, p: Paint, f: ShareFonts, u: Float, x: Float, y: Float, s: ShareStat, size: Float, box: RectF) {
     p.typeface = f.label; p.textSize = 30 * u
     c.drawText(s.label, x, y, p)
+    box.union(x, y - 46 * u - size * 0.75f * u, x + p.measureText(s.label), y + 8 * u)
     p.typeface = f.num; p.textSize = size * u
     val vy = y - 46 * u
     c.drawText(s.value, x, vy, p)
+    box.union(x + p.measureText(s.value), vy)
     if (s.unit.isNotEmpty() && s.unit != s.label) {
         val vx = x + p.measureText(s.value) + 10 * u
         p.textSize = size * 0.42f * u
         c.drawText(s.unit, vx, vy, p)
+        box.union(vx + p.measureText(s.unit), vy)
     }
 }
 
-private fun statRow(c: Canvas, p: Paint, f: ShareFonts, u: Float, x: Float, y: Float, width: Float, row: List<ShareStat>, size: Float) {
+private fun statRow(c: Canvas, p: Paint, f: ShareFonts, u: Float, x: Float, y: Float, width: Float, row: List<ShareStat>, size: Float, box: RectF) {
     val cw = width / max(1, row.size)
-    row.forEachIndexed { i, s -> statCell(c, p, f, u, x + i * cw, y, s, size) }
+    row.forEachIndexed { i, s -> statCell(c, p, f, u, x + i * cw, y, s, size, box) }
 }
 
 private fun drawCover(c: Canvas, b: Bitmap, w: Float, h: Float) {
@@ -191,3 +202,19 @@ fun exportShare(spec: ShareSpec, a: Activity, photo: Bitmap?, fonts: ShareFonts)
     Bitmap.createBitmap(SHARE_W, spec.ratio.h, Bitmap.Config.ARGB_8888).also {
         renderShare(Canvas(it), SHARE_W.toFloat(), spec.ratio.h.toFloat(), spec, a, photo, fonts)
     }
+
+/**
+ * Clamps drag and zoom so the overlay box (fractions of the canvas, before transform) stays inside
+ * the frame with a small margin; an overlay larger than the frame is centered.
+ */
+fun ShareSpec.keepInside(box: RectF?, pad: Float = 0.03f): ShareSpec {
+    if (box == null || box.isEmpty) return this
+    val zMax = minOf((1 - 2 * pad) / box.width(), (1 - 2 * pad) / box.height(), 2f)
+    val z = zoom.coerceIn(0.5f, maxOf(0.5f, zMax))
+    fun axis(d: Float, lo: Float, hi: Float): Float {
+        val min = pad - (0.5f + (lo - 0.5f) * z)
+        val max = 1 - pad - (0.5f + (hi - 0.5f) * z)
+        return if (min <= max) d.coerceIn(min, max) else (min + max) / 2
+    }
+    return copy(zoom = z, dx = axis(dx, box.left, box.right), dy = axis(dy, box.top, box.bottom))
+}

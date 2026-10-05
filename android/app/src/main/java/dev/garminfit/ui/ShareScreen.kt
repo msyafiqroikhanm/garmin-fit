@@ -77,6 +77,8 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
     }
     var photo by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // written on every draw, read by the gesture handler; not state, so drawing does not recompose
+    val box = remember { object { var value: android.graphics.RectF? = null } }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             photo = withContext(Dispatchers.IO) { runCatching { decodePhoto(ctx, uri) }.getOrNull() }
@@ -109,17 +111,14 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
                     .border(1.dp, K.border, RoundedCornerShape(16.dp))
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
-                            spec = spec.copy(
-                                dx = (spec.dx + pan.x / size.width).coerceIn(-0.8f, 0.8f),
-                                dy = (spec.dy + pan.y / size.height).coerceIn(-0.8f, 0.8f),
-                                zoom = (spec.zoom * zoom).coerceIn(0.5f, 2f),
-                            )
+                            spec = spec.copy(dx = spec.dx + pan.x / size.width, dy = spec.dy + pan.y / size.height, zoom = spec.zoom * zoom)
+                                .keepInside(box.value)
                         }
                     }
                     .pointerInput(Unit) { detectTapGestures(onDoubleTap = { spec = spec.copy(dx = 0f, dy = 0f, zoom = 1f) }) }
                     .semantics { contentDescription = "Pratinjau gambar untuk dibagikan. Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset." },
             ) {
-                drawIntoCanvas { renderShare(it.nativeCanvas, size.width, size.height, spec, a, photo, fonts) }
+                drawIntoCanvas { box.value = renderShare(it.nativeCanvas, size.width, size.height, spec, a, photo, fonts) }
             }
         }
         Text("Geser dan cubit untuk mengatur posisi, ketuk dua kali untuk reset.", style = T.caption, color = K.muted)
@@ -130,8 +129,8 @@ fun ShareScreen(a: Activity, onBack: () -> Unit) {
                     Text(if (photo == null) "Pilih foto" else "Ganti foto", style = body(14.sp, FontWeight.SemiBold), color = K.good)
                 }
             }
-            Option("Gaya") { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE && a.route == null) "Otot" else it.label }) { spec = spec.copy(layout = it) } }
-            Option("Ukuran") { Segmented(Ratio.entries, spec.ratio, { it.label }) { spec = spec.copy(ratio = it) } }
+            Option("Gaya") { Segmented(layouts, spec.layout, { if (it == Layout.ROUTE && a.route == null) "Otot" else it.label }) { spec = spec.copy(layout = it, dx = 0f, dy = 0f, zoom = 1f) } }
+            Option("Ukuran") { Segmented(Ratio.entries, spec.ratio, { it.label }) { spec = spec.copy(ratio = it, dx = 0f, dy = 0f, zoom = 1f) } }
             Option("Warna") { Segmented(Ink.entries, spec.ink, { it.label }) { spec = spec.copy(ink = it) } }
             Option("Data") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
