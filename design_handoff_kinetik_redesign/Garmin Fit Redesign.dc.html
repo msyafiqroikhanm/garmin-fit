@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>body{margin:0;background:oklch(0.9 0.005 130);font-family:Barlow,sans-serif;-webkit-font-smoothing:antialiased}a{color:oklch(0.45 0.14 128)}a:hover{color:oklch(0.35 0.14 128)}*{box-sizing:border-box}</style>
+</helmet>
+<section id="1a" style="padding:56px;display:flex;flex-direction:column;gap:32px;min-width:max-content">
+  <div style="display:flex;align-items:flex-end;gap:16px">
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;background:oklch(0.16 0.01 150);color:oklch(0.88 0.2 128);padding:4px 10px;border-radius:6px">1a</div>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:40px;line-height:1;text-transform:uppercase;letter-spacing:-0.01em;color:oklch(0.16 0.01 150)">garmin-fit · Redesign</div>
+      <div style="font-size:15px;color:oklch(0.4 0.01 150)">Design system "Kinetik" + 4 layar utama. Data dari endpoint /today, /daily, /activities.</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:40px;align-items:flex-start">
+
+    <sc-if value="{{ showDS }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Design System" style="width:560px;flex:none;background:oklch(0.16 0.01 150);border-radius:28px;padding:32px;color:oklch(0.97 0.005 130);display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Design system</div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:56px;line-height:0.9;text-transform:uppercase;font-style:italic">Kinetik</div>
+        <div style="font-size:15px;line-height:1.5;color:oklch(0.8 0.01 150);text-wrap:pretty">Gelap, kontras tinggi, angka besar. Warna hanya dipakai untuk makna: siap, hati-hati, pulih. Satu aksen volt untuk aksi.</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Warna dasar</div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div style="display:flex;flex-direction:column;gap:6px"><div style="height:56px;border-radius:12px;background:oklch(0.16 0.01 150);border:1px solid oklch(0.32 0.01 150)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Base</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px"><div style="height:56px;border-radius:12px;background:oklch(0.21 0.012 150)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Surface</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px"><div style="height:56px;border-radius:12px;background:oklch(0.27 0.012 150)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Track</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px"><div style="height:56px;border-radius:12px;background:oklch(0.97 0.005 130)"></div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Ink</div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Status readiness</div>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div style="border-radius:14px;padding:12px;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);display:flex;flex-direction:column;gap:2px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;text-transform:uppercase">Gas</div><div style="font-size:13px;font-weight:500">Prima / Tinggi · 70–100</div></div>
+          <div style="border-radius:14px;padding:12px;background:oklch(0.82 0.16 75);color:oklch(0.16 0.01 150);display:flex;flex-direction:column;gap:2px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;text-transform:uppercase">Santai</div><div style="font-size:13px;font-weight:500">Sedang · 40–69</div></div>
+          <div style="border-radius:14px;padding:12px;background:oklch(0.7 0.19 25);color:oklch(0.16 0.01 150);display:flex;flex-direction:column;gap:2px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:22px;text-transform:uppercase">Pulih</div><div style="font-size:13px;font-weight:500">Rendah / Buruk · 0–39</div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Zona detak jantung</div>
+        <div style="display:flex;gap:4px;height:40px">
+          <sc-for list="{{ zoneDefs }}" as="z" hint-placeholder-count="5">
+            <div style="flex:1;border-radius:8px;background:{{ z.color }};color:oklch(0.16 0.01 150);display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px">Z{{ z.n }}</div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Tipografi</div>
+        <div style="display:flex;flex-direction:column;gap:10px;background:oklch(0.21 0.012 150);border-radius:16px;padding:16px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:64px;line-height:0.9">84</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Display · Barlow Condensed 800</div></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;text-transform:uppercase">Siap gas hari ini</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Headline 700</div></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Label metrik</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Label 600 · caps</div></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px"><div style="font-size:15px">Teks penjelasan, Barlow 400/500</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">Body 15</div></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Komponen</div>
+        <div style="display:flex;flex-direction:column;gap:10px;background:oklch(0.21 0.012 150);border-radius:16px;padding:16px">
+          <div style="font-size:13px;color:oklch(0.72 0.01 150)">Baseline bar: pita = rentang normal pribadi, titik = nilai hari ini</div>
+          <div style="position:relative;height:14px"><div style="position:absolute;left:0;right:0;top:4px;height:6px;border-radius:3px;background:oklch(0.27 0.012 150)"></div><div style="position:absolute;left:30%;width:40%;top:4px;height:6px;border-radius:3px;background:oklch(0.88 0.2 128 / 0.35)"></div><div style="position:absolute;left:55%;top:0;width:14px;height:14px;margin-left:-7px;border-radius:7px;background:oklch(0.88 0.2 128);border:3px solid oklch(0.21 0.012 150)"></div></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:6px">
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:oklch(0.88 0.2 128 / 0.14);color:oklch(0.88 0.2 128);font-size:13px;font-weight:600"><div style="width:7px;height:7px;border-radius:4px;background:oklch(0.88 0.2 128)"></div>Seimbang</div>
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:oklch(0.82 0.16 75 / 0.14);color:oklch(0.82 0.16 75);font-size:13px;font-weight:600"><div style="width:7px;height:7px;border-radius:4px;background:oklch(0.82 0.16 75)"></div>Waspada</div>
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:oklch(0.7 0.19 25 / 0.16);color:oklch(0.7 0.19 25);font-size:13px;font-weight:600"><div style="width:7px;height:7px;border-radius:4px;background:oklch(0.7 0.19 25)"></div>Di bawah normal</div>
+            <div style="padding:6px 12px;border-radius:999px;background:oklch(0.27 0.012 150);font-size:13px;font-weight:600">Zona 3–4</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.5;color:oklch(0.8 0.01 150)">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Prinsip</div>
+        <div>1 · Jawab dulu "boleh latihan apa hari ini?", baru tampilkan angka.</div>
+        <div>2 · Setiap angka dibandingkan dengan baseline pribadi, bukan angka absolut.</div>
+        <div>3 · Bahasa santai, kalimat pendek. Tanpa jargon kalau ada padanan.</div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- HARI INI -->
+    <div data-screen-label="Hari Ini" style="width:380px;flex:none;background:oklch(0.16 0.01 150);border-radius:40px;border:1px solid oklch(0.3 0.01 150);overflow:hidden;display:flex;flex-direction:column;color:oklch(0.97 0.005 130);box-shadow:0 30px 80px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600"><div>10:02</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">5G ▮▮▮ 82%</div></div>
+      <div style="padding:16px 16px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;padding:0 4px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Senin, 28 Sep</div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;line-height:1">Pagi, Syafiq</div>
+          </div>
+          <div style="font-size:12px;color:oklch(0.72 0.01 150);padding:6px 10px;border-radius:999px;background:oklch(0.21 0.012 150)">Sync 10:00 ↻</div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;gap:16px;align-items:center">
+            <div style="position:relative;width:132px;height:132px;flex:none">
+              <svg width="132" height="132" viewBox="0 0 132 132" style="transform:rotate(-90deg)">
+                <circle cx="66" cy="66" r="56" fill="none" stroke="oklch(0.27 0.012 150)" stroke-width="12"></circle>
+                <circle cx="66" cy="66" r="56" fill="none" stroke="{{ s.color }}" stroke-width="12" stroke-linecap="round" stroke-dasharray="{{ s.dash }}"></circle>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:52px;line-height:0.9">{{ s.score }}</div>
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;letter-spacing:0.1em;color:oklch(0.72 0.01 150)">READINESS</div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-style:italic;font-size:40px;line-height:0.9;text-transform:uppercase;color:{{ s.color }}">{{ s.verb }}</div>
+              <div style="font-size:15px;font-weight:600">{{ s.tag }}</div>
+              <div style="font-size:13px;color:oklch(0.72 0.01 150)">Level Garmin: {{ s.level }}</div>
+            </div>
+          </div>
+          <div style="background:oklch(0.16 0.01 150);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:{{ s.color }}">Saran latihan hari ini</div>
+            <div style="font-size:15px;line-height:1.45;text-wrap:pretty">{{ s.rec }}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ s.chips }}" as="c" hint-placeholder-count="3">
+                <div style="padding:5px 10px;border-radius:999px;background:oklch(0.27 0.012 150);font-size:13px;font-weight:600">{{ c }}</div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">Kenapa skornya segini?</div>
+          </div>
+          <sc-for list="{{ s.factors }}" as="f" hint-placeholder-count="5">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+                <div style="font-size:14px;color:oklch(0.8 0.01 150)">{{ f.name }}</div>
+                <div style="display:flex;align-items:baseline;gap:4px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;line-height:1">{{ f.value }}</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">{{ f.unit }}</div></div>
+              </div>
+              <div style="position:relative;height:14px"><div style="position:absolute;left:0;right:0;top:4px;height:6px;border-radius:3px;background:oklch(0.27 0.012 150)"></div><div style="position:absolute;left:{{ f.bandL }};width:{{ f.bandW }};top:4px;height:6px;border-radius:3px;background:oklch(0.88 0.2 128 / 0.3)"></div><div style="position:absolute;left:{{ f.pos }};top:0;width:14px;height:14px;margin-left:-7px;border-radius:7px;background:{{ f.color }};border:3px solid oklch(0.21 0.012 150)"></div></div>
+              <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px"><div style="color:{{ f.color }};font-weight:600">{{ f.status }}</div><div style="color:oklch(0.72 0.01 150)">{{ f.note }}</div></div>
+            </div>
+          </sc-for>
+        </div>
+
+        <sc-for list="{{ s.flags }}" as="fl" hint-placeholder-count="1">
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:16px;background:{{ fl.bg }}">
+            <div style="width:8px;height:8px;border-radius:4px;margin-top:6px;flex:none;background:{{ fl.color }}"></div>
+            <div style="font-size:14px;line-height:1.4">{{ fl.text }}</div>
+          </div>
+        </sc-for>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px">
+          <div style="background:oklch(0.21 0.012 150);border-radius:20px;padding:14px;display:flex;flex-direction:column;gap:8px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Body Battery</div>
+            <div style="display:flex;align-items:baseline;gap:4px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:36px;line-height:1">{{ s.bb.now }}</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">sekarang</div></div>
+            <div style="position:relative;height:8px;border-radius:4px;background:oklch(0.27 0.012 150)"><div style="position:absolute;left:{{ s.bb.lowPct }};width:{{ s.bb.rangePct }};top:0;bottom:0;border-radius:4px;background:{{ s.color }}"></div></div>
+            <div style="font-size:12px;color:oklch(0.72 0.01 150)">Terendah {{ s.bb.low }} · tertinggi {{ s.bb.high }}</div>
+          </div>
+          <div style="background:oklch(0.21 0.012 150);border-radius:20px;padding:14px;display:flex;flex-direction:column;gap:8px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Langkah</div>
+            <div style="display:flex;align-items:baseline;gap:4px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:36px;line-height:1">4.812</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">/ 8.000</div></div>
+            <div style="height:8px;border-radius:4px;background:oklch(0.27 0.012 150)"><div style="width:60%;height:8px;border-radius:4px;background:oklch(0.97 0.005 130)"></div></div>
+            <div style="font-size:12px;color:oklch(0.72 0.01 150)">60% target harian</div>
+          </div>
+          <div style="grid-column:1 / span 2;background:oklch(0.21 0.012 150);border-radius:20px;padding:14px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Tidur semalam</div>
+              <div style="display:flex;align-items:baseline;gap:6px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:28px;line-height:1">{{ s.sleep.dur }}</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">skor {{ s.sleep.score }}</div></div>
+            </div>
+            <div style="display:flex;gap:3px;height:14px">
+              <sc-for list="{{ s.sleep.stages }}" as="st" hint-placeholder-count="4">
+                <div style="flex:{{ st.flex }};border-radius:4px;background:{{ st.color }}"></div>
+              </sc-for>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px">
+              <sc-for list="{{ s.sleep.stages }}" as="st" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column;gap:1px"><div style="display:flex;align-items:center;gap:5px;font-size:11px;color:oklch(0.72 0.01 150)"><div style="width:7px;height:7px;border-radius:2px;background:{{ st.color }}"></div>{{ st.name }}</div><div style="font-size:14px;font-weight:600">{{ st.dur }}</div></div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">7 hari terakhir</div>
+            <div style="font-size:13px;color:oklch(0.88 0.2 128);font-weight:600">5 hari aktif</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+            <div style="display:flex;flex-direction:column"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1">5</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">sesi</div></div>
+            <div style="display:flex;flex-direction:column"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1">31,6</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">km</div></div>
+            <div style="display:flex;flex-direction:column"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1">3j 48m</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">durasi</div></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-end;height:92px">
+            <sc-for list="{{ week }}" as="d" hint-placeholder-count="7">
+              <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end;height:100%">
+                <div style="font-size:10px;color:oklch(0.72 0.01 150);font-family:'JetBrains Mono',monospace">{{ d.loadTxt }}</div>
+                <div style="width:100%;height:{{ d.h }};border-radius:6px;background:{{ d.color }}"></div>
+                <div style="font-size:11px;font-weight:600;color:{{ d.labelColor }}">{{ d.day }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:12px;color:oklch(0.72 0.01 150)">Tinggi batang = training load per hari · total 620</div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:10px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Aktivitas terakhir · Minggu</div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:24px;line-height:1">Long Run Minggu</div>
+            <div style="font-size:18px;color:oklch(0.72 0.01 150)">›</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px">
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px">10,24</div><div style="font-size:11px;color:oklch(0.72 0.01 150)">km</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px">5:21</div><div style="font-size:11px;color:oklch(0.72 0.01 150)">/km</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px">154</div><div style="font-size:11px;color:oklch(0.72 0.01 150)">bpm</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px">3,6</div><div style="font-size:11px;color:oklch(0.72 0.01 150)">TE aerobik</div></div>
+          </div>
+        </div>
+
+        <div onClick="{{ toggleSummary }}" style="cursor:pointer;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:8px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Ringkasan minggu · 21–27 Sep</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;line-height:1.05;text-transform:uppercase">Minggu produktif, HRV stabil, tidur perlu 30 menit lebih</div>
+          <sc-if value="{{ summaryOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;padding-top:4px">
+              <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em">Latihan</div><div style="font-size:14px;line-height:1.45">5 sesi, 31,6 km. Long run naik 1,5 km dari minggu lalu tanpa lonjakan beban.</div></div>
+              <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em">Pemulihan</div><div style="font-size:14px;line-height:1.45">HRV rata-rata 55 ms, tetap di rentang normal. Tidur rata-rata 6j 50m.</div></div>
+              <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em">Minggu depan</div><div style="font-size:14px;line-height:1.45">Pertahankan volume, tambah 1 sesi interval. Coba tidur sebelum 23:00.</div></div>
+            </div>
+          </sc-if>
+          <div style="font-size:13px;font-weight:600">{{ summaryCta }}</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-around;padding:10px 12px 18px;border-top:1px solid oklch(0.27 0.012 150);background:oklch(0.18 0.01 150)">
+        <div style="padding:8px 14px;border-radius:999px;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);font-size:13px;font-weight:700">Hari Ini</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Tren</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Aktivitas</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Latihan</div>
+      </div>
+    </div>
+
+    <!-- TREN -->
+    <div data-screen-label="Tren" style="width:380px;flex:none;background:oklch(0.16 0.01 150);border-radius:40px;border:1px solid oklch(0.3 0.01 150);overflow:hidden;display:flex;flex-direction:column;color:oklch(0.97 0.005 130);box-shadow:0 30px 80px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600"><div>10:02</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">5G ▮▮▮ 82%</div></div>
+      <div style="padding:16px 16px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:36px;line-height:1;text-transform:uppercase;padding:0 4px">Tren tubuh</div>
+        <div style="display:flex;gap:4px;padding:4px;border-radius:999px;background:oklch(0.21 0.012 150)">
+          <sc-for list="{{ ranges }}" as="r" hint-placeholder-count="3">
+            <div onClick="{{ r.pick }}" style="flex:1;text-align:center;padding:9px 0;border-radius:999px;cursor:pointer;font-size:14px;font-weight:700;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</div>
+          </sc-for>
+        </div>
+        <sc-for list="{{ charts }}" as="c" hint-placeholder-count="4">
+          <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">{{ c.title }}</div>
+                <div style="display:flex;align-items:baseline;gap:4px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:36px;line-height:1">{{ c.last }}</div><div style="font-size:13px;color:oklch(0.72 0.01 150)">{{ c.unit }}</div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+                <div style="padding:4px 10px;border-radius:999px;font-size:13px;font-weight:700;background:{{ c.deltaBg }};color:{{ c.deltaColor }}">{{ c.delta }}</div>
+                <div style="font-size:12px;color:oklch(0.72 0.01 150)">rata-rata {{ c.avg }}</div>
+              </div>
+            </div>
+            <svg width="100%" height="100" viewBox="0 0 316 100" preserveAspectRatio="none" style="display:block">
+              <rect x="0" y="{{ c.bandY }}" width="316" height="{{ c.bandH }}" fill="oklch(0.88 0.2 128 / 0.12)"></rect>
+              <line x1="0" y1="99" x2="316" y2="99" stroke="oklch(0.3 0.01 150)" stroke-width="1"></line>
+              <polyline points="{{ c.points }}" fill="none" stroke="{{ c.color }}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>
+            </svg>
+            <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)"><div>{{ startLabel }}</div><div>Hari ini</div></div>
+            <div style="font-size:13px;line-height:1.4;color:oklch(0.85 0.01 150);text-wrap:pretty">{{ c.insight }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;justify-content:space-around;padding:10px 12px 18px;border-top:1px solid oklch(0.27 0.012 150);background:oklch(0.18 0.01 150)">
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Hari Ini</div>
+        <div style="padding:8px 14px;border-radius:999px;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);font-size:13px;font-weight:700">Tren</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Aktivitas</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Latihan</div>
+      </div>
+    </div>
+
+    <!-- AKTIVITAS DETAIL -->
+    <div data-screen-label="Aktivitas" style="width:380px;flex:none;background:oklch(0.16 0.01 150);border-radius:40px;border:1px solid oklch(0.3 0.01 150);overflow:hidden;display:flex;flex-direction:column;color:oklch(0.97 0.005 130);box-shadow:0 30px 80px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600"><div>10:02</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">5G ▮▮▮ 82%</div></div>
+      <div style="padding:16px 16px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-size:14px;font-weight:600;color:oklch(0.88 0.2 128);padding:0 4px">‹ Semua aktivitas</div>
+        <div style="padding:0 4px;display:flex;flex-direction:column;gap:4px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">Lari · Minggu 27 Sep, 06:12</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:32px;line-height:1;text-transform:uppercase">Long Run Minggu</div>
+        </div>
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:baseline;gap:6px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-style:italic;font-size:80px;line-height:0.85">10,24</div><div style="font-size:18px;color:oklch(0.72 0.01 150)">km</div></div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 8px">
+            <sc-for list="{{ actStats }}" as="a" hint-placeholder-count="6">
+              <div style="display:flex;flex-direction:column;gap:2px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:24px;line-height:1">{{ a.v }}</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">{{ a.l }}</div></div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:14px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">Efek ke tubuh</div>
+          <sc-for list="{{ te }}" as="t" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:14px;color:oklch(0.8 0.01 150)">{{ t.name }}</div><div style="display:flex;gap:6px;align-items:baseline"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;line-height:1">{{ t.v }}</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">/ 5</div></div></div>
+              <div style="display:flex;gap:3px">
+                <sc-for list="{{ t.segs }}" as="sg" hint-placeholder-count="5"><div style="flex:1;height:8px;border-radius:3px;background:{{ sg }}"></div></sc-for>
+              </div>
+              <div style="font-size:13px;font-weight:600;color:{{ t.color }}">{{ t.label }}</div>
+            </div>
+          </sc-for>
+          <div style="font-size:13px;line-height:1.4;color:oklch(0.8 0.01 150);border-top:1px solid oklch(0.27 0.012 150);padding-top:12px">Training load <span style="font-weight:700;color:oklch(0.97 0.005 130)">142</span> · sesi terberat minggu ini. Butuh ±30 jam pulih.</div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">Zona detak jantung</div>
+          <div style="display:flex;height:18px;border-radius:6px;overflow:hidden;gap:2px">
+            <sc-for list="{{ zones }}" as="z" hint-placeholder-count="5"><div style="flex:{{ z.flex }};background:{{ z.color }}"></div></sc-for>
+          </div>
+          <sc-for list="{{ zones }}" as="z" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:28px minmax(0,1fr) 64px 40px;align-items:center;gap:8px">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;text-align:center;border-radius:6px;padding:2px 0;background:{{ z.color }};color:oklch(0.16 0.01 150)">Z{{ z.n }}</div>
+              <div style="display:flex;flex-direction:column"><div style="font-size:14px;font-weight:600">{{ z.name }}</div><div style="font-size:11px;color:oklch(0.72 0.01 150)">{{ z.bpm }}</div></div>
+              <div style="font-size:13px;color:oklch(0.72 0.01 150);text-align:right">{{ z.dur }}</div>
+              <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;text-align:right">{{ z.pct }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">Split per km</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">negative split ✓</div></div>
+          <sc-for list="{{ splits }}" as="sp" hint-placeholder-count="10">
+            <div style="display:grid;grid-template-columns:22px minmax(0,1fr) 40px;align-items:center;gap:8px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">{{ sp.km }}</div>
+              <div style="height:10px;border-radius:5px;background:oklch(0.27 0.012 150)"><div style="height:10px;border-radius:5px;width:{{ sp.w }};background:{{ sp.color }}"></div></div>
+              <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;text-align:right">{{ sp.pace }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-around;padding:10px 12px 18px;border-top:1px solid oklch(0.27 0.012 150);background:oklch(0.18 0.01 150)">
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Hari Ini</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Tren</div>
+        <div style="padding:8px 14px;border-radius:999px;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);font-size:13px;font-weight:700">Aktivitas</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Latihan</div>
+      </div>
+    </div>
+
+    <!-- LATIHAN -->
+    <div data-screen-label="Latihan" style="width:380px;flex:none;background:oklch(0.16 0.01 150);border-radius:40px;border:1px solid oklch(0.3 0.01 150);overflow:hidden;display:flex;flex-direction:column;color:oklch(0.97 0.005 130);box-shadow:0 30px 80px -30px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600"><div>10:02</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:oklch(0.72 0.01 150)">5G ▮▮▮ 82%</div></div>
+      <div style="padding:16px 16px 24px;display:flex;flex-direction:column;gap:12px">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:36px;line-height:1;text-transform:uppercase;padding:0 4px">Kebugaran</div>
+
+        <div style="background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase">Training status</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-style:italic;font-size:48px;line-height:0.9;text-transform:uppercase">Produktif</div>
+          <div style="font-size:15px;line-height:1.4;font-weight:500">Kebugaran naik, beban latihan pas. Lanjutkan pola ini 2–3 minggu lagi.</div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:oklch(0.72 0.01 150)">VO2max</div>
+              <div style="display:flex;align-items:baseline;gap:6px"><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:56px;line-height:0.9">51,3</div><div style="font-size:13px;color:oklch(0.72 0.01 150)">ml/kg/mnt</div></div>
+            </div>
+            <div style="padding:4px 10px;border-radius:999px;font-size:13px;font-weight:700;background:oklch(0.88 0.2 128 / 0.14);color:oklch(0.88 0.2 128)">+2,2 / 90 hari</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="position:relative;display:flex;gap:3px">
+              <sc-for list="{{ vo2Cats }}" as="v" hint-placeholder-count="5">
+                <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="height:10px;border-radius:3px;background:{{ v.bg }}"></div><div style="font-size:10px;text-align:center;color:{{ v.fg }};font-weight:600">{{ v.name }}</div></div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="font-size:13px;line-height:1.4;color:oklch(0.85 0.01 150)">"Sangat baik" untuk pria usia 20–29. Kurang 1,7 poin lagi ke kategori Unggul.</div>
+        </div>
+
+        <div style="background:oklch(0.21 0.012 150);border-radius:24px;padding:18px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;text-transform:uppercase">Beban latihan</div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1">612</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">akut (7 hari)</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1">583</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">kronis (28 hari)</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:30px;line-height:1;color:oklch(0.88 0.2 128)">1,05</div><div style="font-size:12px;color:oklch(0.72 0.01 150)">rasio</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="position:relative;display:flex;gap:3px;height:12px">
+              <div style="flex:30;border-radius:3px;background:oklch(0.72 0.1 240 / 0.6)"></div>
+              <div style="flex:50;border-radius:3px;background:oklch(0.88 0.2 128 / 0.6)"></div>
+              <div style="flex:20;border-radius:3px;background:oklch(0.82 0.16 75 / 0.6)"></div>
+              <div style="flex:30;border-radius:3px;background:oklch(0.7 0.19 25 / 0.6)"></div>
+              <div style="position:absolute;left:42%;top:-4px;width:4px;height:20px;border-radius:2px;background:oklch(0.97 0.005 130)"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:oklch(0.72 0.01 150)"><div>Kurang</div><div>Optimal 0,8–1,3</div><div>Tinggi</div><div>Rawan cedera</div></div>
+          </div>
+          <svg width="100%" height="110" viewBox="0 0 316 110" preserveAspectRatio="none" style="display:block">
+            <polyline points="{{ chronicPts }}" fill="none" stroke="oklch(0.72 0.01 150)" stroke-width="1.6" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></polyline>
+            <polyline points="{{ acutePts }}" fill="none" stroke="oklch(0.88 0.2 128)" stroke-width="2.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+          </svg>
+          <div style="display:flex;gap:16px;font-size:12px;color:oklch(0.72 0.01 150)"><div style="display:flex;align-items:center;gap:6px"><div style="width:14px;height:3px;background:oklch(0.88 0.2 128)"></div>Akut</div><div style="display:flex;align-items:center;gap:6px"><div style="width:14px;height:3px;background:oklch(0.72 0.01 150)"></div>Kronis</div><div style="margin-left:auto">90 hari</div></div>
+          <div style="font-size:13px;line-height:1.4;color:oklch(0.85 0.01 150)">Aman menambah volume sampai ±10% minggu depan.</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-around;padding:10px 12px 18px;border-top:1px solid oklch(0.27 0.012 150);background:oklch(0.18 0.01 150)">
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Hari Ini</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Tren</div>
+        <div style="padding:8px 14px;font-size:13px;font-weight:600;color:oklch(0.72 0.01 150)">Aktivitas</div>
+        <div style="padding:8px 14px;border-radius:999px;background:oklch(0.88 0.2 128);color:oklch(0.16 0.01 150);font-size:13px;font-weight:700">Latihan</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;scenario&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;prime&quot;,&quot;moderate&quot;,&quot;low&quot;],&quot;default&quot;:&quot;prime&quot;,&quot;tsType&quot;:&quot;'prime'|'moderate'|'low'&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;showDesignSystem&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+const G='oklch(0.88 0.2 128)',F='oklch(0.82 0.16 75)',L='oklch(0.7 0.19 25)',MUTE='oklch(0.72 0.01 150)',TRACK='oklch(0.27 0.012 150)';
+const ZC=['oklch(0.72 0.1 240)','oklch(0.8 0.13 185)',G,F,L];
+const col={good:G,fair:F,low:L};
+const f=(name,value,unit,status,st,v,min,max,lo,hi,note)=>({name,value,unit,status,note,color:col[st],
+  pos:((v-min)/(max-min)*100).toFixed(1)+'%',bandL:((lo-min)/(max-min)*100).toFixed(1)+'%',bandW:((hi-lo)/(max-min)*100).toFixed(1)+'%'});
+const stages=(d,r,l,a)=>{const n=['Deep','REM','Ringan','Bangun'],c=['oklch(0.55 0.12 260)','oklch(0.72 0.1 240)','oklch(0.8 0.06 220)',L];
+  return [d,r,l,a].map((m,i)=>({name:n[i],color:c[i],flex:m,dur:m>=60?Math.floor(m/60)+'j '+String(m%60).padStart(2,'0')+'m':m+'m'}));};
+const SC={
+  prime:{score:84,verb:'Gas!',level:'Prima',color:G,tag:'Siap latihan berat',
+    rec:'Tubuh lagi fit. Pas buat sesi kualitas: tempo 40 menit atau interval 6×800 m.',chips:['40–60 mnt','Zona 3–4','Pulih 6 jam'],
+    factors:[f('HRV semalam','58','ms','Seimbang','good',58,35,75,48,62,'normal 48–62'),f('Tidur','86','skor','Nyenyak','good',86,30,100,70,100,'7j 42m'),
+      f('Resting HR','52','bpm','Lebih rendah dari biasa','good',52,44,66,50,58,'rata-rata 54'),f('Beban akut : kronis','1,05','rasio','Seimbang','good',1.05,0.5,1.8,0.8,1.3,'optimal 0,8–1,3'),
+      f('Stres','22','/100','Rendah','good',22,0,100,0,35,'kemarin')],
+    flags:[{text:'HRV 7 hari terakhir di atas rentang normal. Adaptasi latihanmu jalan.',color:G,bg:'oklch(0.88 0.2 128 / 0.12)'}],
+    bb:{now:88,low:24,high:92},sleep:{dur:'7j 42m',score:86,st:[88,111,241,22]}},
+  moderate:{score:58,verb:'Santai',level:'Sedang',color:F,tag:'Latihan ringan–sedang',
+    rec:'Tubuh belum pulih penuh. Easy run 30–45 menit di zona 2, simpan interval buat besok.',chips:['30–45 mnt','Zona 2','Pulih 18 jam'],
+    factors:[f('HRV semalam','49','ms','Batas bawah normal','fair',49,35,75,48,62,'normal 48–62'),f('Tidur','64','skor','Kurang','fair',64,30,100,70,100,'6j 05m'),
+      f('Resting HR','56','bpm','Normal','good',56,44,66,50,58,'rata-rata 54'),f('Beban akut : kronis','1,24','rasio','Mendekati batas','fair',1.24,0.5,1.8,0.8,1.3,'optimal 0,8–1,3'),
+      f('Stres','38','/100','Sedang','fair',38,0,100,0,35,'kemarin')],
+    flags:[{text:'Tidur 3 malam terakhir di bawah 6,5 jam. Coba tidur 30 menit lebih awal.',color:F,bg:'oklch(0.82 0.16 75 / 0.12)'}],
+    bb:{now:54,low:18,high:61},sleep:{dur:'6j 05m',score:64,st:[52,78,215,20]}},
+  low:{score:27,verb:'Pulih',level:'Rendah',color:L,tag:'Prioritaskan istirahat',
+    rec:'Tubuh butuh recovery. Jalan santai 20 menit atau stretching, dan tidur lebih awal malam ini.',chips:['≤ 20 mnt','Zona 1','Pulih 40 jam'],
+    factors:[f('HRV semalam','41','ms','Di bawah normal','low',41,35,75,48,62,'normal 48–62'),f('Tidur','48','skor','Buruk','low',48,30,100,70,100,'5j 10m'),
+      f('Resting HR','61','bpm','+7 dari rata-rata','low',61,44,66,50,58,'rata-rata 54'),f('Beban akut : kronis','1,42','rasio','Melonjak','low',1.42,0.5,1.8,0.8,1.3,'optimal 0,8–1,3'),
+      f('Stres','54','/100','Tinggi','low',54,0,100,0,35,'kemarin')],
+    flags:[{text:'RHR 61 bpm, 7 di atas rata-rata 30 hari. Bisa tanda kelelahan atau mau sakit.',color:L,bg:'oklch(0.7 0.19 25 / 0.14)'},
+      {text:'Beban latihan melonjak dibanding 4 minggu terakhir.',color:L,bg:'oklch(0.7 0.19 25 / 0.14)'}],
+    bb:{now:22,low:9,high:34},sleep:{dur:'5j 10m',score:48,st:[31,58,196,25]}}
+};
+const MON=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+function gen(n,base,amp,seed,trend){const a=[];for(let i=0;i<n;i++)a.push(base+amp*Math.sin(i*0.7+seed)+amp*0.6*Math.sin(i*0.23+seed*2)+trend*(i/Math.max(1,n-1)));return a;}
+function chart(vals,lo,hi,W,H){const mn=Math.min(...vals,lo??Infinity),mx=Math.max(...vals,hi??-Infinity),sp=Math.max(0.1,mx-mn);
+  const y=v=>H-6-(v-mn)/sp*(H-12);const pts=vals.map((v,i)=>(i*W/(vals.length-1)).toFixed(1)+','+y(v).toFixed(1)).join(' ');
+  return {pts,bandY:lo!=null?y(hi):0,bandH:lo!=null?y(lo)-y(hi):0};}
+
+class Component extends DCLogic {
+  state={range:30,summaryOpen:false};
+  renderVals(){
+    const key=this.props.scenario??'prime';const s0=SC[key]||SC.prime;
+    const circ=2*Math.PI*56;
+    const bb=s0.bb;
+    const s={...s0,dash:(s0.score/100*circ).toFixed(1)+' '+circ.toFixed(1),
+      bb:{...bb,lowPct:bb.low+'%',rangePct:(bb.high-bb.low)+'%'},
+      sleep:{dur:s0.sleep.dur,score:s0.sleep.score,stages:stages(...s0.sleep.st)}};
+    const loads=[0,86,0,142,64,210,118],days=['Sel','Rab','Kam','Jum','Sab','Min','Sen'];
+    const week=loads.map((l,i)=>({day:days[i],loadTxt:l?String(l):'',h:l?Math.max(8,l/210*64)+'px':'4px',
+      color:l?(i===6?G:'oklch(0.88 0.2 128 / 0.45)'):TRACK,labelColor:i===6?'oklch(0.97 0.005 130)':MUTE}));
+    const n=this.state.range;
+    const start=new Date(2026,8,28);start.setDate(start.getDate()-(n-1));
+    const defs=[
+      {title:'HRV semalam',unit:'ms',v:gen(n,55,4,1,2).map(v=>Math.round(v)),lo:48,hi:62,color:G,good:1,insight:'Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil.'},
+      {title:'Resting HR',unit:'bpm',v:gen(n,54,1.8,2,-1.5).map(v=>Math.round(v)),lo:50,hi:58,color:'oklch(0.97 0.005 130)',good:-1,insight:'Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien.'},
+      {title:'Skor tidur',unit:'/100',v:gen(n,76,8,3,3).map(v=>Math.round(Math.min(99,v))),lo:70,hi:100,color:'oklch(0.72 0.1 240)',good:1,insight:'Skor di atas 70 bikin readiness naik keesokan harinya.'},
+      {title:'Body Battery tertinggi',unit:'',v:gen(n,80,9,4,4).map(v=>Math.round(Math.min(100,v))),lo:null,hi:null,color:F,good:1,insight:'Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang.'}
+    ];
+    const charts=defs.map(d=>{const c=chart(d.v,d.lo,d.hi,316,100);const last=d.v[d.v.length-1],first=d.v[0];
+      const avg=Math.round(d.v.reduce((a,b)=>a+b,0)/d.v.length);const diff=last-first;const better=diff*d.good>=0;
+      return {title:d.title,unit:d.unit,last,avg,color:d.color,points:c.pts,bandY:c.bandY,bandH:c.bandH,insight:d.insight,
+        delta:(diff>0?'▲ +':diff<0?'▼ ':'= ')+diff,deltaColor:diff===0?MUTE:better?G:F,deltaBg:diff===0?TRACK:better?'oklch(0.88 0.2 128 / 0.14)':'oklch(0.82 0.16 75 / 0.14)'};});
+    const ranges=[7,30,90].map(r=>({label:r+' hari',bg:r===n?G:'transparent',fg:r===n?'oklch(0.16 0.01 150)':MUTE,pick:()=>this.setState({range:r})}));
+    const zs=[180,720,1380,900,108],tot=zs.reduce((a,b)=>a+b,0);
+    const zn=['Pemanasan','Mudah','Aerobik','Ambang','Maksimal'],zb=['< 124 bpm','124–143','143–158','158–171','> 171'];
+    const zones=zs.map((z,i)=>({n:i+1,name:zn[i],bpm:zb[i],color:ZC[i],flex:z,dur:Math.floor(z/60)+'m '+String(z%60).padStart(2,'0')+'d',pct:Math.round(z/tot*100)+'%'}));
+    const sp=[331,326,322,320,318,321,316,314,309,301];
+    const splits=sp.map((p,i)=>({km:String(i+1),pace:Math.floor(p/60)+':'+String(p%60).padStart(2,'0'),w:(40+(335-p)/34*60).toFixed(0)+'%',color:p<=312?G:'oklch(0.88 0.2 128 / 0.5)'}));
+    const seg=(v,c)=>[1,2,3,4,5].map(k=>k<=Math.round(v)?c:TRACK);
+    const te=[{name:'Aerobik',v:'3,6',segs:seg(3.6,G),color:G,label:'Meningkatkan daya tahan'},{name:'Anaerobik',v:'1,2',segs:seg(1.2,'oklch(0.72 0.1 240)'),color:MUTE,label:'Efek minim ke kecepatan'}];
+    const acute=gen(90,540,60,5,70),chronic=gen(90,520,18,6,60);
+    const all=[...acute,...chronic],mn=Math.min(...all),mx=Math.max(...all);
+    const pl=a=>a.map((v,i)=>(i*316/89).toFixed(1)+','+(104-(v-mn)/(mx-mn)*98).toFixed(1)).join(' ');
+    const cats=['Kurang','Cukup','Baik','Sangat baik','Unggul'];
+    return {
+      s,week,charts,ranges,zones,splits,te,
+      showDS:this.props.showDesignSystem??true,
+      zoneDefs:ZC.map((c,i)=>({n:i+1,color:c})),
+      startLabel:start.getDate()+' '+MON[start.getMonth()],
+      summaryOpen:this.state.summaryOpen,
+      summaryCta:this.state.summaryOpen?'Tutup ↑':'Ketuk untuk baca lengkap ↓',
+      toggleSummary:()=>this.setState(x=>({summaryOpen:!x.summaryOpen})),
+      actStats:[{v:'54:48',l:'durasi'},{v:'5:21',l:'pace /km'},{v:'154',l:'HR rata-rata'},{v:'178',l:'HR maks'},{v:'642',l:'kkal'},{v:'48 m',l:'elevasi naik'}],
+      vo2Cats:cats.map((c,i)=>({name:c,bg:i===3?G:i<3?'oklch(0.88 0.2 128 / 0.3)':TRACK,fg:i===3?G:MUTE})),
+      acutePts:pl(acute),chronicPts:pl(chronic)
+    };
+  }
+}
+</script>
+</body>
+</html>
