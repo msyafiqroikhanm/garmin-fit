@@ -1,5 +1,7 @@
 package dev.garminfit.ui
 
+import dev.garminfit.R
+
 import dev.garminfit.tr
 import android.content.ContentValues
 import android.content.Context
@@ -64,7 +66,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = tr("‹ Back to details", "‹ Kembali ke detail")) {
+fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = tr("Back to details", "Kembali ke detail")) {
     BackHandler(onBack = onBack)
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -110,9 +112,7 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = t
 
     // preview stays in view while the options scroll under it, so every change is visible as it is made
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-            Text(backLabel, style = body(14.sp, FontWeight.SemiBold), color = K.good)
-        }
+        BackLink(backLabel, onBack)
         val ratio = SHARE_W.toFloat() / spec.ratio.h
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
             Canvas(
@@ -153,7 +153,7 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = t
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlineButton(tr("Save", "Simpan"), Modifier.weight(1f), enabled = !busy) { export { saveToGallery(ctx, it, spec.backdrop) } }
-            AccentButton(tr("Share", "Bagikan"), { export { shareImage(ctx, it, spec.backdrop) } }, Modifier.weight(1f), enabled = !busy)
+            AccentButton(tr("Share", "Bagikan"), icon = R.drawable.ic_share, onClick = { export { shareImage(ctx, it, spec.backdrop) } }, modifier = Modifier.weight(1f), enabled = !busy)
         }
     }
 }

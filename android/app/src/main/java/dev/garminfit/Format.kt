@@ -274,6 +274,16 @@ fun activityType(t: String?): String = when (t) {
     else -> t.replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
+fun activityIcon(t: String?): Int = when (t) {
+    "running", "treadmill_running", "trail_running", "track_running" -> R.drawable.ic_directions_run
+    "cycling", "road_biking", "indoor_cycling", "mountain_biking" -> R.drawable.ic_directions_bike
+    "walking" -> R.drawable.ic_directions_walk
+    "hiking" -> R.drawable.ic_hiking
+    "lap_swimming", "open_water_swimming" -> R.drawable.ic_pool
+    "strength_training", "hiit" -> R.drawable.ic_fitness_center
+    else -> R.drawable.ic_timer
+}
+
 /** One running-dynamics reading placed on Garmin's five color bands (purple, blue, green, orange, red). */
 data class DynamicsBand(val label: String, val status: Status?)
 

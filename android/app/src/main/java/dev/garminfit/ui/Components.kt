@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +30,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.annotation.DrawableRes
+import dev.garminfit.R
+import androidx.compose.runtime.currentCompositeKeyHash
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +66,50 @@ import dev.garminfit.friendly
 import retrofit2.HttpException
 import androidx.compose.runtime.staticCompositionLocalOf
 import kotlin.math.roundToInt
+import kotlin.math.abs
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.key
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
+import android.content.Context
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import dev.garminfit.json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.serializer
+import java.io.File
 
 /** Clears the saved token and returns to the setup screen; provided by Home. */
 val LocalLogout = staticCompositionLocalOf<(() -> Unit)?> { null }
@@ -72,16 +123,70 @@ sealed interface Load<out T> {
 
 class Loader<T>(val state: Load<T>, val reload: () -> Unit)
 
+private val loadMemo = mutableMapOf<String, Any?>()
+
+/** Last good result per cached loader, so a cold start paints real data before the network answers. */
+private object DiskCache {
+    // not cacheDir: Android empties that under storage pressure, which is exactly when a cold start needs it
+    private fun dir(ctx: Context) = File(ctx.noBackupFilesDir, "load")
+    private fun file(ctx: Context, key: String) = File(dir(ctx), key.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".json")
+    private const val MAX_FILES = 80
+    fun <T> read(ctx: Context, key: String, ser: KSerializer<T>): T? =
+        runCatching { json.decodeFromString(ser, file(ctx, key).readText()) }.getOrNull()
+    fun <T> write(ctx: Context, key: String, ser: KSerializer<T>, value: T) {
+        runCatching {
+            dir(ctx).mkdirs()
+            file(ctx, key).writeText(json.encodeToString(ser, value))
+            // every opened activity adds a file; keep the most recently written ones
+            dir(ctx).listFiles()?.sortedByDescending { it.lastModified() }?.drop(MAX_FILES)?.forEach { it.delete() }
+        }
+    }
+    fun clear(ctx: Context) = dir(ctx).deleteRecursively()
+}
+
+/** Drops every remembered result, so a new token never shows the previous account's data. */
+fun clearLoadMemo(ctx: Context) {
+    loadMemo.clear()
+    DiskCache.clear(ctx)
+}
+
+/**
+ * Shows the last result for this call site right away and refreshes behind it, so switching tabs
+ * (which drops the screen's composition) does not flash a placeholder. With [cache] the last result
+ * also survives a restart; a failed refresh then keeps the stale data instead of an error screen.
+ */
 @Composable
-fun <T> rememberLoad(vararg keys: Any?, block: suspend () -> T): Loader<T> {
-    var state by remember(*keys) { mutableStateOf<Load<T>>(Load.Loading) }
+fun <T> rememberLoad(vararg keys: Any?, cache: Pair<String, KSerializer<T>>? = null, block: suspend () -> T): Loader<T> {
+    val ctx = LocalContext.current.applicationContext
+    val memoKey = "${currentCompositeKeyHash}:${keys.joinToString()}"
+    val diskKey = cache?.let { listOf(it.first, *keys).joinToString("_") }
+    @Suppress("UNCHECKED_CAST")
+    var state by remember(*keys) { mutableStateOf<Load<T>>(if (memoKey in loadMemo) Load.Ok(loadMemo[memoKey] as T) else Load.Loading) }
     var attempt by remember(*keys) { mutableIntStateOf(0) }
     LaunchedEffect(attempt, *keys) {
-        if (state !is Load.Ok) state = Load.Loading
-        state = runCatching { block() }.fold({ Load.Ok(it) }, { Load.Err(it.friendly(), it is HttpException && it.code() == 401) })
+        if (state !is Load.Ok) {
+            val disk = cache?.let { (_, ser) -> withContext(Dispatchers.IO) { DiskCache.read(ctx, diskKey!!, ser) } }
+            state = if (disk != null) Load.Ok(disk) else Load.Loading
+        }
+        state = runCatching { block() }.fold(
+            { value ->
+                loadMemo[memoKey] = value
+                cache?.let { (_, ser) -> withContext(Dispatchers.IO) { DiskCache.write(ctx, diskKey!!, ser, value) } }
+                Load.Ok(value)
+            },
+            {
+                val auth = it is HttpException && it.code() == 401
+                if (cache != null && state is Load.Ok && !auth) state else Load.Err(it.friendly(), auth)
+            },
+        )
     }
     return Loader(state) { attempt++ }
 }
+
+/** [rememberLoad] with a disk copy under [name]; T must be @Serializable. */
+@Composable
+inline fun <reified T> rememberCachedLoad(name: String, vararg keys: Any?, noinline block: suspend () -> T): Loader<T> =
+    rememberLoad(*keys, cache = name to serializer<T>(), block = block)
 
 @Composable
 fun <T> LoadView(
@@ -91,12 +196,16 @@ fun <T> LoadView(
     emptyText: String = "",
     content: @Composable (T) -> Unit,
 ) {
+    // fades from the skeleton to the content; a refresh of data already on screen stays put (same state class)
+    Crossfade(loader.state is Load.Loading, animationSpec = tween(if (LocalReduceMotion.current) 0 else 280), label = "load") { loading ->
+        if (loading) LoadingSkeleton(loadingText) else LoadBody(loader, isEmpty, emptyText, content)
+    }
+}
+
+@Composable
+private fun <T> LoadBody(loader: Loader<T>, isEmpty: (T) -> Boolean, emptyText: String, content: @Composable (T) -> Unit) {
     when (val s = loader.state) {
-        Load.Loading -> Centered {
-            CircularProgressIndicator(color = K.good, trackColor = K.track)
-            Spacer(Modifier.height(16.dp))
-            Text(loadingText, style = T.body, color = K.muted)
-        }
+        Load.Loading -> Unit
         is Load.Err -> Centered {
             Text(s.message, style = T.body, color = K.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
@@ -114,23 +223,79 @@ fun <T> LoadView(
 @Composable
 fun <T> CardLoad(loader: Loader<T>, isEmpty: (T) -> Boolean = { false }, content: @Composable (T) -> Unit) {
     when (val s = loader.state) {
-        Load.Loading -> Panel(Modifier.fillMaxWidth().height(96.dp)) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = K.good, trackColor = K.track) }
-        }
+        Load.Loading -> Shimmer(Modifier.fillMaxWidth().height(96.dp), 24.dp)
         is Load.Err -> Unit // the screen-level loader already reports connection and token problems
         is Load.Ok -> if (!isEmpty(s.data)) content(s.data)
     }
 }
 
+/** Card-shaped placeholder that sweeps a soft highlight; a plain track fill when motion is reduced. */
 @Composable
-fun AccentButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun Shimmer(modifier: Modifier, radius: Dp = 24.dp) {
+    val shape = RoundedCornerShape(radius)
+    if (LocalReduceMotion.current) {
+        Box(modifier.clip(shape).background(K.surface))
+        return
+    }
+    val x by rememberInfiniteTransition(label = "shimmer").animateFloat(
+        -1f, 2f, infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Restart), label = "x",
+    )
+    Box(
+        modifier.clip(shape).background(K.surface).background(
+            Brush.linearGradient(
+                listOf(Color.Transparent, K.track.copy(alpha = 0.7f), Color.Transparent),
+                start = Offset(x * 1000f - 400f, 0f), end = Offset(x * 1000f, 400f),
+            ),
+        ),
+    )
+}
+
+/** Placeholder cards in the rough shape of a screen. A cold server can take seconds, so the wait is counted. */
+@Composable
+private fun LoadingSkeleton(text: String) {
+    var waited by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); waited++ } }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text, style = T.body, color = K.muted)
+            if (waited >= 3) Text(tr("Waking the server · ${waited}s", "Membangunkan server · ${waited} dtk"), style = T.caption, color = K.muted)
+        }
+        Shimmer(Modifier.fillMaxWidth().height(220.dp))
+        Shimmer(Modifier.fillMaxWidth().height(150.dp))
+        Shimmer(Modifier.fillMaxWidth().height(110.dp))
+    }
+}
+
+/** A Material Symbols vector from res/drawable; decorative unless [description] is given. */
+@Composable
+fun Glyph(@DrawableRes res: Int, tint: Color, size: Dp = 24.dp, modifier: Modifier = Modifier, description: String? = null) =
+    Icon(painterResource(res), description, modifier.size(size), tint = tint)
+
+/** Volt back link at the top of a sub-screen. */
+@Composable
+fun BackLink(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onClick).padding(end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Glyph(R.drawable.ic_chevron_left, K.good, 20.dp)
+        Text(text, style = body(14.sp, FontWeight.SemiBold), color = K.good)
+    }
+}
+
+@Composable
+fun AccentButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, @DrawableRes icon: Int? = null) {
     Button(
         onClick = onClick,
         modifier = modifier.height(48.dp),
         enabled = enabled,
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(containerColor = K.good, contentColor = K.onAccent),
-    ) { Text(text, style = body(15.sp, FontWeight.Bold)) }
+    ) {
+        icon?.let { Icon(painterResource(it), null, Modifier.padding(end = 6.dp).size(18.dp)) }
+        Text(text, style = body(15.sp, FontWeight.Bold))
+    }
 }
 
 @Composable
@@ -164,9 +329,14 @@ fun Label(text: String, color: Color = K.muted, modifier: Modifier = Modifier) {
     Text(text.uppercase(), modifier, style = T.label, color = color)
 }
 
+/** Card heading; [icon] is a muted Material Symbol that tells cards apart at a glance while scrolling. */
 @Composable
-fun CardTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text.uppercase(), modifier, style = T.cardTitle, color = K.ink)
+fun CardTitle(text: String, modifier: Modifier = Modifier, @DrawableRes icon: Int? = null) {
+    if (icon == null) return Text(text.uppercase(), modifier, style = T.cardTitle, color = K.ink)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Glyph(icon, K.muted, 20.dp)
+        Text(text.uppercase(), style = T.cardTitle, color = K.ink)
+    }
 }
 
 @Composable
@@ -185,9 +355,11 @@ fun Value(
     unitColor: Color = K.muted,
     gap: Dp = 4.dp,
     modifier: Modifier = Modifier,
+    roll: Boolean = false,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
-        Text(value, Modifier.alignByBaseline(), style = style, color = color)
+        if (roll) RollingText(value, style, color, Modifier.alignByBaseline())
+        else Text(value, Modifier.alignByBaseline(), style = style, color = color)
         if (unit.isNotEmpty()) Text(unit, Modifier.alignByBaseline(), style = unitStyle, color = unitColor)
     }
 }
@@ -232,21 +404,54 @@ fun ChipRow(chips: List<String>) {
     }
 }
 
-/** Pill showing a signed change; [status] null means no change. */
+/** Pill showing a signed change; [status] null means no change. [up] adds a direction arrow. */
 @Composable
-fun DeltaPill(text: String, status: Status?) {
+fun DeltaPill(text: String, status: Status?, up: Boolean? = null) {
     val c = status?.color() ?: K.muted
-    Text(
-        text,
+    Row(
         Modifier.clip(CircleShape).background(if (status == null) K.track else c.copy(alpha = 0.14f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        style = body(13.sp, FontWeight.Bold, 1.2f),
-        color = c,
-    )
+            .padding(start = if (up == null) 10.dp else 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        up?.let { Glyph(if (it) R.drawable.ic_arrow_drop_up else R.drawable.ic_arrow_drop_down, c, 20.dp) }
+        Text(text, style = body(13.sp, FontWeight.Bold, 1.2f), color = c)
+    }
+}
+
+/**
+ * Text whose digits roll into place like an odometer: on first show they roll up from 0, and when the
+ * value changes only the digits that changed move. Non-digits swap without motion.
+ */
+@Composable
+fun RollingText(text: String, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    val reduce = LocalReduceMotion.current
+    var shown by remember { mutableStateOf(if (reduce) text else text.map { if (it.isDigit()) '0' else it }.joinToString("")) }
+    LaunchedEffect(text) { shown = text }
+    Row(modifier) {
+        // key by position from the right, so 9 -> 10 adds a digit on the left instead of shifting every slot
+        shown.forEachIndexed { i, ch ->
+            key(shown.length - i) {
+                AnimatedContent(
+                    ch,
+                    transitionSpec = {
+                        if (reduce || !targetState.isDigit()) EnterTransition.None togetherWith ExitTransition.None
+                        else {
+                            val upward = targetState > initialState
+                            val spec = tween<IntOffset>(420 + (shown.length - i) * 40, easing = FastOutSlowInEasing)
+                            (slideInVertically(spec) { h -> if (upward) h else -h } + fadeIn(tween(200))) togetherWith
+                                (slideOutVertically(spec) { h -> if (upward) -h else h } + fadeOut(tween(160)))
+                        }.using(SizeTransform(clip = true))
+                    },
+                    label = "digit",
+                ) { c -> Text(c.toString(), style = style, color = color) }
+            }
+        }
+    }
 }
 
 @Composable
 fun ReadinessRing(score: Int, color: Color) {
+    val sweep = rememberReveal(score, durationMs = 900)
     Box(Modifier.size(132.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().semantics { contentDescription = tr("Training readiness $score out of 100", "Training readiness $score dari 100") }) {
             val w = 12.dp.toPx()
@@ -254,10 +459,10 @@ fun ReadinessRing(score: Int, color: Color) {
             val arc = Size(size.width - inset * 2, size.height - inset * 2)
             val tl = Offset(inset, inset)
             drawArc(K.track, 0f, 360f, false, tl, arc, style = Stroke(w))
-            drawArc(color, -90f, 360f * score.coerceIn(0, 100) / 100f, false, tl, arc, style = Stroke(w, cap = StrokeCap.Round))
+            drawArc(color, -90f, 360f * score.coerceIn(0, 100) / 100f * sweep.value, false, tl, arc, style = Stroke(w, cap = StrokeCap.Round))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(score.toString(), style = num(52.sp, lh = 0.9f), color = K.ink)
+            RollingText(score.toString(), num(52.sp, lh = 0.9f), K.ink)
             Text("READINESS", style = TextStyle(fontFamily = Condensed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em), color = K.muted)
         }
     }
@@ -267,6 +472,7 @@ fun ReadinessRing(score: Int, color: Color) {
 @Composable
 fun FactorBar(value: Double, min: Double, max: Double, bandLow: Double, bandHigh: Double, status: Status, description: String) {
     val dot = status.color()
+    val slide = rememberReveal(value, durationMs = 800)
     Canvas(Modifier.fillMaxWidth().height(14.dp).semantics { contentDescription = description }) {
         fun x(v: Double) = ((v - min) / (max - min)).coerceIn(0.0, 1.0).toFloat() * size.width
         val cy = size.height / 2
@@ -274,7 +480,9 @@ fun FactorBar(value: Double, min: Double, max: Double, bandLow: Double, bandHigh
         val r = CornerRadius(3.dp.toPx())
         drawRoundRect(K.track, Offset(0f, cy - h / 2), Size(size.width, h), r)
         drawRoundRect(K.good.copy(alpha = 0.3f), Offset(x(bandLow), cy - h / 2), Size(x(bandHigh) - x(bandLow), h), r)
-        val cx = x(value).coerceIn(7.dp.toPx(), size.width - 7.dp.toPx())
+        // the dot slides in from the band's middle to today's value
+        val from = x((bandLow + bandHigh) / 2)
+        val cx = (from + (x(value) - from) * slide.value).coerceIn(7.dp.toPx(), size.width - 7.dp.toPx())
         drawCircle(K.surface, 7.dp.toPx(), Offset(cx, cy))
         drawCircle(dot, 4.dp.toPx(), Offset(cx, cy))
     }
@@ -295,9 +503,12 @@ fun SpanBar(start: Float, end: Float, color: Color, height: Dp = 8.dp, modifier:
 @Composable
 fun SegmentBar(value: Double, color: Color, of: Int = 5) {
     val lit = value.roundToInt()
+    // ticks light up one after another
+    val fill = rememberReveal(value, durationMs = 120 * of.coerceAtMost(10))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         (1..of).forEach { k ->
-            Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(3.dp)).background(if (k <= lit) color else K.track))
+            val on = k <= lit && fill.value * of >= k - 0.5f
+            Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(3.dp)).background(if (on) color else K.track))
         }
     }
 }
@@ -322,6 +533,10 @@ fun StackedBar(
     }
 }
 
+/**
+ * Line chart, x = index. Pass [onSelect] to make it scrubbable: touch or drag sideways picks the nearest
+ * point, release clears it. A vertical drag is left to the page scroll. [label] draws a pill above the guide.
+ */
 @Composable
 fun LineChart(
     values: List<Double?>,
@@ -333,36 +548,119 @@ fun LineChart(
     band: ClosedFloatingPointRange<Double>? = null,
     secondDashed: List<Double?>? = null,
     baseline: Boolean = true,
+    selected: Int? = null,
+    onSelect: ((Int?) -> Unit)? = null,
+    label: ((Int) -> String)? = null,
 ) {
     val all = (values + (secondDashed ?: emptyList()) + listOfNotNull(band?.start, band?.endInclusive)).filterNotNull()
     if (all.isEmpty()) return
     val lo = all.min()
     val span = (all.max() - lo).coerceAtLeast(0.1)
-    Canvas(modifier.fillMaxWidth().height(height).semantics { contentDescription = description }) {
-        val inset = 6.dp.toPx()
-        fun y(v: Double) = size.height - inset - ((v - lo) / span).toFloat() * (size.height - 2 * inset)
-        band?.let {
-            drawRect(K.good.copy(alpha = 0.12f), Offset(0f, y(it.endInclusive)), Size(size.width, y(it.start) - y(it.endInclusive)))
-        }
-        if (baseline) drawLine(K.border, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx())
-        fun series(vs: List<Double?>, c: Color, stroke: Stroke) {
-            val step = if (vs.size > 1) size.width / (vs.size - 1) else 0f
-            val path = Path()
-            var started = false
-            vs.forEachIndexed { i, v ->
-                if (v == null) { started = false; return@forEachIndexed }
-                val p = Offset(i * step, y(v))
-                if (started) path.lineTo(p.x, p.y) else path.moveTo(p.x, p.y)
-                started = true
+    val reveal = rememberReveal(values)
+    val haptic = LocalHapticFeedback.current
+    val n = values.size
+    val select by rememberUpdatedState(onSelect)
+    var widthPx by remember { mutableIntStateOf(1) }
+    Box(modifier.fillMaxWidth().height(height).onSizeChanged { widthPx = it.width }) {
+        Canvas(
+            Modifier.fillMaxSize().semantics { contentDescription = description }.then(
+                if (onSelect == null) Modifier else Modifier.scrub(n) { i ->
+                    if (i != null && i != selected) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    select?.invoke(i)
+                },
+            ),
+        ) {
+            val inset = 6.dp.toPx()
+            fun y(v: Double) = size.height - inset - ((v - lo) / span).toFloat() * (size.height - 2 * inset)
+            val step = if (n > 1) size.width / (n - 1) else 0f
+            band?.let {
+                drawRect(K.good.copy(alpha = 0.12f), Offset(0f, y(it.endInclusive)), Size(size.width, y(it.start) - y(it.endInclusive)))
             }
-            drawPath(path, c, style = stroke)
+            if (baseline) drawLine(K.border, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx())
+            fun series(vs: List<Double?>, c: Color, stroke: Stroke) {
+                val st = if (vs.size > 1) size.width / (vs.size - 1) else 0f
+                val path = Path()
+                var started = false
+                vs.forEachIndexed { i, v ->
+                    if (v == null) { started = false; return@forEachIndexed }
+                    val p = Offset(i * st, y(v))
+                    if (started) path.lineTo(p.x, p.y) else path.moveTo(p.x, p.y)
+                    started = true
+                }
+                drawPath(path, c, style = stroke)
+            }
+            // draw-in: the line is revealed left to right the first time this data shows up
+            clipRect(right = size.width * reveal.value) {
+                secondDashed?.let {
+                    val d = 4.dp.toPx()
+                    series(it, K.muted, Stroke(1.6.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(d, d))))
+                }
+                series(values, color, Stroke(width.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            selected?.takeIf { it in values.indices }?.let { i ->
+                val x = i * step
+                drawLine(K.muted.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
+                secondDashed?.getOrNull(i)?.let { drawCircle(K.surface, 5.dp.toPx(), Offset(x, y(it))); drawCircle(K.muted, 3.5.dp.toPx(), Offset(x, y(it))) }
+                values[i]?.let { drawCircle(K.surface, 6.dp.toPx(), Offset(x, y(it))); drawCircle(color, 4.dp.toPx(), Offset(x, y(it))) }
+            }
         }
-        secondDashed?.let {
-            val d = 4.dp.toPx()
-            series(it, K.muted, Stroke(1.6.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(d, d))))
+        val i = selected
+        if (label != null && i != null && i in values.indices) {
+            val x = if (n > 1) widthPx * i / (n - 1f) else 0f
+            Text(
+                label(i),
+                Modifier.layout { m, c ->
+                    val p = m.measure(c.copy(minWidth = 0))
+                    layout(p.width, p.height) { p.place((x - p.width / 2f).roundToInt().coerceIn(0, (widthPx - p.width).coerceAtLeast(0)), 0) }
+                }.clip(CircleShape).background(K.track).padding(horizontal = 8.dp, vertical = 3.dp),
+                style = body(12.sp, FontWeight.SemiBold, 1.2f),
+                color = K.ink,
+                maxLines = 1,
+            )
         }
-        series(values, color, Stroke(width.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
+}
+
+/**
+ * Touch-to-select along x for [n] evenly spaced points ([bars]: n equal slots). Shows on touch down,
+ * follows a sideways drag, gives up as soon as the finger moves mostly vertically so the page can scroll.
+ */
+fun Modifier.scrub(n: Int, bars: Boolean = false, onSelect: (Int?) -> Unit): Modifier = pointerInput(n, bars) {
+    fun index(x: Float) = when {
+        bars -> (x / size.width * n).toInt().coerceIn(0, n - 1)
+        n > 1 -> (x / size.width * (n - 1)).roundToInt().coerceIn(0, n - 1)
+        else -> 0
+    }
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        onSelect(index(down.position.x))
+        var sideways = false
+        var moved = Offset.Zero
+        // finally: a gesture cut short (screen change, data refresh) must not leave a point selected
+        try { while (true) {
+            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) break
+            if (!sideways && change.isConsumed) break // the page scroll took it
+            moved += change.positionChange()
+            if (!sideways) {
+                if (abs(moved.y) > viewConfiguration.touchSlop && abs(moved.y) > abs(moved.x)) break
+                if (abs(moved.x) > viewConfiguration.touchSlop) sideways = true
+            }
+            if (sideways) {
+                change.consume()
+                onSelect(index(change.position.x))
+            }
+        } } finally { onSelect(null) }
+    }
+}
+
+/** 0 to 1 once per distinct [key]; instantly 1 when motion is reduced. Background refetches of equal data do not replay it. */
+@Composable
+fun rememberReveal(key: Any?, durationMs: Int = 700, delayMs: Int = 0): Animatable<Float, AnimationVector1D> {
+    val reduce = LocalReduceMotion.current
+    val a = remember(key) { Animatable(if (reduce) 1f else 0f) }
+    LaunchedEffect(key) { if (!reduce) a.animateTo(1f, tween(durationMs, delayMs, FastOutSlowInEasing)) }
+    return a
 }
 
 @Composable

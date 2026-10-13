@@ -2,7 +2,7 @@
 
 Visual direction for the garmin-fit Android app. Source: the Claude Design handoff "Kinetik" (2026-09). Code truth lives in `android/app/src/main/java/dev/garminfit/ui/Theme.kt` (`K` colors, `T` type styles) and `ui/Components.kt`.
 
-Dial: ENERGY 3 / RHYTHM 2 / MOTION 1
+Dial: ENERGY 3 / RHYTHM 2 / MOTION 2
 
 ## Identity
 
@@ -73,15 +73,35 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 
 ## Components
 
-`Panel`, `Label`, `CardTitle`, `ScreenTitle`, `Value`, `Stat`, `StatusChip`, `NeutralChip`, `ChipRow`, `DeltaPill`, `ReadinessRing`, `FactorBar`, `SpanBar`, `SegmentBar`, `StackedBar`, `LineChart` (optional band, dashed second series, no axis column), `ChartDates`, `Segmented`, `AccentButton`, and the text-only pill bottom nav in `MainActivity`.
+`Panel`, `Label`, `CardTitle`, `ScreenTitle`, `Value`, `Stat`, `StatusChip`, `NeutralChip`, `ChipRow`, `DeltaPill`, `ReadinessRing`, `FactorBar`, `SpanBar`, `SegmentBar`, `StackedBar`, `LineChart` (optional band, dashed second series, no axis column), `ChartDates`, `Segmented`, `AccentButton`, `Glyph`, `BackLink`, and the bottom nav in `MainActivity`.
 
-`drawRoute` (`ui/Route.kt`) draws a route on a native canvas with no map tiles: pace gradient low → fair → good, scaled to the run's own 10th to 90th percentile so every run shows contrast; white dot at start, volt dot at the finish. The same function draws the share image, in a single template color there.
+Bottom nav: icon over label per tab. The selected tab gets a 56×32 volt pill behind its icon (icon `onAccent`, label `ink`); the others are `muted`. Labels stay visible because icons alone would make people guess.
+
+Icons are Material Symbols Rounded (filled), copied as vector drawables into `res/drawable/ic_*.xml`, so there is no icon dependency. They are the native Android icon language and the rounded ends sit well with Barlow. Tint follows the color rule: `ink` or `muted` for structure, `good` only on volt back links and steppers, never a status color for a type. Activity rows carry a type icon in a neutral `track` circle (`activityIcon` in `Format.kt`). Arrows are icons, never text glyphs.
+
+Card titles carry a muted icon (`CardTitle(icon = …)`) so cards are told apart while scrolling: route, show_chart, directions_run, timer, bar_chart, trending_up, bolt, monitor_heart, flag, fitness_center, calendar_month, emoji_events, speed, map, event_available. Plan sessions use check_circle (done, volt; partial, fair), cancel (missed, low), radio_button_unchecked (planned) and bedtime (rest). No sparkle or star icons.
+
+Maps (`ui/MapView.kt`, osmdroid): OpenStreetMap's standard tiles, free with no key as long as the app sends its id as User-Agent, caches tiles and shows "© OpenStreetMap contributors". A color matrix turns them dark in the Kinetik greens (grayscale, inverted, squeezed between #101511 and #969E97). CARTO's dark tiles were the first choice but now need an API key. The card map is static so the page scroll never gets caught; tapping it or the expand button opens a full-screen map with pan and pinch, closed by the back link or the close button in the same corner. Routes are pace-colored polylines; the recap map draws every route at low alpha.
+
+`drawRoute` (`ui/Route.kt`) draws a route on a native canvas with no map tiles (the share image still uses it): pace gradient low → fair → good, scaled to the run's own 10th to 90th percentile so every run shows contrast; white dot at start, volt dot at the finish. The same function draws the share image, in a single template color there.
 
 `drawBody` (`ui/BodyMap.kt`, polygons in `ui/BodyData.kt` from react-body-highlighter, MIT) shows front and back figures: untouched muscles in `track`, secondary work as volt at 28%, primary work volt from 55% to full by set count. Muscles come from Garmin's exercise catalog via the backend; sets the watch could not name show as "Lainnya" and are not colored.
 
 ## Motion
 
-Only the weekly summary expand/collapse (`animateContentSize`) and the standard pull-to-refresh. Nothing loops.
+Every animation runs once, when its data first appears, and has a job: it shows where a number came from or where you went. `rememberReveal(key)` drives most of them and is keyed to the data, so a background refresh with the same numbers does not replay anything. With the phone's animator scale off (`LocalReduceMotion`) everything snaps to its end state.
+
+- Line charts draw in left to right (700 ms).
+- Bars grow with a short stagger: Today's week, Recap distance, km splits. Segment bars light tick by tick.
+- The readiness ring sweeps to its score; factor-bar dots slide from the middle of the normal band to today's value.
+- Big numbers roll in like an odometer (`RollingText`): readiness, activity and recap distance, VO2max, plan %.
+- Loading crossfades from card-shaped shimmer placeholders to content. After 3 s the placeholder counts the wait ("Waking the server · 4s") so a cold server reads as progress. The shimmer is the only thing that loops, and only while loading.
+- Tabs and list↔detail fade with a small slide toward where you are going.
+- A finished plan session's check pops in once.
+
+Charts are touchable. Touch or drag sideways to read a point; release clears it; a mostly vertical drag is left to the page scroll. A haptic tick marks each new point. On Tren the card's big number and pill show the touched day. In "Sepanjang sesi" all charts share one index, the header shows the km and time, and a km ruler sits under the charts (distance comes from integrating speed, scaled to the recorded total). Bars (Today's week, Recap) and km split rows select the same way.
+
+Tabs reopen instantly: `rememberLoad` keeps the last result per call site in memory and refreshes behind it. Loaders that pass a name (`rememberCachedLoad`) also keep it on disk, so a cold start paints yesterday's numbers right away and swaps in fresh ones; a failed refresh keeps the stale data.
 
 ## Screen map
 
@@ -92,6 +112,7 @@ Only the weekly summary expand/collapse (`animateContentSize`) and the standard 
 - **Rekap** (card on Latihan): month or year with ‹ › steps, hero km with change vs the previous period, sessions, time, active days, runs, strength, active-week streak, distance bars per week or month, "Peta lari" heatmap (routes starting within 3 km of the busiest start, drawn at low alpha so often-run streets glow), longest run and PRs. Shares through the same editor; every route in the shared map loses its first and last 200 m.
 - **Latihan** also has "Prediksi lomba" (Garmin's 5K to marathon predictions with the change vs 30 days ago and a half-marathon line, faster drawn higher) and "Otot 7 hari terakhir" (summed body map plus big muscle groups with no primary sets).
 - **Tren** ends with "Teknik lari per minggu": duration-weighted weekly cadence, ground contact and vertical ratio with the latest week's Garmin band.
+- **Latihan** "Training plan": this week's sessions Monday to Sunday with status marks and the week's progress ticks. Opens the plan screen: goal, race countdown, overall % achieved, then each week as expandable session rows (target vs done, notes, link to the matched activity) and runs outside the plan. Today shows today's session with its % once something is done; the Readiness and Today widgets show it in one line. The plan is written by Claude (`/training-plan`) and scored on the server: per session, distance (or time) done against target, capped at 100%, 95% counts as done.
 - **Latihan**: training status card, personal records (computed from stored runs; a run that beats an earlier best gets a PR chip in the list, "Rekor baru" on its split row and a PR line on share images), VO2max with category scale, training load with gauge and acute/chronic chart.
 
 ## Known limits

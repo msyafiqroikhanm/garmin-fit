@@ -52,6 +52,9 @@ import dev.garminfit.MainActivity
 import dev.garminfit.Repo
 import dev.garminfit.Tab
 import dev.garminfit.Today
+import dev.garminfit.PlanSession
+import kotlin.math.roundToInt
+import dev.garminfit.ui.planTarget
 import dev.garminfit.activityType
 import dev.garminfit.dayLabel
 import dev.garminfit.duration
@@ -172,6 +175,22 @@ private fun Steps(d: Daily) {
     }
 }
 
+/** Today's planned session in one line, with its score once something is done. */
+@Composable
+private fun PlanLine(p: PlanSession) {
+    val color = when (p.status) {
+        "done" -> Status.GOOD.provider()
+        "partial" -> Status.FAIR.provider()
+        "missed" -> Status.LOW.provider()
+        else -> Ink
+    }
+    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Text("Plan ", style = label())
+        Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+        p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, color)) }
+    }
+}
+
 abstract class TodayWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(SIZES)
 
@@ -212,6 +231,7 @@ class RecoveryWidget : TodayWidget() {
                 }
                 Spacer(GlanceModifier.height(8.dp))
                 Steps(d)
+                t.plan?.session?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(it) }
             }
             Spacer(GlanceModifier.defaultWeight())
             freshness(d)?.let { Text(it, style = body, maxLines = 1) }
@@ -245,6 +265,7 @@ class MorningWidget : TodayWidget() {
                 }
             }
             Spacer(GlanceModifier.defaultWeight())
+            t.plan?.session?.takeIf { h >= 150.dp }?.let { PlanLine(it); Spacer(GlanceModifier.height(6.dp)) }
             Steps(d)
             if (h >= 220.dp) {
                 val flag = t.flags.firstOrNull()
@@ -276,7 +297,7 @@ class WeekWidget : TodayWidget() {
         val w = t.week
         val h = LocalSize.current.height
         Column(GlanceModifier.fillMaxSize()) {
-            Header(tr("This week", "Minggu ini"), null, right = tr("${w.activeDays} active days", "${w.activeDays} hari aktif"))
+            Header(tr("This week", "Minggu ini"), null, right = tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"))
             Spacer(GlanceModifier.height(6.dp))
             if (w.count == 0) {
                 Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = body)

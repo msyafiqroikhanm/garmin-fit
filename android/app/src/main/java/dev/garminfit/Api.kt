@@ -301,7 +301,58 @@ data class Today(
     val week: Week = Week(),
     @SerialName("last_activity") val lastActivity: Activity? = null,
     val summary: Summary? = null,
+    val plan: PlanToday? = null,
 )
+
+/** Text Claude writes in both languages: Indonesian in [id], English in [en] when given. */
+@Serializable
+data class Bi(val id: String, val en: String? = null) {
+    val text: String get() = if (isId()) id else en ?: id
+}
+
+@Serializable
+data class PlanTarget(@SerialName("distance_m") val distanceM: Double? = null, @SerialName("duration_s") val durationS: Double? = null)
+
+@Serializable
+data class PlanPace(@SerialName("min_s_km") val minSKm: Double, @SerialName("max_s_km") val maxSKm: Double)
+
+@Serializable
+data class PlanSession(
+    val date: String,
+    val kind: String,
+    val type: String,
+    val title: Bi,
+    val target: PlanTarget? = null,
+    val pace: PlanPace? = null,
+    @SerialName("hr_zone") val hrZone: Int? = null,
+    val notes: Bi? = null,
+    /** done | partial | missed | today | upcoming | rest */
+    val status: String = "upcoming",
+    val pct: Double? = null,
+    @SerialName("activity_ids") val activityIds: List<Long> = emptyList(),
+    val done: PlanTarget? = null,
+)
+
+@Serializable
+data class PlanWeek(val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null)
+
+@Serializable
+data class PlanMeta(val name: String, val goal: Bi, val start: String, val end: String, @SerialName("race_date") val raceDate: String? = null)
+
+@Serializable
+data class PlanExtra(@SerialName("_id") val id: Long, val date: String, val type: String? = null, val name: String? = null, @SerialName("distance_m") val distanceM: Double? = null)
+
+@Serializable
+data class PlanView(
+    val plan: PlanMeta? = null,
+    val sessions: List<PlanSession> = emptyList(),
+    val weeks: List<PlanWeek> = emptyList(),
+    val overall: Double? = null,
+    val extras: List<PlanExtra> = emptyList(),
+)
+
+@Serializable
+data class PlanToday(val name: String, val session: PlanSession? = null, val week: PlanWeek? = null, val overall: Double? = null)
 
 @Serializable
 data class Me(val name: String, val role: String, val profile: Profile? = null)
@@ -329,6 +380,7 @@ interface ApiService {
     @GET("muscles/week") suspend fun weekMuscles(): WeekMuscles
     @GET("trends/running") suspend fun runningTrends(@Query("weeks") weeks: Int): List<DynamicsWeek>
     @GET("recap") suspend fun recap(@Query("period") period: String, @Query("key") key: String): Recap
+    @GET("plan") suspend fun plan(): PlanView
     @GET("routes") suspend fun routes(@Query("from") from: String, @Query("to") to: String): List<List<List<Double>>>
 }
 

@@ -2,7 +2,12 @@ package dev.garminfit.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -105,8 +110,13 @@ private val Scheme = darkColorScheme(
     error = K.low,
 )
 
+/** True when the phone's animator scale is off; every entrance animation then snaps to its end state. */
+val LocalReduceMotion = staticCompositionLocalOf { false }
+
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
+    val ctx = LocalContext.current
+    val reduce = remember { Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
     val base = MaterialTheme.typography
     val type = base.copy(
         bodyLarge = base.bodyLarge.copy(fontFamily = Barlow),
@@ -114,5 +124,7 @@ fun AppTheme(content: @Composable () -> Unit) {
         bodySmall = base.bodySmall.copy(fontFamily = Barlow),
         labelLarge = base.labelLarge.copy(fontFamily = Barlow, fontWeight = FontWeight.SemiBold),
     )
-    MaterialTheme(colorScheme = Scheme, typography = type, content = content)
+    CompositionLocalProvider(LocalReduceMotion provides reduce) {
+        MaterialTheme(colorScheme = Scheme, typography = type, content = content)
+    }
 }

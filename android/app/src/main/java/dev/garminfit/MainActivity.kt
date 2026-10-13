@@ -16,6 +16,11 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -56,17 +61,27 @@ import androidx.compose.ui.unit.dp
 import dev.garminfit.ui.ActivitiesScreen
 import dev.garminfit.ui.AppTheme
 import dev.garminfit.ui.Centered
+import dev.garminfit.ui.clearLoadMemo
+import dev.garminfit.ui.LocalReduceMotion
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import dev.garminfit.ui.TodayScreen
 import dev.garminfit.ui.TrainingScreen
 import dev.garminfit.ui.TrendsScreen
 import dev.garminfit.widget.RefreshWorker
 import kotlinx.coroutines.launch
 
-enum class Tab(private val en: String, private val id: String) {
-    TODAY("Today", "Hari Ini"),
-    TRENDS("Trends", "Tren"),
-    ACTIVITIES("Activities", "Aktivitas"),
-    TRAINING("Training", "Latihan");
+enum class Tab(private val en: String, private val id: String, @DrawableRes val icon: Int) {
+    TODAY("Today", "Hari Ini", R.drawable.ic_monitor_heart),
+    TRENDS("Trends", "Tren", R.drawable.ic_show_chart),
+    ACTIVITIES("Activities", "Aktivitas", R.drawable.ic_directions_run),
+    TRAINING("Training", "Latihan", R.drawable.ic_speed);
 
     val label: String get() = tr(en, id)
 }
@@ -106,7 +121,7 @@ private fun Root(launch: Intent?) {
         !checked -> Box(Modifier.fillMaxSize())
         token == null -> SetupScreen { t -> token = t }
         else -> Home(launch) {
-            scope.launch { Repo.saveToken(ctx, null); token = null }
+            scope.launch { Repo.saveToken(ctx, null); clearLoadMemo(ctx); token = null }
         }
     }
 }
@@ -115,6 +130,7 @@ private fun Root(launch: Intent?) {
 private fun Home(launch: Intent?, onLogout: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
     var activityId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var planOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(launch) {
         launch?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name }?.let { tab = it } }
         launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it }
@@ -122,41 +138,62 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
     BackHandler(enabled = tab != Tab.TODAY) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { BottomNav(tab) { t -> tab = t; if (t != Tab.ACTIVITIES) activityId = null } },
+        bottomBar = { BottomNav(tab) { t -> tab = t; planOpen = false; if (t != Tab.ACTIVITIES) activityId = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
-            CompositionLocalProvider(LocalLogout provides onLogout) { when (tab) {
-                Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onLogout = onLogout)
-                Tab.TRENDS -> TrendsScreen()
-                Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
-                Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES })
-            } }
+            val reduce = LocalReduceMotion.current
+            CompositionLocalProvider(LocalLogout provides onLogout) {
+                // a short fade plus a small slide toward the tab's side of the nav bar
+                AnimatedContent(
+                    tab,
+                    transitionSpec = {
+                        if (reduce) EnterTransition.None togetherWith ExitTransition.None
+                        else {
+                            val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                            (fadeIn(tween(220, 60)) + slideInHorizontally(tween(260)) { it / 12 * dir }) togetherWith fadeOut(tween(120))
+                        }
+                    },
+                    label = "tab",
+                ) { t ->
+                    when (t) {
+                        Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onOpenPlan = { planOpen = true; tab = Tab.TRAINING }, onLogout = onLogout)
+                        Tab.TRENDS -> TrendsScreen()
+                        Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
+                        Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it })
+                    }
+                }
+            }
         }
     }
 }
 
-/** Text-only pills: four short labels read faster than icons we'd have to invent. */
+/** Icon over label, M3 style: the icon gives each tab a shape to find at a glance, the label removes guessing. */
 @Composable
 private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
     Column(Modifier.background(K.navBg)) {
         HorizontalDivider(color = K.track)
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 14.dp)
-                .selectableGroup(),
-            horizontalArrangement = Arrangement.SpaceAround,
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp).selectableGroup(),
         ) {
             Tab.entries.forEach { t ->
                 val on = t == selected
-                Box(
-                    Modifier.sizeIn(minHeight = 48.dp).clip(CircleShape).selectable(on, role = Role.Tab) { onSelect(t) },
-                    contentAlignment = Alignment.Center,
+                Column(
+                    Modifier.weight(1f).sizeIn(minHeight = 48.dp).clip(RoundedCornerShape(16.dp))
+                        .selectable(on, role = Role.Tab) { onSelect(t) }.padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
+                    Box(
+                        Modifier.size(width = 56.dp, height = 32.dp).clip(CircleShape).background(if (on) K.good else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(painterResource(t.icon), null, Modifier.size(24.dp), tint = if (on) K.onAccent else K.muted)
+                    }
                     Text(
                         t.label,
-                        Modifier.clip(CircleShape).background(if (on) K.good else Color.Transparent)
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        style = body(13.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, 1.2f),
-                        color = if (on) K.onAccent else K.muted,
+                        style = body(12.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, 1.2f),
+                        color = if (on) K.ink else K.muted,
+                        maxLines = 1,
                     )
                 }
             }

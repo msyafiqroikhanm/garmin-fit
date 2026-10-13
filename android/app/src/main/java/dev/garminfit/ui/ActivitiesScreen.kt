@@ -1,11 +1,13 @@
 package dev.garminfit.ui
 
+import dev.garminfit.R
 import dev.garminfit.tr
 import dev.garminfit.isId
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -74,6 +76,7 @@ import dev.garminfit.Profile
 import dev.garminfit.Repo
 import dev.garminfit.Split
 import dev.garminfit.activityType
+import dev.garminfit.activityIcon
 import dev.garminfit.dayLabel
 import dev.garminfit.dayMonth
 import dev.garminfit.duration
@@ -88,39 +91,71 @@ import dev.garminfit.time
 import dev.garminfit.weekday
 import java.time.LocalDate
 import kotlin.math.abs
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.math.roundToInt
 
 @Composable
 fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
     val ctx = LocalContext.current
-    val loader = rememberLoad {
-        Repo.api(ctx).activities(LocalDate.now().minusDays(365).toString()) to runCatching { Repo.me(ctx).profile }.getOrNull()
+    val loader = rememberCachedLoad("activities") {
+        coroutineScope {
+            val profile = async { runCatching { Repo.me(ctx).profile }.getOrNull() }
+            Repo.api(ctx).activities(LocalDate.now().minusDays(365).toString()) to profile.await()
+        }
     }
     var selected by rememberSaveable(initialId) { mutableStateOf(initialId) }
     var sharing by remember { mutableStateOf<Activity?>(null) }
+    var map by remember { mutableStateOf<List<List<Double>>?>(null) }
     LoadView(
         loader,
         loadingText = tr("Loading the past year of activities", "Memuat aktivitas setahun terakhir"),
         isEmpty = { it.first.isEmpty() },
         emptyText = tr("No activities in the past year. Activities from your Garmin watch show up here after a sync.", "Belum ada aktivitas dalam setahun terakhir. Aktivitas dari jam Garmin muncul di sini setelah sync."),
     ) { (list, profile) ->
-        val current = list.firstOrNull { it.id == selected }
+        val open = list.firstOrNull { it.id == selected }?.id
+        // list scroll lives out here, so coming back from a detail lands where you left the list
+        val listState = rememberLazyListState()
+        val reduce = LocalReduceMotion.current
+        AnimatedContent(
+            open,
+            transitionSpec = {
+                if (reduce) EnterTransition.None togetherWith ExitTransition.None
+                else if (targetState != null) (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 }) togetherWith fadeOut(tween(120))
+                else (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { -it / 8 }) togetherWith fadeOut(tween(120))
+            },
+            label = "detail",
+        ) { id ->
+        val current = list.firstOrNull { it.id == id }
         val share = sharing
-        if (share != null && share.id == selected) {
+        val route = map
+        if (share != null && current != null && share.id == current.id) {
             ShareScreen(share.shareContent(), onBack = { sharing = null })
+        } else if (route != null && current != null) {
+            MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend() }
         } else if (current != null) {
             // clearing the caller's id too lets the same activity be opened again from another tab
             val close = { selected = null; onClosed() }
             BackHandler(onBack = close)
-            ActivityDetail(current, list, profile, onBack = close, onShare = { sharing = it })
+            ActivityDetail(current, list, profile, onBack = close, onShare = { sharing = it }, onMap = { map = it })
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 item { Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) { ScreenTitle(tr("Activities", "Aktivitas")) } }
                 items(list, key = { it.id }) { a ->
                     ActivityRow(a) { selected = a.id }
                     HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
                 }
             }
+        }
         }
     }
 }
@@ -132,14 +167,19 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // neutral fill on purpose: color in this app means status, and the type is not a status
+        Box(Modifier.size(40.dp).clip(CircleShape).background(K.track), contentAlignment = Alignment.Center) {
+            Glyph(activityIcon(a.type), K.ink, 22.dp)
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(a.name ?: activityType(a.type), Modifier.weight(1f, fill = false), style = num(20.sp, FontWeight.Bold), color = K.ink)
                 if (a.prs.isNotEmpty()) PrChip(a.prs)
             }
             Text(
-                "${dayLabel(a.date)}, ${time(a.startTime)}" + if (a.name != null) " · ${activityType(a.type)}" else "",
+                "${dayLabel(a.date)}, ${time(a.startTime)}" + if (a.name != null && a.name != activityType(a.type)) " · ${activityType(a.type)}" else "",
                 style = T.caption,
                 color = K.muted,
             )
@@ -157,34 +197,32 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, onBack: () -> Unit, onShare: (Activity) -> Unit) {
+private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, onBack: () -> Unit, onShare: (Activity) -> Unit, onMap: (List<List<Double>>) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val ctx = LocalContext.current
-        val detail = rememberLoad(a.id) { Repo.api(ctx).activity(a.id) }
+        val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onBack).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
-                Text(tr("‹ All activities", "‹ Semua aktivitas"), style = body(14.sp, FontWeight.SemiBold), color = K.good)
-            }
+            Box(Modifier.weight(1f)) { BackLink(tr("All activities", "Semua aktivitas"), onBack) }
             // waits for the detail so the share image can include the route or body map
-            AccentButton(tr("Share", "Bagikan"), { onShare((detail.state as? Load.Ok)?.data ?: a) }, enabled = detail.state !is Load.Loading)
+            AccentButton(tr("Share", "Bagikan"), icon = R.drawable.ic_share, onClick = { onShare((detail.state as? Load.Ok)?.data ?: a) }, enabled = detail.state !is Load.Loading)
         }
         Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonth(a.date)}, ${time(a.startTime)}")
             Text((a.name ?: activityType(a.type)).uppercase(), style = num(32.sp), color = K.ink)
         }
         val strength = a.type == "strength_training"
-        DetailCard(tr("Route", "Rute"), detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) }
-        DetailCard(tr("Muscles worked", "Otot yang dilatih"), detail, expected = strength, pick = { it.strength }) { BodyView(it) }
+        DetailCard(tr("Route", "Rute"), R.drawable.ic_route, detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) { onMap(it) } }
+        DetailCard(tr("Muscles worked", "Otot yang dilatih"), R.drawable.ic_fitness_center, detail, expected = strength, pick = { it.strength }) { BodyView(it) }
         val full = (detail.state as? Load.Ok)?.data
         val extra = full?.extra
         StatsCard(a, full?.strength, extra)
         full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
-            Panel(Modifier.fillMaxWidth()) { CardTitle(tr("Exercises", "Latihan")); ExercisesView(it) }
+            Panel(Modifier.fillMaxWidth()) { CardTitle(tr("Exercises", "Latihan"), icon = R.drawable.ic_fitness_center); ExercisesView(it) }
         }
-        full?.series?.let { SeriesCard(it, a.hasDistance()) }
+        full?.series?.let { SeriesCard(it, a.hasDistance(), a.distanceM) }
         extra?.let { DynamicsCard(it) }
         extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it, full.prs) }
         full?.similar?.let { SimilarCard(a, it) }
@@ -199,6 +237,7 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
 @Composable
 private fun <T : Any> DetailCard(
     title: String,
+    @androidx.annotation.DrawableRes icon: Int,
     detail: Loader<Activity>,
     expected: Boolean,
     pick: (Activity) -> T?,
@@ -208,7 +247,7 @@ private fun <T : Any> DetailCard(
     val value = (state as? Load.Ok)?.data?.let(pick)
     if (value == null && (state is Load.Ok || !expected)) return
     Panel(Modifier.fillMaxWidth()) {
-        CardTitle(title)
+        CardTitle(title, icon = icon)
         when {
             value != null -> content(value)
             state is Load.Err -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -217,19 +256,19 @@ private fun <T : Any> DetailCard(
                     Text(tr("Try again", "Coba lagi"), style = body(14.sp, FontWeight.SemiBold), color = K.good)
                 }
             }
-            else -> Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = K.good, trackColor = K.track)
-            }
+            else -> Shimmer(Modifier.fillMaxWidth().height(240.dp), 16.dp)
         }
     }
 }
 
 @Composable
-private fun RouteView(route: List<List<Double>>) {
-    val density = LocalDensity.current
-    Canvas(Modifier.fillMaxWidth().height(240.dp)) {
-        drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, with(density) { 4.dp.toPx() }) }
-    }
+private fun RouteView(route: List<List<Double>>, onExpand: () -> Unit) {
+    MapPreview(MapContent.Route(route), tr("Route map, colored by pace", "Peta rute, diwarnai sesuai pace"), onExpand)
+    PaceLegend()
+}
+
+@Composable
+private fun PaceLegend() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(tr("Slow", "Lambat"), style = T.caption, color = K.muted)
         Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(K.low, K.fair, K.good))))
@@ -296,7 +335,7 @@ private fun StatsCard(a: Activity, strength: Strength?, e: Extra?) {
         e?.steps?.takeIf { a.hasDistance() }?.let { it.int() to tr("steps", "langkah") },
     )
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        if (a.hasDistance()) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp), gap = 6.dp)
+        if (a.hasDistance()) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp), gap = 6.dp, roll = true)
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             stats.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -317,7 +356,7 @@ private fun EffectCard(a: Activity, all: List<Activity>, focus: String?) {
     if (rows.isEmpty() && a.trainingLoad == null) return
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CardTitle(tr("Training effect", "Efek ke tubuh"), Modifier.weight(1f))
+            CardTitle(tr("Training effect", "Efek ke tubuh"), Modifier.weight(1f), icon = R.drawable.ic_trending_up)
             focus?.let { NeutralChip(tr("Focus: $it", "Fokus: $it")) }
         }
         rows.forEach { (r, aerobic) ->
@@ -351,42 +390,97 @@ private fun EffectCard(a: Activity, all: List<Activity>, focus: String?) {
     }
 }
 
-private class Track(val name: String, val values: List<Double?>, val color: Color, val summary: String, val description: String)
+private class Track(val name: String, val values: List<Double?>, val color: Color, val summary: String, val description: String, val at: (Double) -> String)
+
+/**
+ * Distance in km at the end of each series bucket: speed integrated over timer time, then scaled so the
+ * last point equals the recorded distance (bucket averages drift a little from the watch's own total).
+ */
+private fun cumulativeKm(s: Series, totalM: Double?): List<Double>? {
+    val speed = s.speed ?: return null
+    var acc = 0.0
+    val raw = s.t.mapIndexed { i, t ->
+        val dt = (t - (s.t.getOrNull(i - 1) ?: 0)).coerceAtLeast(0)
+        acc += (speed.getOrNull(i) ?: 0) / 100.0 * dt
+        acc
+    }
+    val scale = if (acc > 0 && totalM != null && totalM > 0) totalM / acc else 1.0
+    return raw.map { it * scale / 1000 }
+}
 
 @Composable
-private fun SeriesCard(s: Series, distance: Boolean) {
+private fun SeriesCard(s: Series, distance: Boolean, totalM: Double?) {
     fun List<Int?>?.d(scale: Double = 1.0) = this?.map { it?.div(scale) }
     // values are bucket averages, so only averages are summarized here; true peaks live in the stat cards
     fun List<Double?>.stats() = filterNotNull().takeIf { it.isNotEmpty() }
     val tracks = listOfNotNull(
         s.speed.d(100.0)?.takeIf { distance }?.let { v ->
             // speed is plotted so faster sits higher; labels convert it back to pace
-            v.stats()?.let { Track("Pace", v, K.good, tr("avg ${pace(it.average())} /km", "rata-rata ${pace(it.average())} /km"), tr("Pace over the session", "Grafik pace sepanjang sesi")) }
+            v.stats()?.let { Track("Pace", v, K.good, tr("avg ${pace(it.average())} /km", "rata-rata ${pace(it.average())} /km"), tr("Pace over the session", "Grafik pace sepanjang sesi")) { x -> "${pace(x)} /km" } }
         },
-        s.hr.d()?.let { v -> v.stats()?.let { Track(tr("Heart rate", "Detak jantung"), v, K.low, tr("avg ${it.average().int()} bpm", "rata-rata ${it.average().int()} bpm"), tr("Heart rate over the session", "Grafik detak jantung sepanjang sesi")) } },
-        s.cadence.d()?.takeIf { distance }?.let { v -> v.stats()?.let { Track(tr("Cadence", "Kadens"), v, K.blue, tr("avg ${it.average().int()} spm", "rata-rata ${it.average().int()} spm"), tr("Cadence over the session", "Grafik kadens sepanjang sesi")) } },
-        s.power.d()?.let { v -> v.stats()?.let { Track("Power", v, K.fair, tr("avg ${it.average().int()} W", "rata-rata ${it.average().int()} W"), tr("Power over the session", "Grafik power sepanjang sesi")) } },
+        s.hr.d()?.let { v -> v.stats()?.let { Track(tr("Heart rate", "Detak jantung"), v, K.low, tr("avg ${it.average().int()} bpm", "rata-rata ${it.average().int()} bpm"), tr("Heart rate over the session", "Grafik detak jantung sepanjang sesi")) { x -> "${x.int()} bpm" } } },
+        s.cadence.d()?.takeIf { distance }?.let { v -> v.stats()?.let { Track(tr("Cadence", "Kadens"), v, K.blue, tr("avg ${it.average().int()} spm", "rata-rata ${it.average().int()} spm"), tr("Cadence over the session", "Grafik kadens sepanjang sesi")) { x -> "${x.int()} spm" } } },
+        s.power.d()?.let { v -> v.stats()?.let { Track("Power", v, K.fair, tr("avg ${it.average().int()} W", "rata-rata ${it.average().int()} W"), tr("Power over the session", "Grafik power sepanjang sesi")) { x -> "${x.int()} W" } } },
         s.elev.d(10.0)?.takeIf { distance }?.let { v ->
-            v.stats()?.takeIf { it.max() - it.min() >= 3 }?.let { Track(tr("Elevation", "Elevasi"), v, K.muted, tr("${it.min().int()} to ${it.max().int()} m", "${it.min().int()} sampai ${it.max().int()} m"), tr("Elevation over the session", "Grafik elevasi sepanjang sesi")) }
+            v.stats()?.takeIf { it.max() - it.min() >= 3 }?.let { Track(tr("Elevation", "Elevasi"), v, K.muted, tr("${it.min().int()} to ${it.max().int()} m", "${it.min().int()} sampai ${it.max().int()} m"), tr("Elevation over the session", "Grafik elevasi sepanjang sesi")) { x -> "${x.int()} m" } }
         },
     )
     if (tracks.isEmpty()) return
-    val end = duration(s.t.lastOrNull()?.toDouble())
+    val kms = remember(s, totalM) { if (distance) cumulativeKm(s, totalM) else null }
+    // one index shared by every chart, so dragging any of them reads the same moment across all
+    var sel by remember { mutableStateOf<Int?>(null) }
     Panel(Modifier.fillMaxWidth(), gap = 18.dp) {
-        CardTitle(tr("Over the session", "Sepanjang sesi"))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CardTitle(tr("Over the session", "Sepanjang sesi"), Modifier.weight(1f), icon = R.drawable.ic_show_chart)
+            val i = sel
+            if (i != null) {
+                Text(
+                    listOfNotNull(kms?.getOrNull(i)?.let { "km ${it.two()}" }, duration(s.t.getOrNull(i)?.toDouble())).joinToString(" · "),
+                    style = num(18.sp, FontWeight.Bold), color = K.good,
+                )
+            } else {
+                Text(tr("Drag a chart", "Geser chart"), style = T.caption, color = K.muted)
+            }
+        }
         tracks.forEach { track ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(track.name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-                    Text(track.summary, style = T.caption, color = K.muted)
+                    val v = sel?.let { track.values.getOrNull(it) }
+                    if (v != null) Text(track.at(v), style = num(16.sp, FontWeight.Bold), color = K.ink)
+                    else Text(track.summary, style = T.caption, color = K.muted)
                 }
-                LineChart(track.values, "${track.description}, ${track.summary}", height = 72.dp, color = track.color, width = 1.8.dp)
+                LineChart(
+                    track.values, "${track.description}, ${track.summary}", height = 72.dp, color = track.color, width = 1.8.dp,
+                    selected = sel, onSelect = { sel = it },
+                )
             }
+        }
+        KmRuler(kms, s.t, sel)
+    }
+}
+
+/** Axis under the session charts: a tick at every full km (or every 5 min without distance) and the touched point. */
+@Composable
+private fun KmRuler(kms: List<Double>?, t: List<Int>, sel: Int?) {
+    val n = t.size
+    if (n < 2) return
+    val ticks = if (kms != null) {
+        (1..kms.last().toInt()).mapNotNull { k -> kms.indexOfFirst { it >= k }.takeIf { it >= 0 } }
+    } else {
+        (1..(t.last() / 300)).mapNotNull { m -> t.indexOfFirst { it >= m * 300 }.takeIf { it >= 0 } }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+            fun x(i: Int) = size.width * i / (n - 1f)
+            drawLine(K.border, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+            ticks.forEach { drawLine(K.muted, Offset(x(it), 0f), Offset(x(it), 6.dp.toPx()), 1.dp.toPx()) }
+            sel?.let { drawLine(K.good, Offset(x(it), 0f), Offset(x(it), size.height), 2.dp.toPx()) }
         }
         Row(Modifier.fillMaxWidth()) {
             Text(tr("start", "mulai"), style = T.mono, color = K.muted)
             Spacer(Modifier.weight(1f))
-            Text(end, style = T.mono, color = K.muted)
+            Text(kms?.let { "${it.last().two()} km · " }.orEmpty() + duration(t.last().toDouble()), style = T.mono, color = K.muted)
         }
     }
 }
@@ -411,7 +505,7 @@ private fun BandChip(b: DynamicsBand) = if (b.status != null) StatusChip(b.label
 private fun DynamicsCard(e: Extra) {
     if (e.cadence == null && e.gctMs == null && e.power == null) return
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Running form", "Teknik lari"))
+        CardTitle(tr("Running form", "Teknik lari"), icon = R.drawable.ic_directions_run)
         e.cadence?.let { InfoRow(tr("Cadence", "Kadens"), it.int(), "spm", tr("Steps per minute. A high cadence usually means short, light steps.", "Langkah per menit. Kadens tinggi biasanya berarti langkah pendek dan ringan.")) { BandChip(cadenceBand(it)) } }
         e.strideCm?.let { InfoRow(tr("Stride length", "Panjang langkah"), (it / 100).two(), "m", tr("Average distance of one step.", "Jarak rata-rata satu langkah.")) }
         e.gctMs?.let { InfoRow(tr("Ground contact", "Kontak tanah"), it.int(), "ms", tr("How long your foot stays on the ground each step. Shorter is more reactive.", "Lama kaki menempel di tanah tiap langkah. Makin singkat makin reaktif.")) { BandChip(gctBand(it)) } }
@@ -429,7 +523,7 @@ private fun DynamicsCard(e: Extra) {
 @Composable
 private fun BestSplitsCard(splits: List<Split>, prs: List<Int>) {
     Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
-        CardTitle(tr("Fastest times in this session", "Waktu tercepat di sesi ini"))
+        CardTitle(tr("Fastest times in this session", "Waktu tercepat di sesi ini"), icon = R.drawable.ic_timer)
         splits.forEachIndexed { i, s ->
             if (i > 0) HorizontalDivider(color = K.track)
             Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -474,7 +568,7 @@ private fun SimilarCard(a: Activity, s: Similar) {
         }
     }.orEmpty()
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Compared with similar runs", "Dibanding run serupa"))
+        CardTitle(tr("Compared with similar runs", "Dibanding run serupa"), icon = R.drawable.ic_bar_chart)
         Text(tr("$pacePart$hrPart than the average of your last ${s.count} runs of similar distance.", "$pacePart$hrPart dari rata-rata ${s.count} run terakhir dengan jarak mirip."), style = T.body, color = K.body2)
         InfoRow(tr("Avg pace", "Pace rata-rata"), pace(s.avgSpeed), "/km", tr("This run ${pace(speed)} /km.", "Run ini ${pace(speed)} /km."))
         s.avgHr?.let { InfoRow(tr("Avg HR", "HR rata-rata"), it.int(), "bpm", tr("This run ${a.avgHr.int()} bpm.", "Run ini ${a.avgHr.int()} bpm.")) }
@@ -493,7 +587,7 @@ private fun ImpactCard(e: Extra) {
     val intensity = (e.moderateMin ?: 0.0) + 2 * (e.vigorousMin ?: 0.0)
     if (e.bbDelta == null && e.waterMl == null && intensity <= 0) return
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Session impact", "Dampak sesi ini"))
+        CardTitle(tr("Session impact", "Dampak sesi ini"), icon = R.drawable.ic_bolt)
         e.bbDelta?.let { InfoRow("Body Battery", if (it < 0) "−${(-it).int()}" else "+${it.int()}", "", tr("Energy used during the session.", "Energi yang terpakai selama sesi.")) }
         e.waterMl?.let { InfoRow(tr("Sweat", "Keringat"), (it / 1000).one(), "L", tr("Estimated fluid lost. Replace it gradually after the session.", "Perkiraan cairan yang keluar. Ganti pelan-pelan setelah sesi.")) }
         if (intensity > 0) {
@@ -516,7 +610,7 @@ private fun ZonesCard(zones: List<Double?>, floors: List<Double>?) {
         listOf("< ${f[1]} bpm", "${f[1]}–${f[2]}", "${f[2]}–${f[3]}", "${f[3]}–${f[4]}", "> ${f[4]}")
     }
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
-        CardTitle(tr("Heart rate zones", "Zona detak jantung"))
+        CardTitle(tr("Heart rate zones", "Zona detak jantung"), icon = R.drawable.ic_monitor_heart)
         StackedBar(
             secs.mapIndexed { i, s -> s to K.zones[i] },
             description = secs.mapIndexed { i, s -> tr("Zone ${i + 1} ${(s / total * 100).roundToInt()} percent", "Zona ${i + 1} ${(s / total * 100).roundToInt()} persen") }.joinToString(", "),
@@ -543,34 +637,52 @@ private fun ZonesCard(zones: List<Double?>, floors: List<Double>?) {
 @Composable
 private fun SplitsCard(splits: List<Split>) {
     // ponytail: only full auto-laps count as km splits; structured-workout laps of other lengths hide the card
-    val paces = splits.filter { abs((it.distanceM ?: 0.0) - 1000) <= 10 && (it.durationS ?: 0.0) > 0 }
-        .map { it.durationS!! * 1000 / it.distanceM!! }
+    val laps = splits.filter { abs((it.distanceM ?: 0.0) - 1000) <= 10 && (it.durationS ?: 0.0) > 0 }
+    val paces = laps.map { it.durationS!! * 1000 / it.distanceM!! }
     if (paces.size < 2 || paces.size < splits.size - 1) return
     val fast = paces.min()
     val slow = paces.max()
     val avg = paces.average()
     val half = paces.size / 2
     val negative = paces.drop(paces.size - half).average() < paces.take(half).average()
+    var sel by remember { mutableStateOf<Int?>(null) }
+    val reveal = rememberReveal(paces, durationMs = 600)
     Panel(Modifier.fillMaxWidth(), gap = 8.dp) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            CardTitle(tr("Km splits", "Split per km"), Modifier.weight(1f).alignByBaseline())
-            if (negative) Text("negative split ✓", Modifier.alignByBaseline(), style = T.caption, color = K.muted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CardTitle(tr("Km splits", "Split per km"), Modifier.weight(1f), icon = R.drawable.ic_flag)
+            val i = sel
+            when {
+                i != null -> Text(
+                    "Km ${i + 1} · ${minSec(laps[i].durationS!!)}" + (laps[i].avgHr?.let { " · HR ${it.int()}" } ?: ""),
+                    style = num(16.sp, FontWeight.Bold), color = K.good,
+                )
+                negative -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Glyph(R.drawable.ic_check_circle, K.muted, 16.dp)
+                    Text("negative split", style = T.caption, color = K.muted)
+                }
+            }
         }
         paces.forEachIndexed { i, p ->
             val w = if (slow > fast) 0.4f + ((slow - p) / (slow - fast)).toFloat() * 0.6f else 1f
+            val on = sel == null || sel == i
             Row(
-                Modifier.semantics(mergeDescendants = true) { contentDescription = "Km ${i + 1}, ${paceSec(p)} per km" },
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                    .clickable(role = Role.Button) { sel = if (sel == i) null else i }
+                    .padding(vertical = 3.dp)
+                    .semantics(mergeDescendants = true) { contentDescription = "Km ${i + 1}, ${paceSec(p)} per km" },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("${i + 1}", Modifier.width(22.dp), style = T.mono, color = K.muted)
+                Text("${i + 1}", Modifier.width(22.dp), style = T.mono, color = if (sel == i) K.good else K.muted)
                 Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(K.track)) {
+                    // bars grow in one after another, 30 ms apart
+                    val grow = ((reveal.value * (paces.size + 8) - i) / 8f).coerceIn(0f, 1f)
                     Box(
-                        Modifier.fillMaxWidth(w).height(10.dp).clip(RoundedCornerShape(5.dp))
-                            .background(if (p < avg) K.good else K.good.copy(alpha = 0.5f)),
+                        Modifier.fillMaxWidth(w * grow).height(10.dp).clip(RoundedCornerShape(5.dp))
+                            .background((if (p < avg) K.good else K.good.copy(alpha = 0.5f)).copy(alpha = if (on) (if (p < avg) 1f else 0.5f) else 0.18f)),
                     )
                 }
-                Text(paceSec(p), Modifier.width(40.dp), style = num(16.sp, FontWeight.Bold), color = K.ink, textAlign = TextAlign.End)
+                Text(paceSec(p), Modifier.width(40.dp), style = num(16.sp, FontWeight.Bold), color = if (on) K.ink else K.muted, textAlign = TextAlign.End)
             }
         }
     }

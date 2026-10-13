@@ -1,5 +1,7 @@
 package dev.garminfit.ui
 
+import dev.garminfit.R
+
 import dev.garminfit.tr
 import dev.garminfit.isId
 import dev.garminfit.flagText
@@ -34,6 +36,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,10 +83,11 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(onOpenActivity: (Long) -> Unit, onLogout: () -> Unit) {
+fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val loader = rememberLoad { Repo.fetchToday(ctx).also { Widgets.updateAll(ctx) } }
+    // widgets redraw on their own coroutine so the screen does not wait for five Glance renders
+    val loader = rememberCachedLoad("today") { Repo.fetchToday(ctx).also { scope.launch { Widgets.updateAll(ctx) } } }
     var refreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
 
@@ -119,6 +124,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onLogout: () -> Unit) {
                 } else {
                     val verdict = readinessVerdict(latest.readinessLevel, latest.readiness, latest.recoveryMin)
                     if (verdict != null && latest.readiness != null) Hero(latest, verdict)
+                    today.plan?.let { PlanTodayCard(it, onOpenPlan) }
                     Factors(latest, today)
                     today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
                     Tiles(latest, verdict?.status ?: Status.GOOD)
@@ -155,12 +161,14 @@ private fun Header(t: Today, onSync: () -> Unit) {
                 Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onSync),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    listOfNotNull("Sync", syncTime(t.latest?.syncedAt), "↻").joinToString(" "),
-                    Modifier.clip(CircleShape).background(K.surface).padding(horizontal = 10.dp, vertical = 6.dp),
-                    style = T.caption,
-                    color = K.muted,
-                )
+                Row(
+                    Modifier.clip(CircleShape).background(K.surface).padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(listOfNotNull("Sync", syncTime(t.latest?.syncedAt)).joinToString(" "), style = T.caption, color = K.muted)
+                    Glyph(R.drawable.ic_refresh, K.muted, 16.dp)
+                }
             }
         }
         val latest = t.latest
@@ -234,7 +242,7 @@ private fun Factors(d: Daily, t: Today) {
     val list = factors(d, t)
     if (list.isEmpty()) return
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Why this score?", "Kenapa skornya segini?"))
+        CardTitle(tr("Why this score?", "Kenapa skornya segini?"), icon = R.drawable.ic_monitor_heart)
         list.forEach { f ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -330,10 +338,17 @@ private fun SleepTile(d: Daily) {
 @Composable
 private fun WeekPanel(t: Today) {
     val w = t.week
+    var sel by remember { mutableStateOf<Int?>(null) }
+    val haptic = LocalHapticFeedback.current
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
         Row(verticalAlignment = Alignment.Bottom) {
-            CardTitle(tr("This week", "Minggu ini"), Modifier.weight(1f).alignByBaseline())
-            Text(tr("${w.activeDays} active days", "${w.activeDays} hari aktif"), Modifier.alignByBaseline(), style = body(13.sp, FontWeight.SemiBold), color = K.good)
+            CardTitle(tr("This week", "Minggu ini"), Modifier.weight(1f).alignByBaseline(), icon = R.drawable.ic_calendar_month)
+            val picked = sel?.let { w.dailyLoad.getOrNull(it) }
+            Text(
+                if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
+                else tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"),
+                Modifier.alignByBaseline(), style = body(13.sp, FontWeight.SemiBold), color = K.good,
+            )
         }
         if (w.count == 0) {
             Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = T.body, color = K.muted)
@@ -348,10 +363,19 @@ private fun WeekPanel(t: Today) {
         if (days.isNotEmpty()) {
             val maxLoad = max(1.0, days.maxOf { it.load })
             val today = LocalDate.now().toString()
+            val reveal = rememberReveal(days, durationMs = 600)
             // 64dp tallest bar + load number + day label; the handoff's 92dp clipped the labels under tall bars.
-            Row(Modifier.fillMaxWidth().height(104.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                days.forEach { d ->
+            Row(
+                Modifier.fillMaxWidth().height(104.dp).scrub(days.size, bars = true) { i ->
+                    if (i != null && i != sel) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    sel = i
+                },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                days.forEachIndexed { i, d ->
                     val isToday = d.date == today
+                    val grow = ((reveal.value * (days.size + 6) - i) / 6f).coerceIn(0f, 1f)
+                    val dim = sel != null && sel != i
                     Column(
                         Modifier.weight(1f).fillMaxHeight(),
                         verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom),
@@ -360,12 +384,13 @@ private fun WeekPanel(t: Today) {
                         if (d.load > 0) Text(d.load.int(), style = T.mono.copy(fontSize = 10.sp), color = K.muted)
                         Box(
                             Modifier.fillMaxWidth()
-                                .height(if (d.load > 0) max(8.0, d.load / maxLoad * 64).dp else 4.dp)
+                                .height(if (d.load > 0) (max(8.0, d.load / maxLoad * 64) * grow).coerceAtLeast(4.0).dp else 4.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
                                     when {
                                         d.load <= 0 -> K.track
-                                        isToday -> K.good
+                                        dim -> K.good.copy(alpha = 0.2f)
+                                        isToday || sel == i -> K.good
                                         else -> K.good.copy(alpha = 0.45f)
                                     },
                                 ),
@@ -394,9 +419,9 @@ private fun LastActivity(a: Activity, onOpen: (Long) -> Unit) {
         gap = 10.dp,
     ) {
         Label(tr("Last activity · ${weekday(a.date)}", "Aktivitas terakhir · ${weekday(a.date)}"))
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(a.name ?: activityType(a.type), Modifier.weight(1f), style = num(24.sp, FontWeight.Bold), color = K.ink)
-            Text("›", style = body(18.sp), color = K.muted)
+            Glyph(R.drawable.ic_chevron_right, K.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             stats.forEach { (v, l) -> Stat(v, l, num(20.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(11.sp, lh = 1.2f)) }
@@ -440,6 +465,9 @@ private fun SummaryCard(s: Summary) {
                 }
             }
         }
-        Text(if (open) tr("Close ↑", "Tutup ↑") else tr("Tap to read it all ↓", "Ketuk untuk baca lengkap ↓"), style = body(13.sp, FontWeight.SemiBold), color = K.onAccent)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(if (open) tr("Close", "Tutup") else tr("Tap to read it all", "Ketuk untuk baca lengkap"), style = body(13.sp, FontWeight.SemiBold), color = K.onAccent)
+            Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.onAccent, 18.dp)
+        }
     }
 }
