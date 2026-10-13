@@ -33,3 +33,12 @@ Run `/fitness-summary` in Claude Code from this repo. It exports the last 35 day
 | `token create/list/revoke` | Manage app access tokens |
 | `export --days N` | Compact JSON for the summary skill |
 | `save-summary FILE` | Validate and store a summary |
+| `save-plan FILE` | Validate and store a training plan (replaces the active one) |
+| `plan-status` | Active plan with every session scored |
+| `ensure-indexes` | Create Mongo indexes (run after index changes) |
+
+## Training plan
+
+Run `/training-plan` in Claude Code. Claude reads the last 84 days, drafts the plan with you, and saves it after you approve; the app shows it on Training, Today and the widgets.
+
+Deploying and releasing: see [DEPLOY.md](DEPLOY.md).
