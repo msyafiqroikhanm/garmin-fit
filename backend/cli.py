@@ -112,6 +112,26 @@ def cmd_save_summary(a):
     print(f"saved {doc['period']} summary {doc['range']['from']}..{doc['range']['to']}")
 
 
+def cmd_save_plan(a):
+    doc = core.plan_doc(json.loads(Path(a.file).read_text()))
+    if doc is None:
+        sys.exit("invalid plan: need name, goal{id,en?}, start, end, sessions[{date in range, kind, type, title{id,en?}, "
+                 "target{distance_m|duration_s}?, pace{min_s_km,max_s_km}?, hr_zone 1-5?, notes{id,en?}?}], optional race_date")
+    plans = core.db().plans
+    plans.update_many({"user_id": core.OWNER, "status": "active"}, {"$set": {"status": "replaced"}})
+    plans.insert_one({**doc, "user_id": core.OWNER, "status": "active", "created_at": datetime.now(timezone.utc)})
+    print(f"saved plan '{doc['name']}' {doc['start']}..{doc['end']}, {len(doc['sessions'])} sessions")
+
+
+def cmd_plan_status(_):
+    print(json.dumps(core.plan_view(core.OWNER), default=str, ensure_ascii=False, indent=1))
+
+
+def cmd_indexes(_):
+    core.ensure_indexes()
+    print("indexes ok")
+
+
 def main():
     p = argparse.ArgumentParser(prog="cli.py")
     sub = p.add_subparsers(required=True)
@@ -137,6 +157,11 @@ def main():
     ss = sub.add_parser("save-summary")
     ss.add_argument("file")
     ss.set_defaults(fn=cmd_save_summary)
+    sub.add_parser("ensure-indexes").set_defaults(fn=cmd_indexes)
+    sp = sub.add_parser("save-plan")
+    sp.add_argument("file")
+    sp.set_defaults(fn=cmd_save_plan)
+    sub.add_parser("plan-status").set_defaults(fn=cmd_plan_status)
     a = p.parse_args()
     a.fn(a)
 

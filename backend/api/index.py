@@ -5,11 +5,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.middleware.gzip import GZipMiddleware
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import core  # noqa: E402
 
 app = FastAPI(title="garmin-fit")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 NO_RAW = {"raw": 0, "route": 0, "series": 0}
 
@@ -54,7 +56,7 @@ def activities(frm: date | None = Query(None, alias="from"), to: date | None = N
     f, t = _range(frm, to, 90)
     q = {"user_id": user["data_user_id"], "date": {"$gte": f, "$lte": t}}
     acts = list(core.db().activities.find(q, NO_RAW).sort("start_time", -1))
-    marks, _ = core.pr_history(core.runs_with_splits(user["data_user_id"]))
+    marks, _ = core.prs(user["data_user_id"])
     for a in acts:
         a["prs"] = marks.get(a["_id"], [])
     return acts
@@ -73,7 +75,7 @@ def recap_view(period: str = Query("month", pattern="^(month|year)$"), key: str 
     def acts(a, b):
         return list(core.db().activities.find({"user_id": uid, "date": {"$gte": a.isoformat(), "$lte": b.isoformat()}}, proj))
     all_dates = {d["date"] for d in core.db().activities.find({"user_id": uid, "date": {"$lte": end.isoformat()}}, {"date": 1})}
-    marks, _ = core.pr_history(core.runs_with_splits(uid))
+    marks, _ = core.prs(uid)
     return core.recap(period, start, end, acts(start, end), acts(pstart, pend), all_dates, marks)
 
 
@@ -109,7 +111,7 @@ def running_trends(weeks: int = Query(12, ge=1, le=52), user: dict = Depends(aut
 
 @app.get("/records")
 def records(user: dict = Depends(auth)):
-    _, best = core.pr_history(core.runs_with_splits(user["data_user_id"]))
+    _, best = core.prs(user["data_user_id"])
     return [best[d] for d in core.BEST_SPLITS if d in best]
 
 
@@ -130,7 +132,7 @@ def activity(activity_id: int, user: dict = Depends(auth)):
         doc["strength"] = core.strength_summary(doc.get("raw") or {}, core.muscle_catalog())
     doc["extra"] = core.activity_extra(doc.get("raw") or {})
     if "running" in (doc.get("type") or ""):
-        marks, _ = core.pr_history(core.runs_with_splits(uid))
+        marks, _ = core.prs(uid)
         doc["prs"] = marks.get(doc["_id"], [])
         since = (date.fromisoformat(doc["date"]) - timedelta(days=120)).isoformat()
         prev = core.db().activities.find(
@@ -175,7 +177,13 @@ def today_view(user: dict = Depends(auth)):
         },
         "last_activity": last_act,
         "summary": summary,
+        "plan": core.plan_today(core.plan_view(uid)),
     }
+
+
+@app.get("/plan")
+def plan(user: dict = Depends(auth)):
+    return core.plan_view(user["data_user_id"])
 
 
 @app.get("/summaries/latest")

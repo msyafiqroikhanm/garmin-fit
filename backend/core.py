@@ -25,10 +25,18 @@ def db():
     global _db
     if _db is None:
         _db = MongoClient(os.environ["MONGODB_URI"])[os.environ.get("MONGODB_DB", "garmin_fit")]
-        _db.daily.create_index([("user_id", 1), ("date", 1)])
-        _db.activities.create_index([("user_id", 1), ("date", -1)])
-        _db.summaries.create_index([("user_id", 1), ("period", 1), ("generated_at", -1)])
     return _db
+
+
+def ensure_indexes() -> None:
+    """Run from the CLI after a schema change; kept off the request path so cold starts skip the round trips."""
+    d = db()
+    d.daily.create_index([("user_id", 1), ("date", 1)])
+    d.activities.create_index([("user_id", 1), ("date", -1)])
+    d.activities.create_index([("user_id", 1), ("start_time", 1)])
+    d.activities.create_index([("user_id", 1), ("type", 1), ("start_time", 1)])
+    d.summaries.create_index([("user_id", 1), ("period", 1), ("generated_at", -1)])
+    d.plans.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
 
 
 def today() -> date:
@@ -373,6 +381,22 @@ def pr_history(acts: list[dict]) -> tuple[dict, dict]:
     return marks, best
 
 
+def refresh_prs(user_id: str) -> tuple[dict, dict]:
+    """Recompute PR history and store it, so request handlers skip the scan over every run."""
+    marks, best = pr_history(runs_with_splits(user_id))
+    # Mongo keys must be strings, so marks are stored as pairs
+    db().meta.replace_one({"_id": f"pr:{user_id}"}, {"marks": [[k, v] for k, v in marks.items()], "best": list(best.values()),
+                                                     "at": datetime.now(timezone.utc)}, upsert=True)
+    return marks, best
+
+
+def prs(user_id: str) -> tuple[dict, dict]:
+    doc = db().meta.find_one({"_id": f"pr:{user_id}"})
+    if not doc:
+        return refresh_prs(user_id)
+    return {k: v for k, v in doc["marks"]}, {b["distance_m"]: b for b in doc["best"]}
+
+
 def runs_with_splits(user_id: str) -> list[dict]:
     proj = {"date": 1, "name": 1, "start_time": 1, **{f"raw.fastestSplit_{d}": 1 for d in BEST_SPLITS}}
     return list(db().activities.find({"user_id": user_id, "type": {"$regex": "running"}}, proj).sort("start_time", 1))
@@ -643,6 +667,7 @@ def sync_range(user_id: str, start: date, end: date, skip_existing=False, pause=
     try:
         n = sync_activities(g, user_id, start, end, pause, log, backoff)
         log(f"activities {start}..{end}: {n}")
+        refresh_prs(user_id)
         try:
             sync_profile(g, user_id)
         except GarminConnectTooManyRequestsError:
@@ -726,3 +751,150 @@ def insights(days: list[dict]) -> dict:
             flags.append({"key": "load_spike", "level": "warn", "text": "Beban latihan melonjak dibanding 4 minggu terakhir."})
 
     return {"baseline": baseline, "flags": flags}
+
+
+PLAN_KINDS = ("run", "strength", "other", "rest")
+PLAN_TYPES = ("easy", "long", "tempo", "interval", "recovery", "race", "strength", "rest", "other")
+DONE_AT = 0.95  # GPS distance runs a little short, so 5.8 of a planned 6 km still counts as done
+
+
+def _iso(d) -> bool:
+    try:
+        date.fromisoformat(d)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _bi(t) -> bool:
+    """Bilingual text: Indonesian in "id", optional English in "en"."""
+    return isinstance(t, dict) and isinstance(t.get("id"), str) and ("en" not in t or isinstance(t["en"], str))
+
+
+def _pos(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+
+
+def _session(s, start: str, end: str) -> dict | None:
+    if not (isinstance(s, dict) and _iso(s.get("date")) and start <= s["date"] <= end
+            and s.get("kind") in PLAN_KINDS and s.get("type") in PLAN_TYPES and _bi(s.get("title"))):
+        return None
+    out = {k: s[k] for k in ("date", "kind", "type", "title")}
+    tgt = s.get("target") or {}
+    if not isinstance(tgt, dict) or any(k not in ("distance_m", "duration_s") or not _pos(v) for k, v in tgt.items()):
+        return None
+    if tgt:
+        out["target"] = tgt
+    pace = s.get("pace")
+    if pace is not None:
+        if not (isinstance(pace, dict) and _pos(pace.get("min_s_km")) and _pos(pace.get("max_s_km")) and pace["min_s_km"] <= pace["max_s_km"]):
+            return None
+        out["pace"] = {"min_s_km": pace["min_s_km"], "max_s_km": pace["max_s_km"]}
+    zone = s.get("hr_zone")
+    if zone is not None:
+        if zone not in (1, 2, 3, 4, 5):
+            return None
+        out["hr_zone"] = zone
+    if "notes" in s:
+        if not _bi(s["notes"]):
+            return None
+        out["notes"] = s["notes"]
+    return out
+
+
+def plan_doc(p: dict) -> dict | None:
+    """Validate a training plan written by Claude; returns the stored shape with sessions sorted by date."""
+    if not (isinstance(p, dict) and isinstance(p.get("name"), str) and p["name"].strip() and _bi(p.get("goal"))
+            and _iso(p.get("start")) and _iso(p.get("end")) and p["start"] <= p["end"]
+            and isinstance(p.get("sessions"), list) and p["sessions"]):
+        return None
+    if "race_date" in p and not _iso(p["race_date"]):
+        return None
+    sessions = [_session(s, p["start"], p["end"]) for s in p["sessions"]]
+    if any(s is None for s in sessions):
+        return None
+    doc = {k: p[k] for k in ("name", "goal", "start", "end")}
+    if "race_date" in p:
+        doc["race_date"] = p["race_date"]
+    doc["sessions"] = sorted(sessions, key=lambda s: s["date"])
+    return doc
+
+
+def _mean(xs):
+    return round(statistics.fmean(xs), 3) if xs else None
+
+
+def plan_progress(plan: dict, acts: list[dict], today_: date) -> dict:
+    """Score each planned session against the activities of its day and kind.
+    pct = done / target on distance, else duration, capped at 1; no target means any activity counts fully.
+    Rest days and future sessions are not scored; neither is today's until something is done."""
+    by_day = {}
+    for a in acts:
+        by_day.setdefault((a["date"], _kind(a.get("type"))), []).append(a)
+    t = today_.isoformat()
+    used, sessions = set(), []
+    for s in plan["sessions"]:
+        row = {**s, "status": "rest", "pct": None, "activity_ids": [], "done": None}
+        if s["kind"] != "rest":
+            match = by_day.get((s["date"], s["kind"]), [])
+            if match:
+                dist = sum(a.get("distance_m") or 0 for a in match)
+                dur = sum(a.get("duration_s") or 0 for a in match)
+                tgt = s.get("target") or {}
+                if tgt.get("distance_m"):
+                    pct = min(1.0, dist / tgt["distance_m"])
+                elif tgt.get("duration_s"):
+                    pct = min(1.0, dur / tgt["duration_s"])
+                else:
+                    pct = 1.0
+                row.update(status="done" if pct >= DONE_AT else "partial", pct=round(pct, 3),
+                           activity_ids=[a["_id"] for a in match], done={"distance_m": dist, "duration_s": dur})
+                used.update(a["_id"] for a in match)
+            elif s["date"] > t:
+                row["status"] = "upcoming"
+            elif s["date"] == t:
+                row["status"] = "today"
+            else:
+                row.update(status="missed", pct=0.0)
+        sessions.append(row)
+    weeks = {}
+    for r in sessions:
+        w = weeks.setdefault(week_start(date.fromisoformat(r["date"])).isoformat(), {"start": None, "planned": 0, "done": 0, "scores": []})
+        if r["kind"] != "rest":
+            w["planned"] += 1
+            w["done"] += r["status"] == "done"
+        if r["pct"] is not None:
+            w["scores"].append(r["pct"])
+    week_rows = [{"start": k, "planned": v["planned"], "done": v["done"], "pct": _mean(v["scores"])} for k, v in sorted(weeks.items())]
+    extras = [{"_id": a["_id"], "date": a["date"], "type": a.get("type"), "name": a.get("name"), "distance_m": a.get("distance_m")}
+              for a in acts if a["_id"] not in used and plan["start"] <= a["date"] <= min(plan["end"], t)]
+    return {"sessions": sessions, "weeks": week_rows, "overall": _mean([r["pct"] for r in sessions if r["pct"] is not None]),
+            "extras": extras}
+
+
+def active_plan(user_id: str) -> dict | None:
+    return db().plans.find_one({"user_id": user_id, "status": "active"}, {"_id": 0, "user_id": 0}, sort=[("created_at", -1)])
+
+
+def plan_view(user_id: str) -> dict:
+    plan = active_plan(user_id)
+    if not plan:
+        return {"plan": None, "sessions": [], "weeks": [], "overall": None, "extras": []}
+    proj = {"date": 1, "type": 1, "name": 1, "distance_m": 1, "duration_s": 1}
+    acts = list(db().activities.find({"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}}, proj))
+    meta = {k: plan[k] for k in ("name", "goal", "start", "end", "race_date", "created_at") if k in plan}
+    return {"plan": meta, **plan_progress(plan, acts, today())}
+
+
+def plan_today(view: dict) -> dict | None:
+    """Today's session and this week's score, small enough to ride along with /today."""
+    if not view["plan"]:
+        return None
+    t = today().isoformat()
+    week = week_start(today()).isoformat()
+    return {
+        "name": view["plan"]["name"],
+        "session": next((s for s in view["sessions"] if s["date"] == t), None),
+        "week": next((w for w in view["weeks"] if w["start"] == week), None),
+        "overall": view["overall"],
+    }
