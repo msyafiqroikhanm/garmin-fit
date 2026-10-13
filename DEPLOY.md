@@ -38,3 +38,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 |---|---|---|
 | v0.2 | 2026-10-05 | Responsive widgets, Monday week, English default with Indonesian per-app language |
 | v0.3 | 2026-10-13 | Disk cache and shimmer loading, touchable charts, OSM route maps, motion and icons, training plan screens and widget line |
+| v0.4 | 2026-10-13 | Units next to rolling numbers sit on the number's baseline again |

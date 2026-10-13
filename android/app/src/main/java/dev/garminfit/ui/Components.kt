@@ -358,8 +358,14 @@ fun Value(
     roll: Boolean = false,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
-        if (roll) RollingText(value, style, color, Modifier.alignByBaseline())
-        else Text(value, Modifier.alignByBaseline(), style = style, color = color)
+        if (roll) {
+            // the rolling digits sit in AnimatedContent, which reports no text baseline; an invisible copy of
+            // the final text gives the row its baseline so the unit lines up
+            Box(Modifier.alignByBaseline()) {
+                Text(value, style = style, color = Color.Transparent)
+                RollingText(value, style, color, Modifier.matchParentSize())
+            }
+        } else Text(value, Modifier.alignByBaseline(), style = style, color = color)
         if (unit.isNotEmpty()) Text(unit, Modifier.alignByBaseline(), style = unitStyle, color = unitColor)
     }
 }
