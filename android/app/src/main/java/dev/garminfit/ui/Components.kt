@@ -358,14 +358,8 @@ fun Value(
     roll: Boolean = false,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(gap)) {
-        if (roll) {
-            // the rolling digits sit in AnimatedContent, which reports no text baseline; an invisible copy of
-            // the final text gives the row its baseline so the unit lines up
-            Box(Modifier.alignByBaseline()) {
-                Text(value, style = style, color = Color.Transparent)
-                RollingText(value, style, color, Modifier.matchParentSize())
-            }
-        } else Text(value, Modifier.alignByBaseline(), style = style, color = color)
+        if (roll) RollingText(value, style, color, Modifier.alignByBaseline())
+        else Text(value, Modifier.alignByBaseline(), style = style, color = color)
         if (unit.isNotEmpty()) Text(unit, Modifier.alignByBaseline(), style = unitStyle, color = unitColor)
     }
 }
@@ -425,34 +419,27 @@ fun DeltaPill(text: String, status: Status?, up: Boolean? = null) {
 }
 
 /**
- * Text whose digits roll into place like an odometer: on first show they roll up from 0, and when the
- * value changes only the digits that changed move. Non-digits swap without motion.
+ * Text whose number counts up from 0 the first time it shows, then eases to any new value. It stays a
+ * single Text on purpose: per-digit animated layouts lose the text baseline on some phones (a Samsung
+ * A33 showed the unit floating above the number). Only the first number in [text] moves; the rest is kept.
  */
 @Composable
 fun RollingText(text: String, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    val m = remember(text) { Regex("""\d+(?:[.,]\d+)?""").find(text) }
+    val target = m?.value?.replace(',', '.')?.toDoubleOrNull()
     val reduce = LocalReduceMotion.current
-    var shown by remember { mutableStateOf(if (reduce) text else text.map { if (it.isDigit()) '0' else it }.joinToString("")) }
-    LaunchedEffect(text) { shown = text }
-    Row(modifier) {
-        // key by position from the right, so 9 -> 10 adds a digit on the left instead of shifting every slot
-        shown.forEachIndexed { i, ch ->
-            key(shown.length - i) {
-                AnimatedContent(
-                    ch,
-                    transitionSpec = {
-                        if (reduce || !targetState.isDigit()) EnterTransition.None togetherWith ExitTransition.None
-                        else {
-                            val upward = targetState > initialState
-                            val spec = tween<IntOffset>(420 + (shown.length - i) * 40, easing = FastOutSlowInEasing)
-                            (slideInVertically(spec) { h -> if (upward) h else -h } + fadeIn(tween(200))) togetherWith
-                                (slideOutVertically(spec) { h -> if (upward) -h else h } + fadeOut(tween(160)))
-                        }.using(SizeTransform(clip = true))
-                    },
-                    label = "digit",
-                ) { c -> Text(c.toString(), style = style, color = color) }
-            }
-        }
+    val anim = remember { Animatable(if (reduce || target == null) (target ?: 0.0).toFloat() else 0f) }
+    LaunchedEffect(target) {
+        if (target == null) return@LaunchedEffect
+        if (reduce) anim.snapTo(target.toFloat()) else anim.animateTo(target.toFloat(), tween(900, easing = FastOutSlowInEasing))
     }
+    val shown = if (m == null || target == null) text else {
+        val decimals = m.value.substringAfter('.', m.value.substringAfter(',', "")).let { if (it == m.value) 0 else it.length }
+        val sep = if (m.value.contains(',')) "," else "."
+        val v = String.format(java.util.Locale.US, "%.${decimals}f", anim.value).replace(".", sep)
+        text.replaceRange(m.range, v)
+    }
+    Text(shown, modifier, style = style, color = color, maxLines = 1)
 }
 
 @Composable

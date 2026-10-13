@@ -22,6 +22,10 @@ Watch the build: `gh run list -R msyafiqroikhanm/garmin-fit --limit 1`, then `gh
 
 A release signed with any other key is rejected as an update on the phone, which is why CI checks the certificate.
 
+## Testing on the phone
+
+The owner's phone (Samsung A33, font scale 1.15) is reachable over USB as `RRCTC0063ZZ` once USB debugging is allowed on the phone. A local build signed with the same debug key installs over the release without losing data, as long as its versionCode is not lower: `./gradlew assembleDebug -PversionCode=<installed> -PversionName=<x>-dev`, then `adb -s RRCTC0063ZZ install -r app/build/outputs/apk/debug/app-debug.apk`. Bugs can show on the phone and not on the emulator, so check layout fixes there.
+
 ## Pushing from this laptop
 
 The global git config uses a work GitHub account, so a plain push to this personal repo fails. Push with:
@@ -38,4 +42,5 @@ Same flags for pushing a tag (`… push origin v0.X`).
 |---|---|---|
 | v0.2 | 2026-10-05 | Responsive widgets, Monday week, English default with Indonesian per-app language |
 | v0.3 | 2026-10-13 | Disk cache and shimmer loading, touchable charts, OSM route maps, motion and icons, training plan screens and widget line |
-| v0.4 | 2026-10-13 | Units next to rolling numbers sit on the number's baseline again |
+| v0.4 | 2026-10-13 | Units next to rolling numbers sit on the number's baseline again (still broken on the Samsung A33) |
+| v0.5 | 2026-10-13 | Rolling numbers are one Text counting up, so units stay on the baseline on every phone; map stays dark while tiles load |

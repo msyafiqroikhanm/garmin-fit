@@ -177,8 +177,9 @@ fun RouteMap(content: MapContent, interactive: Boolean, modifier: Modifier = Mod
             isHorizontalMapRepetitionEnabled = false
             isVerticalMapRepetitionEnabled = false
             minZoomLevel = 3.0
-            overlayManager.tilesOverlay.loadingBackgroundColor = K.base.toArgb()
-            overlayManager.tilesOverlay.loadingLineColor = K.base.toArgb()
+            // the dark color matrix also applies to the loading fill, and it maps white to the darkest green
+            overlayManager.tilesOverlay.loadingBackgroundColor = android.graphics.Color.WHITE
+            overlayManager.tilesOverlay.loadingLineColor = android.graphics.Color.WHITE
             setBackgroundColor(K.base.toArgb())
             // osmdroid pans by scrolling its own canvas; without an outline clip it paints past the card
             outlineProvider = ViewOutlineProvider.BOUNDS
