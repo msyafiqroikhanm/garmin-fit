@@ -44,3 +44,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.3 | 2026-10-13 | Disk cache and shimmer loading, touchable charts, OSM route maps, motion and icons, training plan screens and widget line |
 | v0.4 | 2026-10-13 | Units next to rolling numbers sit on the number's baseline again (still broken on the Samsung A33) |
 | v0.5 | 2026-10-13 | Rolling numbers are one Text counting up, so units stay on the baseline on every phone; map stays dark while tiles load |
+| v0.6 | 2026-10-15 | Today's activity sits under the Today header; search on the Activities list |

@@ -111,8 +111,11 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val latest = today.latest
+                // a run done today is the first thing to check after it, so it jumps above the readiness hero
+                val activityToday = today.lastActivity?.takeIf { it.date.take(10) == LocalDate.now().toString() }
                 Header(today, onSync = ::refresh)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
+                activityToday?.let { LastActivity(it, onOpenActivity) }
                 if (latest == null) {
                     Text(
                         if (today.role == "owner") tr("No data yet. Pull down to sync from Garmin.", "Belum ada data. Tarik layar ke bawah untuk sync dari Garmin.")
@@ -129,7 +132,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout
                     today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
                     Tiles(latest, verdict?.status ?: Status.GOOD)
                     WeekPanel(today)
-                    today.lastActivity?.let { LastActivity(it, onOpenActivity) }
+                    if (activityToday == null) today.lastActivity?.let { LastActivity(it, onOpenActivity) }
                     today.summary?.let { SummaryCard(it) }
                 }
                 TextButton(onClick = onLogout, Modifier.align(Alignment.CenterHorizontally)) {

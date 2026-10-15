@@ -103,6 +103,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlin.math.roundToInt
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 
 @Composable
 fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
@@ -116,6 +122,8 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
     var selected by rememberSaveable(initialId) { mutableStateOf(initialId) }
     var sharing by remember { mutableStateOf<Activity?>(null) }
     var map by remember { mutableStateOf<List<List<Double>>?>(null) }
+    // out here so the filter survives a trip into a detail and back
+    var query by rememberSaveable { mutableStateOf("") }
     LoadView(
         loader,
         loadingText = tr("Loading the past year of activities", "Memuat aktivitas setahun terakhir"),
@@ -150,7 +158,17 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
         } else {
             LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 item { Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) { ScreenTitle(tr("Activities", "Aktivitas")) } }
-                items(list, key = { it.id }) { a ->
+                item { SearchField(query) { query = it } }
+                val shown = list.filter { it.matches(query) }
+                if (shown.isEmpty() && query.isNotBlank()) item {
+                    Text(
+                        tr("Nothing matches \"${query.trim()}\" in the past year. Try a name like \"easy\" or a type like \"strength\".", "Tidak ada yang cocok dengan \"${query.trim()}\" dalam setahun terakhir. Coba nama seperti \"easy\" atau jenis seperti \"strength\"."),
+                        Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                        style = T.body,
+                        color = K.muted,
+                    )
+                }
+                items(shown, key = { it.id }) { a ->
                     ActivityRow(a) { selected = a.id }
                     HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
                 }
@@ -161,6 +179,45 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
 }
 
 private fun Activity.hasDistance() = (distanceM ?: 0.0) > 0
+
+/** Name, shown type label and raw Garmin type, so "strength" finds "Latihan beban" in Indonesian too. */
+private fun Activity.matches(query: String): Boolean {
+    val q = query.trim()
+    if (q.isEmpty()) return true
+    return listOfNotNull(name, activityType(type), type?.replace('_', ' ')).any { it.contains(q, ignoreCase = true) }
+}
+
+@Composable
+private fun SearchField(value: String, onChange: (String) -> Unit) {
+    val focus = LocalFocusManager.current
+    Row(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)).background(K.surface).padding(start = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Glyph(R.drawable.ic_search, K.muted, 20.dp)
+        BasicTextField(
+            value,
+            onChange,
+            Modifier.weight(1f).padding(vertical = 14.dp),
+            textStyle = body(16.sp).copy(color = K.ink),
+            cursorBrush = SolidColor(K.good),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+            decorationBox = { inner ->
+                if (value.isEmpty()) Text(tr("Search name or type", "Cari nama atau jenis"), style = body(16.sp), color = K.muted)
+                inner()
+            },
+        )
+        if (value.isNotEmpty()) {
+            Box(Modifier.size(48.dp).clickable(role = Role.Button) { onChange("") }, contentAlignment = Alignment.Center) {
+                Glyph(R.drawable.ic_close, K.muted, 20.dp, description = tr("Clear search", "Hapus pencarian"))
+            }
+        } else Spacer(Modifier.width(4.dp))
+    }
+}
 
 @Composable
 private fun ActivityRow(a: Activity, onClick: () -> Unit) {
