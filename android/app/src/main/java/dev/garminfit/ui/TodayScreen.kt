@@ -5,6 +5,12 @@ import dev.garminfit.R
 import dev.garminfit.tr
 import dev.garminfit.isId
 import dev.garminfit.flagText
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.style.TextOverflow
+import dev.garminfit.activityIcon
+import dev.garminfit.time
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -115,7 +121,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout
                 val activityToday = today.lastActivity?.takeIf { it.date.take(10) == LocalDate.now().toString() }
                 Header(today, onSync = ::refresh)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
-                activityToday?.let { LastActivity(it, onOpenActivity) }
+                activityToday?.let { TodayActivity(it, onOpenActivity) }
                 if (latest == null) {
                     Text(
                         if (today.role == "owner") tr("No data yet. Pull down to sync from Garmin.", "Belum ada data. Tarik layar ke bawah untuk sync dari Garmin.")
@@ -429,6 +435,67 @@ private fun LastActivity(a: Activity, onOpen: (Long) -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             stats.forEach { (v, l) -> Stat(v, l, num(20.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(11.sp, lh = 1.2f)) }
             repeat(4 - stats.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/**
+ * The session done today, right under the header: its route in pace colors (or the worked muscles for
+ * strength) beside a big number, so it reads as today's result rather than one more card.
+ */
+@Composable
+private fun TodayActivity(a: Activity, onOpen: (Long) -> Unit) {
+    val ctx = LocalContext.current
+    // same disk cache as the activity detail, so opening it after this is instant
+    val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
+    val full = (detail.state as? Load.Ok)?.data
+    val hasDistance = (a.distanceM ?: 0.0) > 0
+    val stats = listOfNotNull(
+        if (hasDistance) duration(a.durationS) to tr("time", "waktu") else null,
+        a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
+        a.avgHr?.let { it.int() to "bpm" },
+        full?.strength?.totalSets?.let { it.toString() to tr("sets", "set") },
+        a.aerobicTe?.takeIf { !hasDistance }?.let { it.one() to tr("aerobic TE", "TE aerobik") },
+    ).take(3)
+    Panel(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+            .clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) },
+        padding = 20.dp,
+        gap = 14.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Label(tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"), K.good, Modifier.weight(1f))
+            Glyph(R.drawable.ic_chevron_right, K.muted)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(a.name ?: activityType(a.type), style = num(20.sp, FontWeight.Bold), color = K.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (hasDistance) Value(km(a.distanceM), "km", num(56.sp, italic = true, lh = 0.9f), unitStyle = body(16.sp), gap = 4.dp, roll = true)
+                else RollingText(duration(a.durationS), num(48.sp, italic = true, lh = 0.9f), K.ink)
+            }
+            ActivityPicture(a, full)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            stats.forEach { (v, l) -> Stat(v, l, num(20.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(11.sp, lh = 1.2f)) }
+            repeat(3 - stats.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/** Route for GPS sessions, body map for strength, otherwise the type icon; the icon also stands in while the detail loads. */
+@Composable
+private fun ActivityPicture(a: Activity, full: Activity?) {
+    val route = full?.route?.takeIf { it.size > 1 }
+    val muscles = full?.strength?.muscles?.takeIf { it.isNotEmpty() }
+    Box(Modifier.size(width = 116.dp, height = 116.dp).clip(RoundedCornerShape(16.dp)).background(K.base), contentAlignment = Alignment.Center) {
+        when {
+            route != null -> Canvas(Modifier.fillMaxSize().padding(10.dp)) {
+                drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, 3.dp.toPx()) }
+            }
+            muscles != null -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
+                drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, muscles, K.good, K.track) }
+            }
+            else -> Glyph(activityIcon(a.type), K.muted, 40.dp)
         }
     }
 }
