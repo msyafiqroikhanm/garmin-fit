@@ -46,3 +46,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.5 | 2026-10-13 | Rolling numbers are one Text counting up, so units stay on the baseline on every phone; map stays dark while tiles load |
 | v0.6 | 2026-10-15 | Today's activity sits under the Today header; search on the Activities list |
 | v0.7 | 2026-10-15 | Today's activity card shows the route in pace colors (or worked muscles) beside a big distance |
+| v0.8 | 2026-10-27 | Widgets match the app: caps labels, HRV on the baseline band, normal band and 30 day average in the trend, plan progress in This week, type icon on Last activity; new picker previews |

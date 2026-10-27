@@ -1,13 +1,13 @@
 <resources>
     <string name="app_name">garmin-fit</string>
     <string name="w_recovery">Readiness</string>
-    <string name="w_recovery_desc">Training Readiness with today\'s call, HRV, and steps</string>
+    <string name="w_recovery_desc">Training Readiness, today\'s call, and HRV against your normal range</string>
     <string name="w_morning">Today</string>
-    <string name="w_morning_desc">Readiness, HRV, RHR, sleep, Body Battery, and steps</string>
+    <string name="w_morning_desc">Today\'s call, HRV, RHR, sleep, Body Battery, steps, and today\'s plan session</string>
     <string name="w_week">This week</string>
-    <string name="w_week_desc">Sessions, distance, time, and daily load this week, Monday to Sunday</string>
+    <string name="w_week_desc">Sessions, distance, time, plan progress, and daily load, Monday to Sunday</string>
     <string name="w_trend">7 day trend</string>
-    <string name="w_trend_desc">HRV and RHR over the week</string>
+    <string name="w_trend_desc">HRV against your normal range and RHR against your 30 day average</string>
     <string name="w_last">Last activity</string>
-    <string name="w_last_desc">Distance, time, pace, and HR of your last activity</string>
+    <string name="w_last_desc">Distance, time, and pace of your last activity</string>
 </resources>

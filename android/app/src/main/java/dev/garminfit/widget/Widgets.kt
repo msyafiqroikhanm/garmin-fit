@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.DashPathEffect
 import android.graphics.Path
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -17,6 +18,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.ColorFilter
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -53,10 +55,13 @@ import dev.garminfit.Repo
 import dev.garminfit.Tab
 import dev.garminfit.Today
 import dev.garminfit.PlanSession
+import dev.garminfit.R
 import kotlin.math.roundToInt
 import dev.garminfit.ui.planTarget
+import dev.garminfit.activityIcon
 import dev.garminfit.activityType
 import dev.garminfit.dayLabel
+import dev.garminfit.dayMonth
 import dev.garminfit.duration
 import dev.garminfit.flagText
 import dev.garminfit.hrvStatus
@@ -88,6 +93,11 @@ private fun Status.provider(): GColor = c(color())
 private val Condensed = FontFamily("sans-serif-condensed")
 
 private fun label(c: GColor = Muted) = TextStyle(color = c, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+private val caps = TextStyle(color = Muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Condensed)
+
+/** The app's Label: condensed caps in muted. Glance has no letter spacing, so the tracking is lost. */
+@Composable
+private fun Caps(text: String, modifier: GlanceModifier = GlanceModifier) = Text(text.uppercase(), style = caps, maxLines = 1, modifier = modifier)
 private fun value(size: Int = 22, c: GColor = Ink) = TextStyle(color = c, fontSize = size.sp, fontWeight = FontWeight.Bold, fontFamily = Condensed)
 private val body = TextStyle(color = Muted, fontSize = 12.sp)
 
@@ -148,8 +158,7 @@ private fun freshness(d: Daily?): String? {
 @Composable
 private fun Header(title: String, d: Daily?, right: String? = freshness(d)) {
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = label(), maxLines = 1)
-        Spacer(GlanceModifier.defaultWeight())
+        Caps(title, GlanceModifier.defaultWeight().padding(end = 8.dp))
         right?.let { Text(it, style = body, maxLines = 1) }
     }
 }
@@ -160,7 +169,7 @@ private fun Steps(d: Daily) {
     val goal = d.stepGoal?.takeIf { it > 0 } ?: return
     Column(GlanceModifier.fillMaxWidth()) {
         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Text(tr("Steps", "Langkah"), style = label())
+            Caps(tr("Steps", "Langkah"))
             Spacer(GlanceModifier.defaultWeight())
             Text(steps.int(), style = value(14))
             Text(" / ${goal.int()}", style = body)
@@ -185,7 +194,7 @@ private fun PlanLine(p: PlanSession) {
         else -> Ink
     }
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text("Plan ", style = label())
+        Caps("Plan ")
         Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
         p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, color)) }
     }
@@ -213,28 +222,29 @@ class RecoveryWidget : TodayWidget() {
         if (verdict == null) return@Card Text(tr("No readiness score yet today.", "Belum ada skor readiness hari ini."), style = body)
         val tall = LocalSize.current.height >= 190.dp
         Column(GlanceModifier.fillMaxSize()) {
-            Header("Readiness", d, right = null)
+            // a 2-wide header fits the time but not the word "Sync"
+            val narrow = LocalSize.current.width < 200.dp
+            Header("Readiness", d, right = freshness(d)?.let { if (narrow) it.removePrefix("Sync ") else it })
             Spacer(GlanceModifier.defaultWeight())
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(d.readiness.int(), style = value(40))
-                Text("  ${verdict.word}", style = value(18, verdict.status.provider()))
-            }
-            Text(verdict.tagline, style = body, maxLines = 2)
+            // stacked, since a 2-wide widget has no room for the number and the word side by side
+            Text(d.readiness.int(), style = value(44))
+            Text(verdict.word.uppercase(), style = value(20, verdict.status.provider()), maxLines = 1)
+            Text(verdict.tagline, style = body, maxLines = 1)
             if (tall) {
-                Spacer(GlanceModifier.height(10.dp))
-                d.hrv?.let { hrv ->
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("HRV ", style = label())
-                        Text(hrv.int(), style = value(16))
-                        hrvStatus(d.hrvStatus)?.let { (l, s) -> Text("  $l", style = label(s.provider()), maxLines = 1) }
-                    }
-                }
                 Spacer(GlanceModifier.height(8.dp))
-                Steps(d)
+                d.hrv?.let { hrv ->
+                    val status = hrvStatus(d.hrvStatus)
+                    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                        Caps("HRV ")
+                        Text(hrv.int(), style = value(16))
+                        Spacer(GlanceModifier.defaultWeight())
+                        status?.let { (l, s) -> Text(l, style = label(s.provider()), maxLines = 1) }
+                    }
+                    HrvBand(d, hrv, status?.second)
+                }
                 t.plan?.session?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(it) }
             }
             Spacer(GlanceModifier.defaultWeight())
-            freshness(d)?.let { Text(it, style = body, maxLines = 1) }
         }
     }
 }
@@ -282,10 +292,10 @@ class MorningWidget : TodayWidget() {
 }
 
 @Composable
-private fun Stat(title: String, v: String, sub: Pair<String, GColor>?, modifier: GlanceModifier) {
+private fun Stat(title: String, v: String, sub: Pair<String, GColor>?, modifier: GlanceModifier, color: GColor = Ink) {
     Column(modifier) {
-        Text(title, style = label(), maxLines = 1)
-        Text(v, style = value(22))
+        Caps(title)
+        Text(v, style = value(22, color))
         sub?.let { Text(it.first, style = label(it.second), maxLines = 1) }
     }
 }
@@ -299,17 +309,17 @@ class WeekWidget : TodayWidget() {
         Column(GlanceModifier.fillMaxSize()) {
             Header(tr("This week", "Minggu ini"), null, right = tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"))
             Spacer(GlanceModifier.height(6.dp))
-            if (w.count == 0) {
-                Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = body)
-            } else {
-                Row(GlanceModifier.fillMaxWidth()) {
-                    Stat(tr("Sessions", "Sesi"), w.count.toString(), null, GlanceModifier.defaultWeight())
-                    Stat(tr("Distance", "Jarak"), "${km(w.distanceM)} km", null, GlanceModifier.defaultWeight())
-                    Stat(tr("Time", "Durasi"), duration(w.durationS), null, GlanceModifier.defaultWeight())
+            Row(GlanceModifier.fillMaxWidth()) {
+                Stat(tr("Sessions", "Sesi"), w.count.toString(), null, GlanceModifier.defaultWeight())
+                if (w.distanceM > 0) Stat(tr("Distance", "Jarak"), "${km(w.distanceM)} km", null, GlanceModifier.defaultWeight())
+                else Stat("Load", w.load.int(), null, GlanceModifier.defaultWeight())
+                Stat(tr("Time", "Durasi"), duration(w.durationS), null, GlanceModifier.defaultWeight())
+                t.plan?.week?.takeIf { it.planned > 0 }?.let {
+                    Stat("Plan", "${it.done}/${it.planned}", null, GlanceModifier.defaultWeight(), if (it.done >= it.planned) Accent else Ink)
                 }
             }
             Spacer(GlanceModifier.defaultWeight())
-            if (h >= 140.dp) LoadBars(t, if (h >= 200.dp) 44.dp else 24.dp)
+            if (h >= 140.dp) LoadBars(t, (h - 150.dp).coerceIn(20.dp, 72.dp))
         }
     }
 }
@@ -330,7 +340,7 @@ private fun LoadBars(t: Today, maxBar: Dp) {
                         .background(if (d.load <= 0) Track else if (d.date == today) Accent else AccentDim),
                 ) {}
                 Spacer(GlanceModifier.height(4.dp))
-                Text(weekdayShort(d.date).take(2), style = body, maxLines = 1)
+                Text(weekdayShort(d.date).take(2), style = if (d.date == today) label(Ink) else body, maxLines = 1)
             }
         }
     }
@@ -347,22 +357,56 @@ class TrendWidget : TodayWidget() {
             Spacer(GlanceModifier.defaultWeight())
             val hrvColor = hrvStatus(d?.hrvStatus)?.second?.color() ?: K.good
             val normal = d?.hrvLow?.let { lo -> d.hrvHigh?.let { hi -> tr("normal ${lo.int()}–${hi.int()}", "normal ${lo.int()}–${hi.int()}") } }
-            SparkRow("HRV", "ms", t.spark.hrv, hrvColor, normal)
+            val band = d?.hrvLow?.let { lo -> d.hrvHigh?.let { hi -> lo to hi } }
+            SparkRow("HRV", "ms", t.spark.hrv, hrvColor, normal, band = band)
             if (both) {
                 Spacer(GlanceModifier.height(8.dp))
-                val avg = t.baseline.rhr?.mean?.let { tr("30d avg ${it.int()}", "rata-rata 30h ${it.int()}") }
-                SparkRow("RHR", "bpm", t.spark.rhr, K.muted, avg)
+                val mean = t.baseline.rhr?.mean
+                val avg = mean?.let { tr("30d avg ${it.int()}", "rata-rata 30h ${it.int()}") }
+                SparkRow("RHR", "bpm", t.spark.rhr, K.ink, avg, ref = mean)
             }
             Spacer(GlanceModifier.defaultWeight())
         }
     }
 }
 
+/** Today's HRV on the personal normal range, drawn like the app's FactorBar. */
 @Composable
-private fun SparkRow(title: String, unit: String, values: List<Double?>, color: Color, note: String?) {
+private fun HrvBand(d: Daily, hrv: Double, status: Status?) {
+    val lo = d.hrvLow ?: return
+    val hi = d.hrvHigh ?: return
+    Spacer(GlanceModifier.height(4.dp))
+    Image(
+        ImageProvider(bandBar(hrv, lo - 13, hi + 13, lo, hi, (status ?: Status.GOOD).color())),
+        contentDescription = tr("HRV ${hrv.int()}, normal ${lo.int()} to ${hi.int()}", "HRV ${hrv.int()}, normal ${lo.int()} sampai ${hi.int()}"),
+        modifier = GlanceModifier.fillMaxWidth().height(14.dp),
+    )
+}
+
+private fun bandBar(value: Double, min: Double, max: Double, lo: Double, hi: Double, dot: Color, w: Int = 600, h: Int = 42): Bitmap {
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val r = h / 2f
+    fun x(v: Double) = (r + ((v - min) / (max - min)).coerceIn(0.0, 1.0) * (w - 2 * r)).toFloat()
+    val bar = h * 0.43f
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    Canvas(bmp).apply {
+        p.color = K.track.toArgb()
+        drawRoundRect(0f, r - bar / 2, w.toFloat(), r + bar / 2, bar / 2, bar / 2, p)
+        p.color = K.good.copy(alpha = 0.3f).toArgb()
+        drawRoundRect(x(lo), r - bar / 2, x(hi), r + bar / 2, bar / 2, bar / 2, p)
+        p.color = K.surface.toArgb()
+        drawCircle(x(value), r, r, p)
+        p.color = dot.toArgb()
+        drawCircle(x(value), r, r * 0.58f, p)
+    }
+    return bmp
+}
+
+@Composable
+private fun SparkRow(title: String, unit: String, values: List<Double?>, color: Color, note: String?, band: Pair<Double, Double>? = null, ref: Double? = null) {
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(GlanceModifier.width(96.dp)) {
-            Text(title, style = label())
+            Caps(title)
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(values.lastOrNull { it != null }.int(), style = value(20))
                 Text(" $unit", style = body)
@@ -370,19 +414,21 @@ private fun SparkRow(title: String, unit: String, values: List<Double?>, color: 
             note?.let { Text(it, style = body, maxLines = 1) }
         }
         Image(
-            ImageProvider(sparkline(values, color)),
+            ImageProvider(sparkline(values, color, band, ref)),
             contentDescription = tr("$title chart, 7 days", "Grafik $title 7 hari"),
-            modifier = GlanceModifier.defaultWeight().height(40.dp),
+            modifier = GlanceModifier.defaultWeight().height(44.dp),
         )
     }
 }
 
-private fun sparkline(values: List<Double?>, color: Color, w: Int = 480, h: Int = 120): Bitmap {
+/** [band] is the normal range (volt at 12%, as in Tren), [ref] a dashed reference line such as the 30 day average. */
+private fun sparkline(values: List<Double?>, color: Color, band: Pair<Double, Double>? = null, ref: Double? = null, w: Int = 480, h: Int = 132): Bitmap {
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val present = values.filterNotNull()
     if (present.size < 2) return bmp
-    val lo = present.min()
-    val span = (present.max() - lo).coerceAtLeast(1.0)
+    val scale = present + listOfNotNull(band?.first, band?.second, ref)
+    val lo = scale.min()
+    val span = (scale.max() - lo).coerceAtLeast(1.0)
     val pad = 12f
     val step = (w - 2 * pad) / (values.size - 1).coerceAtLeast(1)
     fun y(v: Double) = (h - pad - ((v - lo) / span) * (h - 2 * pad)).toFloat()
@@ -401,6 +447,15 @@ private fun sparkline(values: List<Double?>, color: Color, w: Int = 480, h: Int 
         started = true
     }
     Canvas(bmp).apply {
+        band?.let { (a, b) ->
+            drawRect(0f, y(b), w.toFloat(), y(a), Paint().apply { this.color = K.good.copy(alpha = 0.12f).toArgb() })
+        }
+        ref?.let {
+            val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = K.muted.toArgb(); style = Paint.Style.STROKE; strokeWidth = 3f; pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+            }
+            drawLine(0f, y(it), w.toFloat(), y(it), dash)
+        }
         drawPath(path, paint)
         drawCircle(lastX, lastY, 9f, paint.apply { style = Paint.Style.FILL })
     }
@@ -414,24 +469,33 @@ class LastActivityWidget : TodayWidget() {
         Card(ctx, Tab.ACTIVITIES, a?.id) {
             if (a == null) return@Card Placeholder(t)
             val hasDistance = (a.distanceM ?: 0.0) > 0
-            val title = "${a.name ?: activityType(a.type)} · ${dayLabel(a.date)}"
+            // date first, so a long race name is what gets cut
+            val title = "${dayMonth(a.date)} · ${a.name ?: activityType(a.type)}"
             if (LocalSize.current.height < 100.dp) {
-                Column(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = label(), maxLines = 1)
-                    Text(
-                        listOfNotNull(
-                            a.distanceM?.takeIf { hasDistance }?.let { "${km(it)} km" },
-                            duration(a.durationS),
-                            a.avgSpeed?.takeIf { hasDistance }?.let { "${pace(it)}/km" },
-                            a.avgHr?.let { "HR ${it.int()}" },
-                        ).joinToString("  ·  "),
-                        style = value(16),
-                        maxLines = 1,
-                    )
+                Row(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    TypeIcon(a.type, 40.dp)
+                    Spacer(GlanceModifier.width(12.dp))
+                    Column(GlanceModifier.defaultWeight()) {
+                        Caps(title)
+                        Text(
+                            listOfNotNull(
+                                a.distanceM?.takeIf { hasDistance }?.let { "${km(it)} km" },
+                                duration(a.durationS),
+                                a.avgSpeed?.takeIf { hasDistance }?.let { "${pace(it)}/km" },
+                                a.avgHr?.takeIf { !hasDistance }?.let { "HR ${it.int()}" },
+                            ).joinToString(" · "),
+                            style = value(18),
+                            maxLines = 1,
+                        )
+                    }
                 }
             } else {
                 Column(GlanceModifier.fillMaxSize()) {
-                    Header(title, null, right = null)
+                    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        TypeIcon(a.type, 28.dp)
+                        Spacer(GlanceModifier.width(8.dp))
+                        Caps(title, GlanceModifier.defaultWeight())
+                    }
                     Spacer(GlanceModifier.defaultWeight())
                     // the hero is distance when there is one, else time (strength, yoga)
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -451,6 +515,18 @@ class LastActivityWidget : TodayWidget() {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TypeIcon(type: String?, size: Dp) {
+    Box(GlanceModifier.size(size).background(ImageProvider(R.drawable.bg_icon_circle)), contentAlignment = Alignment.Center) {
+        Image(
+            ImageProvider(activityIcon(type)),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(Ink),
+            modifier = GlanceModifier.size(size * 0.55f),
+        )
     }
 }
 

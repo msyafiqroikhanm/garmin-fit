@@ -1,12 +1,12 @@
 <resources>
     <string name="w_recovery">Readiness</string>
-    <string name="w_recovery_desc">Training Readiness dengan saran hari ini, HRV, dan langkah</string>
+    <string name="w_recovery_desc">Training Readiness, saran hari ini, dan HRV dibanding rentang normalmu</string>
     <string name="w_morning">Hari ini</string>
-    <string name="w_morning_desc">Readiness, HRV, RHR, tidur, Body Battery, dan langkah</string>
+    <string name="w_morning_desc">Saran hari ini, HRV, RHR, tidur, Body Battery, langkah, dan sesi plan hari ini</string>
     <string name="w_week">Minggu ini</string>
-    <string name="w_week_desc">Sesi, jarak, durasi, dan beban harian minggu ini, Senin sampai Minggu</string>
+    <string name="w_week_desc">Sesi, jarak, durasi, progres plan, dan beban harian, Senin sampai Minggu</string>
     <string name="w_trend">Tren 7 hari</string>
-    <string name="w_trend_desc">Grafik HRV dan RHR seminggu</string>
+    <string name="w_trend_desc">HRV dibanding rentang normal dan RHR dibanding rata-rata 30 hari</string>
     <string name="w_last">Aktivitas terakhir</string>
-    <string name="w_last_desc">Jarak, durasi, pace, dan HR aktivitas terakhir</string>
+    <string name="w_last_desc">Jarak, durasi, dan pace aktivitas terakhir</string>
 </resources>

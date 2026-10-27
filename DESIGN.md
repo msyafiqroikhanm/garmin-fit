@@ -118,11 +118,11 @@ Tabs reopen instantly: `rememberLoad` keeps the last result per call site in mem
 ## Known limits
 
 - VO2 category scale only has the Cooper Institute rows for age 20 to 29; outside that band the scale hides.
-- Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts.
+- Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts. Labels are condensed caps like `Label`, without the tracking (Glance has no letter spacing).
 - Widgets are responsive (`SizeMode.Responsive`): each adds detail as it grows, and every header shows freshness ("Sync 17:20", or "Data from <day>" when stale).
-  - Readiness 2×2: score, verdict word in its status color, tagline; taller adds HRV and the steps bar.
+  - Readiness 2×2: score, verdict word in its status color under it, tagline; taller adds HRV on the baseline band and today's plan session.
   - Today 4×2: verdict and score, HRV / RHR / Sleep / Battery, steps bar; tallest adds the first flag or the advice.
-  - This week 4×2: sessions, distance, time, and daily load bars Monday to Sunday, same as the Today card.
-  - 7 day trend 4×2: HRV line in its status color with the normal range, RHR with the 30 day average.
-  - Last activity 4×1: one line; two rows show a hero (distance, or time when there is none) and a stat row.
-- Widget picker previews are screenshots of the real widgets (`res/drawable-nodpi/preview_*.png`), so they show the owner's data from the day they were taken and are English only. Retake them when a widget layout changes.
+  - This week 4×2: sessions, distance (load when there is none), time, plan sessions done, and daily load bars Monday to Sunday, same as the Today card.
+  - 7 day trend 4×2: HRV line in its status color over the normal band, RHR over a dashed 30 day average.
+  - Last activity 4×1: type icon in a track circle, date and name, then distance, time and pace (HR only without a distance); two rows show a hero (distance, or time when there is none) and a stat row.
+- Widget picker previews are screenshots of the real widgets (`res/drawable-nodpi/preview_*.png`), so they show the owner's data from the day they were taken and are English only. Retake them when a widget layout changes: on a debug build, `adb shell appwidget grantbind --package dev.garminfit`, start `.WidgetPreviewActivity`, and pull `/sdcard/Android/data/dev.garminfit/files/previews` (instructions in the activity). Take them on a day with activities this week, or This week shows zeros.
