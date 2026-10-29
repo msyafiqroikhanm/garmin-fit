@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import secrets
 import statistics
 import time
 import urllib.request
@@ -37,6 +38,42 @@ def ensure_indexes() -> None:
     d.activities.create_index([("user_id", 1), ("type", 1), ("start_time", 1)])
     d.summaries.create_index([("user_id", 1), ("period", 1), ("generated_at", -1)])
     d.plans.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    d.users.create_index("google_sub", unique=True)
+    d.users.create_index("access_id")
+    d.sessions.create_index("user_id")
+
+
+def create_access_token(name: str, role: str, data_user_id: str = OWNER) -> tuple[str, str]:
+    """Returns (token, id). The token is shown once; only its hash is stored and doubles as the id."""
+    token = secrets.token_urlsafe(32)
+    db().access_tokens.insert_one({"_id": sha256(token), "name": name, "role": role, "data_user_id": data_user_id,
+                                   "created_at": datetime.now(timezone.utc), "revoked": False})
+    return token, sha256(token)
+
+
+def identity(user: dict, access: dict | None, session_id: str) -> dict:
+    """A signed-in user seen through the access token linked to them; role and data_user_id stay None until they add one."""
+    return {
+        "kind": "session",
+        "session_id": session_id,
+        "user_id": user["_id"],
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "access_id": access["_id"] if access else None,
+        "role": access["role"] if access else None,
+        "data_user_id": access["data_user_id"] if access else None,
+    }
+
+
+def invite_rows(tokens: list[dict], users: list[dict]) -> list[dict]:
+    """Owner's Family access list: each live token with the accounts that added it, newest first."""
+    by_token: dict[str, list[str]] = {}
+    for u in users:
+        by_token.setdefault(u.get("access_id"), []).append(u.get("name") or u.get("email") or "?")
+    rows = [{"id": t["_id"], "name": t["name"], "role": t["role"], "created_at": t.get("created_at"),
+             "last_used": t.get("last_used"), "users": sorted(by_token.get(t["_id"], []))}
+            for t in tokens if not t.get("revoked")]
+    return sorted(rows, key=lambda r: r["created_at"] or datetime.min, reverse=True)
 
 
 def today() -> date:

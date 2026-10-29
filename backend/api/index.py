@@ -1,11 +1,14 @@
 import os
 import secrets
 import sys
-from datetime import date, timedelta
+import uuid
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import core  # noqa: E402
@@ -16,18 +19,157 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 NO_RAW = {"raw": 0, "route": 0, "series": 0}
 
 
-def auth(authorization: str = Header("")) -> dict:
+def _touch(access: dict | None) -> None:
+    """Family access shows when a token was last used; one write an hour is enough for that."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if access and (not access.get("last_used") or now - access["last_used"] > timedelta(hours=1)):
+        core.db().access_tokens.update_one({"_id": access["_id"]}, {"$set": {"last_used": now}})
+
+
+def signed_in(authorization: str = Header("")) -> dict:
+    """A session from Google sign-in, or (until every phone runs v0.9) a bare access token from the old setup screen."""
     token = authorization.removeprefix("Bearer ").strip()
-    doc = core.db().access_tokens.find_one({"_id": core.sha256(token), "revoked": False}) if token else None
-    if not doc:
+    if not token:
         raise HTTPException(401, "invalid token")
-    return doc
+    d, h = core.db(), core.sha256(token)
+    session = d.sessions.find_one({"_id": h})
+    if session:
+        user = d.users.find_one({"_id": session["user_id"]})
+        if not user:
+            raise HTTPException(401, "invalid token")
+        access = d.access_tokens.find_one({"_id": user["access_id"], "revoked": False}) if user.get("access_id") else None
+        _touch(access)
+        return core.identity(user, access, h)
+    # ponytail: legacy access tokens; drop this branch in v0.10 once every phone has signed in
+    access = d.access_tokens.find_one({"_id": h, "revoked": False})
+    if not access:
+        raise HTTPException(401, "invalid token")
+    _touch(access)
+    return {**access, "kind": "token", "access_id": access["_id"]}
+
+
+def session_only(user: dict = Depends(signed_in)) -> dict:
+    if user["kind"] != "session":
+        raise HTTPException(401, "sign in first")
+    return user
+
+
+def auth(user: dict = Depends(signed_in)) -> dict:
+    if not user["data_user_id"]:
+        raise HTTPException(403, "no access")
+    return user
 
 
 def owner_only(user: dict = Depends(auth)) -> dict:
     if user["role"] != "owner":
         raise HTTPException(403, "owner only")
     return user
+
+
+def _verify_google(token: str) -> dict:
+    from google.auth.transport import requests as grequests
+    from google.oauth2 import id_token
+    try:
+        info = id_token.verify_oauth2_token(token, grequests.Request(), os.environ["GOOGLE_CLIENT_ID"])
+    except ValueError:
+        raise HTTPException(401, "invalid Google token")
+    if not info.get("email_verified"):
+        raise HTTPException(401, "Google email not verified")
+    return info
+
+
+class GoogleSignIn(BaseModel):
+    id_token: str
+    device: str | None = Field(None, max_length=80)
+
+
+class AccessIn(BaseModel):
+    token: str = Field(max_length=200)
+
+
+class InviteIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/auth/google")
+def auth_google(body: GoogleSignIn):
+    info = _verify_google(body.id_token)
+    now = datetime.now(timezone.utc)
+    user = core.db().users.find_one_and_update(
+        {"google_sub": info["sub"]},
+        {"$set": {"email": info["email"], "name": info.get("given_name") or info.get("name"), "seen_at": now},
+         "$setOnInsert": {"_id": uuid.uuid4().hex, "created_at": now}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    session = secrets.token_urlsafe(32)
+    core.db().sessions.insert_one({"_id": core.sha256(session), "user_id": user["_id"], "device": body.device, "created_at": now})
+    return {"session": session, "name": user["name"]}
+
+
+@app.post("/auth/logout")
+def auth_logout(user: dict = Depends(session_only)):
+    core.db().sessions.delete_one({"_id": user["session_id"]})
+    return {"ok": True}
+
+
+@app.get("/account")
+def account(user: dict = Depends(session_only)):
+    d = core.db()
+    access = d.access_tokens.find_one({"_id": user["access_id"]}) if user["access_id"] else None
+    session = d.sessions.find_one({"_id": user["session_id"]}, {"device": 1})
+    out = {
+        "name": user["name"],
+        "email": user["email"],
+        "device": session and session.get("device"),
+        "access": None,
+        "garmin": None,
+        "invites": None,
+    }
+    if access:
+        owners = d.access_tokens.find({"data_user_id": access["data_user_id"], "role": "owner", "revoked": False}, {"_id": 1})
+        owner = d.users.find_one({"access_id": {"$in": [t["_id"] for t in owners]}}, {"name": 1})
+        out["access"] = {"name": access["name"], "role": access["role"], "owner_name": owner and owner.get("name")}
+    if user["role"] == "owner":
+        uid = user["data_user_id"]
+        garmin = d.garmin_sessions.find_one({"_id": uid}, {"updated_at": 1})
+        last = d.daily.find_one({"user_id": uid}, {"synced_at": 1}, sort=[("date", -1)])
+        out["garmin"] = {"connected": garmin is not None, "last_sync": last and last.get("synced_at")}
+        tokens = list(d.access_tokens.find({"data_user_id": uid, "revoked": False}))
+        users = list(d.users.find({"access_id": {"$in": [t["_id"] for t in tokens]}}, {"name": 1, "email": 1, "access_id": 1}))
+        out["invites"] = [{**r, "self": r["id"] == user["access_id"]} for r in core.invite_rows(tokens, users)]
+    return out
+
+
+@app.post("/account/access")
+def add_access(body: AccessIn, user: dict = Depends(session_only)):
+    access = core.db().access_tokens.find_one({"_id": core.sha256(body.token.strip()), "revoked": False})
+    if not access:
+        raise HTTPException(400, "invalid or revoked token")
+    core.db().users.update_one({"_id": user["user_id"]}, {"$set": {"access_id": access["_id"]}})
+    return {"role": access["role"]}
+
+
+@app.delete("/account/access")
+def remove_access(user: dict = Depends(session_only)):
+    core.db().users.update_one({"_id": user["user_id"]}, {"$unset": {"access_id": ""}})
+    return {"ok": True}
+
+
+@app.post("/account/invites")
+def create_invite(body: InviteIn, user: dict = Depends(owner_only)):
+    token, tid = core.create_access_token(body.name.strip(), "viewer", user["data_user_id"])
+    return {"id": tid, "name": body.name.strip(), "token": token}
+
+
+@app.delete("/account/invites/{invite_id}")
+def revoke_invite(invite_id: str, user: dict = Depends(owner_only)):
+    if invite_id == user["access_id"]:
+        raise HTTPException(400, "can't revoke the token you're signed in with")
+    r = core.db().access_tokens.update_one({"_id": invite_id, "data_user_id": user["data_user_id"]}, {"$set": {"revoked": True}})
+    if not r.matched_count:
+        raise HTTPException(404, "not found")
+    return {"ok": True}
 
 
 def _range(frm: date | None, to: date | None, default_days: int) -> tuple[str, str]:
@@ -41,9 +183,9 @@ def _daily(uid: str, frm: str, to: str) -> list[dict]:
 
 
 @app.get("/me")
-def me(user: dict = Depends(auth)):
-    profile = core.db().profile.find_one({"_id": user["data_user_id"]}, {"_id": 0})
-    return {"name": user["name"], "role": user["role"], "profile": profile}
+def me(user: dict = Depends(signed_in)):
+    profile = core.db().profile.find_one({"_id": user["data_user_id"]}, {"_id": 0}) if user["data_user_id"] else None
+    return {"name": user["name"], "role": user["role"], "kind": user["kind"], "profile": profile}
 
 
 @app.get("/daily")

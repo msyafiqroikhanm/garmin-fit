@@ -1,7 +1,6 @@
 import argparse
 import getpass
 import json
-import secrets
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -54,9 +53,7 @@ def cmd_token(a):
     if a.action == "create":
         if not a.name:
             sys.exit("token create needs a name")
-        token = secrets.token_urlsafe(32)
-        t.insert_one({"_id": core.sha256(token), "name": a.name, "role": a.role, "data_user_id": core.OWNER,
-                      "created_at": datetime.now(timezone.utc), "revoked": False})
+        token, _ = core.create_access_token(a.name, a.role)
         print(f"{a.name} ({a.role}) token, shown once:\n{token}")
     elif a.action == "list":
         for doc in t.find({}, {"_id": 0}):
