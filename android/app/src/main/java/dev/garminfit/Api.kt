@@ -12,6 +12,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -355,7 +357,51 @@ data class PlanView(
 data class PlanToday(val name: String, val session: PlanSession? = null, val week: PlanWeek? = null, val overall: Double? = null)
 
 @Serializable
-data class Me(val name: String, val role: String, val profile: Profile? = null)
+data class Me(val name: String? = null, val role: String? = null, val kind: String = "session", val profile: Profile? = null)
+
+@Serializable
+data class GoogleSignIn(@SerialName("id_token") val idToken: String, val device: String?)
+
+@Serializable
+data class SignedIn(val session: String, val name: String? = null)
+
+@Serializable
+data class AccessIn(val token: String)
+
+@Serializable
+data class AccessAdded(val role: String)
+
+@Serializable
+data class InviteIn(val name: String)
+
+@Serializable
+data class NewInvite(val id: String, val name: String, val token: String)
+
+@Serializable
+data class Account(
+    val name: String? = null,
+    val email: String? = null,
+    val device: String? = null,
+    val access: AccountAccess? = null,
+    val garmin: GarminStatus? = null,
+    val invites: List<Invite>? = null,
+)
+
+@Serializable
+data class AccountAccess(val name: String, val role: String, @SerialName("owner_name") val ownerName: String? = null)
+
+@Serializable
+data class GarminStatus(val connected: Boolean, @SerialName("last_sync") val lastSync: String? = null)
+
+@Serializable
+data class Invite(
+    val id: String,
+    val name: String,
+    val role: String,
+    @SerialName("last_used") val lastUsed: String? = null,
+    val users: List<String> = emptyList(),
+    val self: Boolean = false,
+)
 
 @Serializable
 data class Profile(
@@ -370,6 +416,13 @@ data class SyncResult(val ok: Boolean, val errors: List<String> = emptyList())
 
 interface ApiService {
     @GET("me") suspend fun me(): Me
+    @POST("auth/google") suspend fun signIn(@Body body: GoogleSignIn): SignedIn
+    @POST("auth/logout") suspend fun logout()
+    @GET("account") suspend fun account(): Account
+    @POST("account/access") suspend fun addAccess(@Body body: AccessIn): AccessAdded
+    @DELETE("account/access") suspend fun removeAccess()
+    @POST("account/invites") suspend fun createInvite(@Body body: InviteIn): NewInvite
+    @DELETE("account/invites/{id}") suspend fun revokeInvite(@Path("id") id: String)
     @GET("today") suspend fun today(): Today
     @GET("daily") suspend fun daily(@Query("from") from: String, @Query("to") to: String? = null): List<Daily>
     @GET("activities") suspend fun activities(@Query("from") from: String): List<Activity>
@@ -388,6 +441,8 @@ val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputVa
 
 private val Context.store by preferencesDataStore("garmin_fit")
 private val TOKEN = stringPreferencesKey("token")
+// an access token from the old setup screen, linked to the account right after the first sign-in
+private val LEGACY_TOKEN = stringPreferencesKey("legacy_token")
 private val TODAY_CACHE = stringPreferencesKey("today_cache")
 
 object Repo {
@@ -417,14 +472,27 @@ object Repo {
         return api
     }
 
+    suspend fun legacyToken(ctx: Context): String? = ctx.store.data.first()[LEGACY_TOKEN]
+
+    suspend fun saveLegacyToken(ctx: Context, token: String?) {
+        ctx.store.edit { if (token == null) it.remove(LEGACY_TOKEN) else it[LEGACY_TOKEN] = token }
+    }
+
+    /** Signs out on the server (best effort) and forgets the session and everything cached for it. */
+    suspend fun signOut(ctx: Context) {
+        token(ctx)?.let { t -> runCatching { api(t).logout() } }
+        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE) }
+        me = null
+    }
+
     suspend fun api(ctx: Context): ApiService = api(token(ctx) ?: error(tr("No token yet", "Belum ada token")))
 
     @Volatile private var me: Pair<String, Me>? = null
 
     // ponytail: in-memory only; profile (zones, sex, age) changes rarely and /me is cheap on a cold start
-    suspend fun me(ctx: Context): Me {
+    suspend fun me(ctx: Context, fresh: Boolean = false): Me {
         val t = token(ctx) ?: error(tr("No token yet", "Belum ada token"))
-        me?.let { (k, m) -> if (k == t) return m }
+        if (!fresh) me?.let { (k, m) -> if (k == t) return m }
         return api(t).me().also { me = t to it }
     }
 

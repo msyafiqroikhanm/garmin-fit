@@ -111,7 +111,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
 import java.io.File
 
-/** Clears the saved token and returns to the setup screen; provided by Home. */
+/** Signs out and returns to the sign-in screen; provided by Home. */
 val LocalLogout = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 sealed interface Load<out T> {
@@ -210,7 +210,7 @@ private fun <T> LoadBody(loader: Loader<T>, isEmpty: (T) -> Boolean, emptyText: 
             Text(s.message, style = T.body, color = K.ink, textAlign = TextAlign.Center)
             Spacer(Modifier.height(16.dp))
             val logout = LocalLogout.current
-            if (s.auth && logout != null) AccentButton(tr("Enter a new token", "Masukkan token baru"), logout)
+            if (s.auth && logout != null) AccentButton(tr("Sign in again", "Masuk lagi"), logout)
             else AccentButton(tr("Try again", "Coba lagi"), loader.reload)
         }
         is Load.Ok -> if (isEmpty(s.data)) Centered {

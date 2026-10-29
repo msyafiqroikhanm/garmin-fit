@@ -1,7 +1,7 @@
 # garmin-fit
 
 Personal Garmin data (Forerunner 265S) → Vercel FastAPI + Mongo Atlas → Android app with home screen widgets.
-Family members get read-only access through invite tokens.
+Everyone signs in with Google; the owner shares read-only access (partner, family) with invite tokens.
 
 ## Setup
 
@@ -14,8 +14,8 @@ Family members get read-only access through invite tokens.
 5. **Vercel**: project `garmin-fit` is connected to this repo with Root Directory `backend`; every push to `main`
    deploys to https://garmin-fit.vercel.app. Env vars `MONGODB_URI`, `MONGODB_DB`, `FERNET_KEY`, `CRON_SECRET`, `APP_TZ`
    match `.env`. Cron runs daily at 03:00 UTC (10:00 WIB).
-6. **Tokens**: `backend/cli.py token create saya --role owner`, `backend/cli.py token create ibu` (viewer by default).
-   Tokens are shown once. `token list` / `token revoke <name>`.
+6. **Access**: make the owner token once with `backend/cli.py token create saya --role owner`, sign in to the app with Google
+   and add it under Account. After that, invite and revoke viewers from Account › Shared access (`token list` / `token revoke <name>` still work).
 7. **Android**: set `api.baseUrl=https://<project>.vercel.app/` in `android/local.properties`, then
    `cd android && ./gradlew assembleDebug` and install `app/build/outputs/apk/debug/app-debug.apk`.
 

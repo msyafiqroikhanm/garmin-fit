@@ -375,9 +375,11 @@ fun muscleLabel(key: String): String = when (key) {
 
 fun Throwable.friendly(): String = when (this) {
     is HttpException -> when (code()) {
-        401 -> tr("This token is invalid or was revoked. Ask the account owner for a new one.",
-            "Token tidak berlaku atau sudah dicabut. Minta token baru ke pemilik akun.")
-        403 -> tr("Only the owner can sync data.", "Hanya pemilik yang bisa sync data.")
+        401 -> tr("You've been signed out. Sign in again.", "Kamu sudah keluar. Masuk lagi ya.")
+        // the server says "no access" when the account's token was revoked; anything else is an owner-only action
+        403 -> if (response()?.errorBody()?.string()?.contains("no access") == true)
+            tr("Your access was removed. Add a new access token in Account.", "Akses kamu dicabut. Tambahkan token akses baru di Akun.")
+        else tr("Only the owner can do this.", "Hanya pemilik yang bisa melakukan ini.")
         502 -> tr("The server couldn't fetch data from Garmin. Try again in a few minutes.",
             "Server gagal mengambil data dari Garmin. Coba lagi beberapa menit lagi.")
         else -> tr("Server error (${code()}). Try again.", "Server error (${code()}). Coba lagi.")

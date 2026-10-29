@@ -89,7 +89,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout: () -> Unit) {
+fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAccount: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     // widgets redraw on their own coroutine so the screen does not wait for five Glance renders
@@ -119,7 +119,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout
                 val latest = today.latest
                 // a run done today is the first thing to check after it, so it jumps above the readiness hero
                 val activityToday = today.lastActivity?.takeIf { it.date.take(10) == LocalDate.now().toString() }
-                Header(today, onSync = ::refresh)
+                Header(today, onSync = ::refresh, onOpenAccount = onOpenAccount)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 activityToday?.let { TodayActivity(it, onOpenActivity) }
                 if (latest == null) {
@@ -141,9 +141,6 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onLogout
                     if (activityToday == null) today.lastActivity?.let { LastActivity(it, onOpenActivity) }
                     today.summary?.let { SummaryCard(it) }
                 }
-                TextButton(onClick = onLogout, Modifier.align(Alignment.CenterHorizontally)) {
-                    Text(tr("Change token", "Ganti token"), style = T.bodyS, color = K.muted)
-                }
             }
         }
     }
@@ -156,7 +153,7 @@ private fun flagStatus(key: String, level: String) = when {
 }
 
 @Composable
-private fun Header(t: Today, onSync: () -> Unit) {
+private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
     val now = LocalDate.now()
     Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -179,6 +176,7 @@ private fun Header(t: Today, onSync: () -> Unit) {
                     Glyph(R.drawable.ic_refresh, K.muted, 16.dp)
                 }
             }
+            Avatar(t.name, t.role == "owner", onOpenAccount, size = 36)
         }
         val latest = t.latest
         if (latest != null && latest.date != now.toString()) {

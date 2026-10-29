@@ -6,7 +6,7 @@ Two parts ship separately: the backend deploys on every push to `main`, the Andr
 
 - Project `garmin-fit` on Vercel, connected to `msyafiqroikhanm/garmin-fit`, Root Directory `backend`. Every push to `main` deploys to https://garmin-fit.vercel.app. The Vercel CLI from `backend/` no longer works for deploys; push instead.
 - Region `sin1` (Singapore) in `backend/vercel.json`, next to the Mongo Atlas cluster in Jakarta (ap-southeast-3). Check with `curl -sI https://garmin-fit.vercel.app/today | grep x-vercel-id` (starts with `sin1`).
-- Env vars on Vercel match the local `.env`: `MONGODB_URI`, `MONGODB_DB`, `FERNET_KEY`, `CRON_SECRET`, `APP_TZ`.
+- Env vars on Vercel match the local `.env`: `MONGODB_URI`, `MONGODB_DB`, `FERNET_KEY`, `CRON_SECRET`, `APP_TZ`, plus `GOOGLE_CLIENT_ID` (the OAuth Web client in Google Cloud project garmin-fit; the Android client there is registered with package `dev.garminfit` and the debug key's SHA-1, so a build signed with another key can't sign in).
 - Cron `0 3 * * *` (10:00 WIB) calls `/cron/sync`.
 - After a change to indexes in `core.ensure_indexes`, run it once from the laptop: `.venv/bin/python backend/cli.py ensure-indexes`. Indexes are not created on requests.
 - Garmin login only happens on the laptop (`cli.py login`), never on Vercel.
@@ -47,3 +47,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.6 | 2026-10-15 | Today's activity sits under the Today header; search on the Activities list |
 | v0.7 | 2026-10-15 | Today's activity card shows the route in pace colors (or worked muscles) beside a big distance |
 | v0.8 | 2026-10-27 | Widgets match the app: caps labels, HRV on the baseline band, normal band and 30 day average in the trend, plan progress in This week, type icon on Last activity; new picker previews |
+| v0.9 | 2026-10-29 | Google sign-in and Account screen: tokens are added to the account, owners invite and revoke from the app; old tokens link themselves after the first sign-in |

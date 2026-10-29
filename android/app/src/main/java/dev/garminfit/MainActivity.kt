@@ -38,11 +38,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,7 +52,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.garminfit.ui.ActivitiesScreen
 import dev.garminfit.ui.AppTheme
@@ -75,6 +70,13 @@ import dev.garminfit.ui.TodayScreen
 import dev.garminfit.ui.TrainingScreen
 import dev.garminfit.ui.TrendsScreen
 import dev.garminfit.widget.RefreshWorker
+import dev.garminfit.widget.Widgets
+import dev.garminfit.ui.AccountScreen
+import dev.garminfit.ui.NoAccessScreen
+import dev.garminfit.ui.SignInScreen
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.mutableIntStateOf
+import retrofit2.HttpException
 import kotlinx.coroutines.launch
 
 enum class Tab(private val en: String, private val id: String, @DrawableRes val icon: Int) {
@@ -110,24 +112,64 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Root(launch: Intent?) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var token by remember { mutableStateOf<String?>(null) }
     var checked by remember { mutableStateOf(false) }
+    // null until /me answers; offline it stays null and Home paints from the caches
+    var me by remember { mutableStateOf<Me?>(null) }
+    var meVersion by remember { mutableIntStateOf(0) }
+    // right after sign-in, wait for /me so a new account doesn't flash Home before "No data linked yet"
+    var waitForMe by remember { mutableStateOf(false) }
+    var accountOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         token = Repo.token(ctx)
         checked = true
     }
-    val scope = rememberCoroutineScope()
+    LaunchedEffect(token, meVersion) {
+        if (token == null) return@LaunchedEffect
+        runCatching { Repo.me(ctx, fresh = true) }
+            .onSuccess { m ->
+                if (m.kind == "token") {
+                    // an access token from the old setup screen: keep it to link once this phone signs in
+                    Repo.saveLegacyToken(ctx, token)
+                    Repo.saveToken(ctx, null)
+                    token = null
+                } else me = m
+            }
+            .onFailure { if (it is HttpException && it.code() == 401) { Repo.signOut(ctx); clearLoadMemo(ctx); token = null } }
+        waitForMe = false
+    }
+    fun signOut() {
+        scope.launch {
+            Repo.signOut(ctx)
+            clearLoadMemo(ctx)
+            Widgets.updateAll(ctx)
+            me = null
+            accountOpen = false
+            token = null
+        }
+    }
+    BackHandler(enabled = accountOpen) { accountOpen = false }
     when {
         !checked -> Box(Modifier.fillMaxSize())
-        token == null -> SetupScreen { t -> token = t }
-        else -> Home(launch) {
-            scope.launch { Repo.saveToken(ctx, null); clearLoadMemo(ctx); token = null }
+        token == null -> SignInScreen {
+            scope.launch {
+                waitForMe = true
+                token = Repo.token(ctx)
+            }
         }
+        waitForMe -> Centered { CircularProgressIndicator(color = K.good) }
+        accountOpen -> AccountScreen(onBack = { accountOpen = false }, onAccessChanged = { meVersion++ }, onSignOut = ::signOut)
+        me?.role == null && me != null -> NoAccessScreen(me?.name, onOpenAccount = { accountOpen = true }, onAdded = {
+            scope.launch { Widgets.updateAll(ctx) }
+            meVersion++
+        })
+        else -> Home(launch, onOpenAccount = { accountOpen = true }, onLogout = ::signOut)
     }
 }
 
 @Composable
-private fun Home(launch: Intent?, onLogout: () -> Unit) {
+private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
     var activityId by rememberSaveable { mutableStateOf<Long?>(null) }
     var planOpen by rememberSaveable { mutableStateOf(false) }
@@ -156,7 +198,7 @@ private fun Home(launch: Intent?, onLogout: () -> Unit) {
                     label = "tab",
                 ) { t ->
                     when (t) {
-                        Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onOpenPlan = { planOpen = true; tab = Tab.TRAINING }, onLogout = onLogout)
+                        Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onOpenPlan = { planOpen = true; tab = Tab.TRAINING }, onOpenAccount = onOpenAccount)
                         Tab.TRENDS -> TrendsScreen()
                         Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
                         Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it })
@@ -196,54 +238,6 @@ private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
                         maxLines = 1,
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SetupScreen(onDone: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var input by rememberSaveable { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    fun submit() {
-        val t = input.trim()
-        if (t.isEmpty()) { error = tr("Enter a token first.", "Masukkan token dulu."); return }
-        scope.launch {
-            busy = true
-            error = null
-            runCatching { Repo.api(t).me() }
-                .onSuccess { Repo.saveToken(ctx, t); onDone(t) }
-                .onFailure { error = it.friendly() }
-            busy = false
-        }
-    }
-    Scaffold(containerColor = K.base) { pad ->
-        Centered {
-            Column(Modifier.padding(pad).fillMaxWidth().imePadding()) {
-                Text("GARMIN-FIT", style = T.screenTitle, color = K.ink)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    tr("Enter the access token from the account owner. You only need to do this once.", "Masukkan token akses dari pemilik akun. Token cukup dimasukkan sekali."),
-                    style = T.body,
-                    color = K.muted,
-                )
-                Spacer(Modifier.height(24.dp))
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it; error = null },
-                    label = { Text(tr("Access token", "Token akses")) },
-                    singleLine = true,
-                    isError = error != null,
-                    supportingText = error?.let { { Text(it, color = K.low) } },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(16.dp))
-                AccentButton(if (busy) tr("Connecting…", "Menghubungkan…") else tr("Connect", "Hubungkan"), ::submit, Modifier.fillMaxWidth(), enabled = !busy)
             }
         }
     }
