@@ -933,15 +933,69 @@ def plan_view(user_id: str) -> dict:
     return {"plan": meta, **plan_progress(plan, acts, today())}
 
 
-def plan_today(view: dict) -> dict | None:
-    """Today's session and this week's score, small enough to ride along with /today."""
+CUT = 0.7  # a long run or an easy-week session keeps 70% of its target
+# RHR rise that, with two low HRV nights, changes a planned session. Lower than the flag's 5: in this user's
+# strained weeks (10 Sep, 30 Sep to 9 Oct 2026) RHR rose 2 to 4 bpm and +5 never fired.
+ADJUST_RHR_BPM = 3
+
+
+def _rhr_mean(days: list[dict], i: int) -> float | None:
+    base = _vals(days[max(0, i - RHR_BASELINE_DAYS):i], "rhr")
+    return statistics.fmean(base) if len(base) >= MIN_DAYS else None
+
+
+def _tired(days: list[dict], i: int) -> bool:
+    """HRV under Garmin's normal floor that night and the one before, and RHR 3+ above its 30 day mean.
+    Sleep and readiness are left out on purpose: Garmin undercounts this user's split sleep."""
+    if i < 1:
+        return False
+    d, floor = days[i], days[i].get("hrv_balanced_low")
+    hrv = [days[i - 1].get("hrv_last_night"), d.get("hrv_last_night")]
+    mean = _rhr_mean(days, i)
+    return (floor is not None and None not in hrv and max(hrv) < floor
+            and mean is not None and d.get("rhr") is not None and d["rhr"] >= mean + ADJUST_RHR_BPM)
+
+
+def _cut(target: dict | None) -> dict | None:
+    """70% of a target, durations floored to whole minutes so the app reads "31m", not "31m 30s"."""
+    return {k: int(v * CUT // 60 * 60) if k == "duration_s" else round(v * CUT) for k, v in (target or {}).items()} or None
+
+
+def plan_adjust(days: list[dict], session: dict | None) -> dict | None:
+    """How today's session should change when recovery is off. days ascend and must end today.
+    Tired today: quality becomes a 40 min easy run, a long run keeps 70%. Tired 3 days running: easy week."""
+    if not session or session["kind"] == "rest" or not days or days[-1]["date"] != session["date"]:
+        return None
+    streak = 0
+    while streak < len(days) and _tired(days, len(days) - 1 - streak):
+        streak += 1
+    if not streak:
+        return None
+    if streak >= 3:
+        key, target = "easy_week", _cut(session.get("target"))
+    elif session["type"] in ("tempo", "interval"):
+        key, target = "quality_to_easy", {"duration_s": 2400}
+    elif session["type"] == "long":
+        key, target = "cut_long", _cut(session.get("target"))
+    else:
+        return None
+    d = days[-1]
+    return {"key": key, "target": target, "streak": streak, "hrv": [days[-2]["hrv_last_night"], d["hrv_last_night"]],
+            "hrv_low": d["hrv_balanced_low"], "rhr": d["rhr"], "rhr_mean": round(_rhr_mean(days, len(days) - 1), 1)}
+
+
+def plan_today(view: dict, days: list[dict] | None = None) -> dict | None:
+    """Today's session, this week's score and any recovery adjustment, small enough to ride along with /today."""
     if not view["plan"]:
         return None
     t = today().isoformat()
     week = week_start(today()).isoformat()
+    session = next((s for s in view["sessions"] if s["date"] == t and s["kind"] == "run"), None) \
+        or next((s for s in view["sessions"] if s["date"] == t), None)
     return {
         "name": view["plan"]["name"],
-        "session": next((s for s in view["sessions"] if s["date"] == t), None),
+        "session": session,
         "week": next((w for w in view["weeks"] if w["start"] == week), None),
         "overall": view["overall"],
+        "adjust": plan_adjust(days or [], session),
     }

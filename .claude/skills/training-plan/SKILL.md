@@ -20,6 +20,7 @@ The plan is made in conversation. Nothing is saved until the user says the draft
 3. Hard rules for this user:
    - Mon to Fri is work. Weekday runs are easy, at most 6 km, or one quality session of about 65 minutes.
    - Long runs and race rehearsals go on Sat or Sun only. A missed long run moves to the next weekend, never to a weekday.
+   - Today applies the recovery rule on its own (`plan_adjust` in `core.py`: two HRV nights under Garmin's floor plus RHR 3+ over its mean turns quality into easy, cuts a long run 30%, and after 3 days calls an easy week). Don't repeat it in session notes; tell the user it exists.
    - Judge recovery from overnight HRV and RHR. Garmin undercounts this user's sleep (they wake for Subuh and sleep again), so low sleep or low readiness alone is not a reason to cut volume. Ask before calling it sleep debt.
    - Raise weekly volume by about 10% at most, with a lighter week every 3 to 4 weeks, and a taper before a race.
    - Base paces on recent runs and the HR zones in the export, not on generic tables.

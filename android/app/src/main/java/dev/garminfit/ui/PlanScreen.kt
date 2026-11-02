@@ -41,6 +41,7 @@ import dev.garminfit.PlanSession
 import dev.garminfit.PlanToday
 import dev.garminfit.PlanView
 import dev.garminfit.PlanWeek
+import dev.garminfit.targetText
 import dev.garminfit.R
 import dev.garminfit.Repo
 import dev.garminfit.activityType
@@ -127,6 +128,7 @@ fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(s.title.text, style = head(20.sp, -0.025f), color = K.ink)
                     planTarget(s).takeIf { it.isNotEmpty() }?.let { Text(it, style = T.bodyS, color = K.muted) }
+                    p.adjust?.let { a -> targetText(a.target)?.let { Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = T.bodyS, color = K.fair) } }
                 }
                 if (s.pct != null) RollingText(pctText(s.pct), num(28.sp), statusColor(s.status))
             }

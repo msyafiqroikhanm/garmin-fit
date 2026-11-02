@@ -353,8 +353,20 @@ data class PlanView(
     val extras: List<PlanExtra> = emptyList(),
 )
 
+/** How today's session changes when HRV sat under its normal two nights and RHR rose. [key]: quality_to_easy | cut_long | easy_week */
 @Serializable
-data class PlanToday(val name: String, val session: PlanSession? = null, val week: PlanWeek? = null, val overall: Double? = null)
+data class PlanAdjust(
+    val key: String,
+    val target: PlanTarget? = null,
+    val streak: Int = 1,
+    val hrv: List<Double?> = emptyList(),
+    @SerialName("hrv_low") val hrvLow: Double? = null,
+    val rhr: Double? = null,
+    @SerialName("rhr_mean") val rhrMean: Double? = null,
+)
+
+@Serializable
+data class PlanToday(val name: String, val session: PlanSession? = null, val week: PlanWeek? = null, val overall: Double? = null, val adjust: PlanAdjust? = null)
 
 @Serializable
 data class Me(val name: String? = null, val role: String? = null, val kind: String = "session", val profile: Profile? = null)

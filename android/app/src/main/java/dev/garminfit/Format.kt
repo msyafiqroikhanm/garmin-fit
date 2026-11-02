@@ -122,6 +122,43 @@ fun readinessVerdict(level: String?, score: Double?, recoveryMin: Double?): Verd
     }
 }
 
+fun targetText(t: PlanTarget?): String? =
+    t?.distanceM?.let { "${km(it).trimEnd('0').trimEnd('.', ',')} km" } ?: t?.durationS?.let { duration(it) }
+
+/**
+ * Today's advice and chips. With a plan session today the plan leads, changed by [PlanAdjust] when HRV and RHR say
+ * recovery is off. Readiness alone never changes it: Garmin undercounts split sleep. No session: Garmin's readiness advice.
+ */
+fun todayAdvice(v: Verdict, plan: PlanToday?): Pair<String, List<String>> {
+    val s = plan?.session?.takeIf { it.kind != "rest" } ?: return v.advice to v.chips
+    if (s.status == "done") return tr("Today's session is done. Rest up and eat well.", "Sesi hari ini udah selesai. Sisanya istirahat dan makan yang cukup.") to emptyList()
+    val title = s.title.text
+    val planned = targetText(s.target)
+    val a = plan.adjust
+    if (a == null) {
+        val lead = tr("Per plan: $title", "Sesuai plan: $title") + (planned?.let { ", $it" } ?: "") + "."
+        val note = if (v.status == Status.GOOD) "" else " " + tr(
+            "Readiness is low, but HRV and RHR are normal, so the plan stands. If your legs feel heavy, keep it easy.",
+            "Readiness rendah, tapi HRV dan RHR masih normal, jadi plan tetap jalan. Kalau kaki terasa berat, bawa santai aja.",
+        )
+        val pace = s.pace?.let { "${paceSec(it.minSKm)}–${paceSec(it.maxSKm)} /km" }
+        return lead + note to listOfNotNull(planned, pace)
+    }
+    val nights = a.hrv.joinToString(tr(" and ", " dan ")) { it.int() }
+    val why = tr(
+        "HRV under your normal two nights running ($nights, normal from ${a.hrvLow.int()}) and RHR ${a.rhr.int()}, usually ${a.rhrMean.int()}.",
+        "HRV di bawah normal 2 malam berturut-turut ($nights, normalnya mulai ${a.hrvLow.int()}) dan RHR ${a.rhr.int()}, biasanya ${a.rhrMean.int()}.",
+    )
+    val now = targetText(a.target)
+    val what = when (a.key) {
+        "quality_to_easy" -> tr("Swap today's $title for an easy run of $now, slow enough to talk.", "$title hari ini ganti easy run $now, pelan sampai bisa ngobrol.")
+        "cut_long" -> tr("Cut the long run to $now, easy the whole way.", "Long run dipangkas jadi $now, santai dari awal sampai akhir.")
+        else -> tr("${a.streak} days without bouncing back, so make this an easy week: every session easy and 30% shorter. Today: $now.",
+            "${a.streak} hari belum pulih, jadi minggu ini dibikin ringan: semua sesi easy dan 30% lebih pendek. Hari ini: $now.")
+    }
+    return "$why $what" to listOfNotNull(now, tr("Easy", "Easy"))
+}
+
 /** Flag copy is built here from the key so it follows the app language; the backend's Indonesian text is only a fallback. */
 fun flagText(f: Flag, t: Today): String = when (f.key) {
     "hrv_low" -> tr("7 day HRV is below your normal range. Your body needs more recovery.",

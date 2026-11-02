@@ -319,7 +319,7 @@ def today_view(user: dict = Depends(auth)):
         },
         "last_activity": last_act,
         "summary": summary,
-        "plan": core.plan_today(core.plan_view(uid)),
+        "plan": core.plan_today(core.plan_view(uid), days),
     }
 
 

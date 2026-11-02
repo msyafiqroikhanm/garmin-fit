@@ -77,6 +77,7 @@ import dev.garminfit.one
 import dev.garminfit.pace
 import dev.garminfit.readinessStatus
 import dev.garminfit.readinessVerdict
+import dev.garminfit.todayAdvice
 import dev.garminfit.rhrFactor
 import dev.garminfit.sleep
 import dev.garminfit.sleepFactor
@@ -136,7 +137,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                     )
                 } else {
                     val verdict = readinessVerdict(latest.readinessLevel, latest.readiness, latest.recoveryMin)
-                    if (verdict != null && latest.readiness != null) Hero(latest, verdict)
+                    if (verdict != null && latest.readiness != null) Hero(latest, verdict, todayAdvice(verdict, today.plan))
                     today.plan?.let { PlanTodayCard(it, onOpenPlan) }
                     Factors(latest, today)
                     today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
@@ -196,7 +197,7 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
 }
 
 @Composable
-private fun Hero(d: Daily, v: Verdict) {
+private fun Hero(d: Daily, v: Verdict, advice: Pair<String, List<String>>) {
     val c = v.status.color()
     // the status color lights the hero from its top corner, so the screen's one focal point carries the verdict
     val tint = Brush.radialGradient(listOf(c.copy(alpha = 0.22f), Color.Transparent), center = Offset(900f, -60f), radius = 820f)
@@ -215,8 +216,8 @@ private fun Hero(d: Daily, v: Verdict) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Label(tr("Today's training advice", "Saran latihan hari ini"), color = c)
-            Text(v.advice, style = T.body, color = K.ink)
-            ChipRow(v.chips)
+            Text(advice.first, style = T.body, color = K.ink)
+            ChipRow(advice.second)
         }
     }
 }

@@ -69,6 +69,7 @@ import dev.garminfit.int
 import dev.garminfit.km
 import dev.garminfit.pace
 import dev.garminfit.readinessVerdict
+import dev.garminfit.todayAdvice
 import dev.garminfit.sleep
 import dev.garminfit.syncTime
 import dev.garminfit.tr
@@ -284,7 +285,7 @@ class MorningWidget : TodayWidget() {
                     val s = if (flag.level == "good") Status.GOOD else Status.FAIR
                     Text(flagText(flag, t), style = label(s.provider()), maxLines = 2)
                 } else if (verdict != null) {
-                    Text(verdict.advice, style = body, maxLines = 2)
+                    Text(todayAdvice(verdict, t.plan).first, style = body, maxLines = 2)
                 }
             }
         }
