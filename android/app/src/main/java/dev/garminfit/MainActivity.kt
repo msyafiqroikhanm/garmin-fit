@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import androidx.annotation.DrawableRes
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.border
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -209,31 +209,35 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     }
 }
 
-/** Icon over label, M3 style: the icon gives each tab a shape to find at a glance, the label removes guessing. */
+/**
+ * Icon over label in a floating pill: the icon gives each tab a shape to find at a glance, the label removes
+ * guessing. It floats on the screen color instead of a full-width bar so the bottom edge reads lighter.
+ */
 @Composable
 private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
-    Column(Modifier.background(K.navBg)) {
-        HorizontalDivider(color = K.track)
+    val shape = RoundedCornerShape(28.dp)
+    Box(Modifier.background(K.base).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)) {
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp).selectableGroup(),
+            Modifier.fillMaxWidth().clip(shape).background(K.surface).border(1.dp, K.line, shape)
+                .padding(horizontal = 6.dp, vertical = 8.dp).selectableGroup(),
         ) {
             Tab.entries.forEach { t ->
                 val on = t == selected
                 Column(
-                    Modifier.weight(1f).sizeIn(minHeight = 48.dp).clip(RoundedCornerShape(16.dp))
-                        .selectable(on, role = Role.Tab) { onSelect(t) }.padding(vertical = 4.dp),
+                    Modifier.weight(1f).sizeIn(minHeight = 48.dp).clip(RoundedCornerShape(20.dp))
+                        .selectable(on, role = Role.Tab) { onSelect(t) }.padding(vertical = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Box(
-                        Modifier.size(width = 56.dp, height = 32.dp).clip(CircleShape).background(if (on) K.good else Color.Transparent),
+                        Modifier.size(width = 52.dp, height = 30.dp).clip(CircleShape).background(if (on) K.good else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(painterResource(t.icon), null, Modifier.size(24.dp), tint = if (on) K.onAccent else K.muted)
+                        Icon(painterResource(t.icon), null, Modifier.size(22.dp), tint = if (on) K.onAccent else K.muted)
                     }
                     Text(
                         t.label,
-                        style = body(12.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, 1.2f),
+                        style = body(11.5.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, 1.2f),
                         color = if (on) K.ink else K.muted,
                         maxLines = 1,
                     )

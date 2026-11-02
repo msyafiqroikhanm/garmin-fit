@@ -3,6 +3,8 @@ package dev.garminfit.ui
 import dev.garminfit.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -307,7 +309,10 @@ fun Centered(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** Card surface. Radius 24 for cards, 20 for tiles; the padding steps 20/18/14 mark hero, card, tile. */
+/**
+ * Card surface with a hairline edge. Radius 24 for cards, 20 for tiles; the padding steps 20/18/14 mark
+ * hero, card, tile. [background] replaces the flat fill, for the readiness hero's status tint.
+ */
 @Composable
 fun Panel(
     modifier: Modifier = Modifier,
@@ -315,10 +320,15 @@ fun Panel(
     radius: Dp = 24.dp,
     gap: Dp = 12.dp,
     color: Color = K.surface,
+    background: Brush? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(radius)
     Column(
-        modifier.clip(RoundedCornerShape(radius)).background(color).padding(padding),
+        modifier.clip(shape)
+            .then(if (background != null) Modifier.background(color).background(background) else Modifier.background(color))
+            .border(1.dp, if (color == K.surface) K.line else color, shape)
+            .padding(padding),
         verticalArrangement = Arrangement.spacedBy(gap),
         content = content,
     )
@@ -326,22 +336,38 @@ fun Panel(
 
 @Composable
 fun Label(text: String, color: Color = K.muted, modifier: Modifier = Modifier) {
-    Text(text.uppercase(), modifier, style = T.label, color = color)
+    Text(text, modifier, style = T.label, color = color)
 }
 
 /** Card heading; [icon] is a muted Material Symbol that tells cards apart at a glance while scrolling. */
 @Composable
 fun CardTitle(text: String, modifier: Modifier = Modifier, @DrawableRes icon: Int? = null) {
-    if (icon == null) return Text(text.uppercase(), modifier, style = T.cardTitle, color = K.ink)
+    if (icon == null) return Text(text, modifier, style = T.cardTitle, color = K.ink)
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Glyph(icon, K.muted, 20.dp)
-        Text(text.uppercase(), style = T.cardTitle, color = K.ink)
+        Text(text, style = T.cardTitle, color = K.ink)
     }
 }
 
 @Composable
 fun ScreenTitle(text: String) {
-    Text(text.uppercase(), Modifier.padding(horizontal = 4.dp), style = T.screenTitle, color = K.ink)
+    Text(text, Modifier.padding(horizontal = 4.dp), style = T.screenTitle, color = K.ink)
+}
+
+/** Heading above a group of cards, with an optional quiet note or link at the right. */
+@Composable
+fun SectionHeader(text: String, trailing: String? = null, onTrailing: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, Modifier.weight(1f), style = T.sectionTitle, color = K.ink)
+        trailing?.let {
+            if (onTrailing == null) Text(it, style = T.caption, color = K.muted)
+            else Text(
+                it,
+                Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onTrailing).padding(start = 12.dp).wrapContentHeight(),
+                style = body(13.sp, FontWeight.SemiBold), color = K.good,
+            )
+        }
+    }
 }
 
 /** Number plus unit sitting on the same baseline. */
@@ -451,12 +477,12 @@ fun ReadinessRing(score: Int, color: Color) {
             val inset = w / 2 + 4.dp.toPx()
             val arc = Size(size.width - inset * 2, size.height - inset * 2)
             val tl = Offset(inset, inset)
-            drawArc(K.track, 0f, 360f, false, tl, arc, style = Stroke(w))
+            drawArc(K.ink.copy(alpha = 0.08f), 0f, 360f, false, tl, arc, style = Stroke(w))
             drawArc(color, -90f, 360f * score.coerceIn(0, 100) / 100f * sweep.value, false, tl, arc, style = Stroke(w, cap = StrokeCap.Round))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             RollingText(score.toString(), num(52.sp, lh = 0.9f), K.ink)
-            Text("READINESS", style = TextStyle(fontFamily = Condensed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.em), color = K.muted)
+            Text("Readiness", style = body(11.5.sp, FontWeight.SemiBold, 1.2f), color = K.muted)
         }
     }
 }
@@ -570,16 +596,28 @@ fun LineChart(
                 drawRect(K.good.copy(alpha = 0.12f), Offset(0f, y(it.endInclusive)), Size(size.width, y(it.start) - y(it.endInclusive)))
             }
             if (baseline) drawLine(K.border, Offset(0f, size.height - 0.5f), Offset(size.width, size.height - 0.5f), 1.dp.toPx())
-            fun series(vs: List<Double?>, c: Color, stroke: Stroke) {
+            fun series(vs: List<Double?>, c: Color, stroke: Stroke, area: Boolean = false) {
                 val st = if (vs.size > 1) size.width / (vs.size - 1) else 0f
                 val path = Path()
+                val fill = Path()
                 var started = false
+                var runStart = 0f
+                var last = Offset.Zero
                 vs.forEachIndexed { i, v ->
-                    if (v == null) { started = false; return@forEachIndexed }
+                    if (v == null) {
+                        if (started) fill.apply { lineTo(last.x, size.height); lineTo(runStart, size.height); close() }
+                        started = false
+                        return@forEachIndexed
+                    }
                     val p = Offset(i * st, y(v))
-                    if (started) path.lineTo(p.x, p.y) else path.moveTo(p.x, p.y)
+                    if (started) { path.lineTo(p.x, p.y); fill.lineTo(p.x, p.y) }
+                    else { path.moveTo(p.x, p.y); fill.moveTo(p.x, size.height); fill.lineTo(p.x, p.y); runStart = p.x }
                     started = true
+                    last = p
                 }
+                if (started) fill.apply { lineTo(last.x, size.height); lineTo(runStart, size.height); close() }
+                // a soft fill under the line gives the trend a body without adding another color
+                if (area) drawPath(fill, Brush.verticalGradient(listOf(c.copy(alpha = 0.26f), c.copy(alpha = 0f))))
                 drawPath(path, c, style = stroke)
             }
             // draw-in: the line is revealed left to right the first time this data shows up
@@ -588,7 +626,13 @@ fun LineChart(
                     val d = 4.dp.toPx()
                     series(it, K.muted, Stroke(1.6.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(d, d))))
                 }
-                series(values, color, Stroke(width.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                series(values, color, Stroke(width.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round), area = true)
+            }
+            // the latest point gets a halo so "today" is found without reading the axis
+            if (selected == null && reveal.value == 1f) values.indices.lastOrNull { values[it] != null }?.let { i ->
+                val p = Offset(i * step, y(values[i]!!))
+                drawCircle(color.copy(alpha = 0.18f), 8.dp.toPx(), p)
+                drawCircle(color, 4.dp.toPx(), p)
             }
             selected?.takeIf { it in values.indices }?.let { i ->
                 val x = i * step
@@ -665,20 +709,20 @@ fun ChartDates(start: String) {
     }
 }
 
-/** Pill-shaped single choice, used for the Tren range picker. */
+/** Pill-shaped single choice. The pick is ink, not volt, so volt stays for the nav and the main action. */
 @Composable
 fun <V> Segmented(options: List<V>, selected: V, label: (V) -> String, onSelect: (V) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(CircleShape).background(K.surface).padding(4.dp).selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Modifier.fillMaxWidth().clip(CircleShape).background(K.surface).border(1.dp, K.line, CircleShape).padding(4.dp).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         options.forEach { o ->
             val on = o == selected
             Box(
-                Modifier.weight(1f).height(40.dp).clip(CircleShape).background(if (on) K.good else Color.Transparent)
+                Modifier.weight(1f).height(40.dp).clip(CircleShape).background(if (on) K.ink else Color.Transparent)
                     .selectable(on, role = Role.Tab) { onSelect(o) },
                 contentAlignment = Alignment.Center,
-            ) { Text(label(o), style = body(14.sp, FontWeight.Bold, 1.2f), color = if (on) K.onAccent else K.muted) }
+            ) { Text(label(o), style = body(14.sp, FontWeight.SemiBold, 1.2f), color = if (on) K.onAccent else K.muted) }
         }
     }
 }

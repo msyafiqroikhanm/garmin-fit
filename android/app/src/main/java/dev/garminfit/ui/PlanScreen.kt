@@ -125,7 +125,7 @@ fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PlanStatusMark(s, 28.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(s.title.text.uppercase(), style = num(24.sp), color = K.ink)
+                    Text(s.title.text, style = head(20.sp, -0.025f), color = K.ink)
                     planTarget(s).takeIf { it.isNotEmpty() }?.let { Text(it, style = T.bodyS, color = K.muted) }
                 }
                 if (s.pct != null) RollingText(pctText(s.pct), num(28.sp), statusColor(s.status))
@@ -205,7 +205,7 @@ fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 10.dp) {
                     Label(plan.name)
-                    Text(plan.goal.text, style = num(26.sp, lh = 1.05f), color = K.ink)
+                    Text(plan.goal.text, style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
                     Text(
                         "${dayMonth(plan.start)} – ${dayMonth(plan.end)}" + (plan.raceDate?.let { r ->
                             val left = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(r))

@@ -232,7 +232,7 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(a.name ?: activityType(a.type), Modifier.weight(1f, fill = false), style = num(20.sp, FontWeight.Bold), color = K.ink)
+                Text(a.name ?: activityType(a.type), Modifier.weight(1f, fill = false), style = head(16.sp, -0.015f), color = K.ink)
                 if (a.prs.isNotEmpty()) PrChip(a.prs)
             }
             Text(
@@ -268,7 +268,7 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         }
         Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonth(a.date)}, ${time(a.startTime)}")
-            Text((a.name ?: activityType(a.type)).uppercase(), style = num(32.sp), color = K.ink)
+            Text(a.name ?: activityType(a.type), style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
         }
         val strength = a.type == "strength_training"
         DetailCard(tr("Route", "Rute"), R.drawable.ic_route, detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) { onMap(it) } }

@@ -1,6 +1,6 @@
-# DESIGN.md: Kinetik
+# DESIGN.md: Kinetik 2
 
-Visual direction for the garmin-fit Android app. Source: the Claude Design handoff "Kinetik" (2026-09). Code truth lives in `android/app/src/main/java/dev/garminfit/ui/Theme.kt` (`K` colors, `T` type styles) and `ui/Components.kt`.
+Visual direction for the garmin-fit Android app. Source: the Claude Design handoff "Kinetik" (2026-09), calmed down in "Kinetik 2" (2026-11, mockup https://claude.ai/artifact/B6p9F6F9xQV6nQD6coeQxv) with picks from the style.ai.id directory: its own type (Plus Jakarta Sans, sentence case, tight tracking), hairline cards (shadcn, Origin Kit), a floating nav (Glass), a status tint on the hero (Grainient) and area-filled charts (Evil Charts). Code truth lives in `android/app/src/main/java/dev/garminfit/ui/Theme.kt` (`K` colors, `T` type styles) and `ui/Components.kt`.
 
 Dial: ENERGY 3 / RHYTHM 2 / MOTION 2
 
@@ -26,9 +26,9 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 | Token | Hex | Use |
 |---|---|---|
 | base | `#0A0F0B` | screen background, inner box in the hero |
-| navBg | `#0F130F` | bottom nav |
 | surface | `#141A15` | cards, tiles |
-| track | `#222823` | bar tracks, neutral chips, dividers, nav top border |
+| track | `#222823` | bar tracks, neutral chips, dividers |
+| line | `#F4F6F2` @ 7% | hairline edge on cards, the nav pill, segmented, the Sync pill |
 | border | `#2A2F2B` | chart baseline |
 | ink | `#F4F6F2` | primary text |
 | muted | `#A0A6A1` | labels, captions, inactive nav |
@@ -46,8 +46,8 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 
 ## Type
 
-- **Barlow Condensed** (500 to 800, 800 italic): numbers, headlines, caps labels. It is narrow enough to set an 80sp distance on a phone and has an athletic character.
-- **Barlow** (400 to 700): reading text. It pairs with the condensed cut.
+- **Barlow Condensed** (500 to 800, 800 italic): numbers and the one status word per screen. It is narrow enough to set an 80sp distance on a phone and has an athletic character.
+- **Plus Jakarta Sans** (variable, 400 to 800): every heading, label and paragraph, in sentence case. Headings get tighter tracking as they grow. Caps were dropped because a screen full of condensed caps read as shouting; the numbers keep the sporty voice. (`barlow_semibold` stays only for the share image labels.)
 - **JetBrains Mono** 500: only for chart axis dates and small load numbers, where it reads as measurement.
 - Every number uses `tnum`.
 
@@ -55,13 +55,16 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 |---|---|
 | hero | Condensed 80sp 800 italic, lh 0.85 (activity distance) |
 | display | Condensed 52 to 56sp 800 (readiness, VO2max) |
-| statusWord | Condensed 40 to 48sp 800 italic, uppercase ("GAS!", "PRODUKTIF") |
-| screenTitle | Condensed 36sp 800 uppercase |
+| statusWord | Condensed 44 to 48sp 800 italic, uppercase ("GAS!", "PRODUKTIF"), the only caps left |
+| screenTitle | Jakarta 32sp 700, tracking -0.035em |
+| sectionTitle | Jakarta 20sp 700, tracking -0.025em (heading above a group of cards) |
+| sheetTitle | Jakarta 24sp 700, tracking -0.03em |
+| greeting | Jakarta 26sp 700, tracking -0.03em |
 | metric L / M / S | Condensed 36 / 28 to 30 / 20 to 24sp |
-| cardTitle | Condensed 20sp 700 uppercase |
-| label | Condensed 13sp 600 uppercase, tracking 0.12em, muted |
-| body | Barlow 15sp, lh 1.45 |
-| bodyS / caption | Barlow 13 to 14sp / 11 to 12sp |
+| cardTitle | Jakarta 16sp 700, tracking -0.015em |
+| label | Jakarta 12.5sp 600, muted, sentence case |
+| body | Jakarta 15sp, lh 1.5 |
+| bodyS / caption | Jakarta 13 to 14sp / 11 to 12sp |
 | mono | JetBrains Mono 10 to 11sp |
 
 ## Space and shape
@@ -69,15 +72,16 @@ The app is always dark. Reason: it sits next to a dark watch face and gets read 
 - Screen padding 16dp sides, 16 top, 24 bottom. 12dp between cards, 10dp between tiles.
 - Padding marks weight: hero 20, card 18, tile 14.
 - Radius: card 24, tile 20, inner box 16, bars 3 to 6, chips and pills fully round.
-- No shadows or elevation. Hierarchy comes from fill color and size.
+- No shadows or elevation. Hierarchy comes from fill color, size, and a 1dp `line` edge on surface cards (on near-black a fill step alone reads as one slab).
+- Today groups cards under section headers ("Why this score?", "Recovery", "This week") so the long scroll has stops.
 
 ## Components
 
-`Panel`, `Label`, `CardTitle`, `ScreenTitle`, `Value`, `Stat`, `StatusChip`, `NeutralChip`, `ChipRow`, `DeltaPill`, `ReadinessRing`, `FactorBar`, `SpanBar`, `SegmentBar`, `StackedBar`, `LineChart` (optional band, dashed second series, no axis column), `ChartDates`, `Segmented`, `AccentButton`, `Glyph`, `BackLink`, and the bottom nav in `MainActivity`.
+`Panel` (hairline edge, optional `background` brush), `Label`, `CardTitle`, `ScreenTitle`, `SectionHeader`, `Value`, `Stat`, `StatusChip`, `NeutralChip`, `ChipRow`, `DeltaPill`, `ReadinessRing`, `FactorBar`, `SpanBar`, `SegmentBar`, `StackedBar`, `LineChart` (optional band, dashed second series, soft area fill under the main line, halo on the latest point, no axis column), `ChartDates`, `Segmented` (the pick is ink, not volt, so volt stays for nav and the main action), `AccentButton`, `Glyph`, `BackLink`, and the bottom nav in `MainActivity`.
 
-Bottom nav: icon over label per tab. The selected tab gets a 56×32 volt pill behind its icon (icon `onAccent`, label `ink`); the others are `muted`. Labels stay visible because icons alone would make people guess.
+Bottom nav: a floating pill (surface, `line` edge, radius 28, 12dp from the screen sides) with icon over label per tab. It is solid, not blurred: content does not scroll under it. The selected tab gets a 52×30 volt pill behind its icon (icon `onAccent`, label `ink`); the others are `muted`. Labels stay visible because icons alone would make people guess.
 
-Icons are Material Symbols Rounded (filled), copied as vector drawables into `res/drawable/ic_*.xml`, so there is no icon dependency. They are the native Android icon language and the rounded ends sit well with Barlow. Tint follows the color rule: `ink` or `muted` for structure, `good` only on volt back links and steppers, never a status color for a type. Activity rows carry a type icon in a neutral `track` circle (`activityIcon` in `Format.kt`). Arrows are icons, never text glyphs.
+Icons are Material Symbols Rounded (filled), copied as vector drawables into `res/drawable/ic_*.xml`, so there is no icon dependency. They are the native Android icon language and the rounded ends sit well with Jakarta. Tint follows the color rule: `ink` or `muted` for structure, `good` only on volt back links and steppers, never a status color for a type. Activity rows carry a type icon in a neutral `track` circle (`activityIcon` in `Format.kt`). Arrows are icons, never text glyphs.
 
 Card titles carry a muted icon (`CardTitle(icon = …)`) so cards are told apart while scrolling: route, show_chart, directions_run, timer, bar_chart, trending_up, bolt, monitor_heart, flag, fitness_center, calendar_month, emoji_events, speed, map, event_available. Plan sessions use check_circle (done, volt; partial, fair), cancel (missed, low), radio_button_unchecked (planned) and bedtime (rest). No sparkle or star icons.
 
@@ -105,9 +109,9 @@ Tabs reopen instantly: `rememberLoad` keeps the last result per call site in mem
 
 ## Screen map
 
-- **Sign in**: "SIGN IN" in the status-word style, one line on what you get, the baseline band as a quiet mark, and Google's dark "Continue with Google" button (Google only, no passwords). A new account with no access token lands on "No data linked yet" with one action, Add access token.
+- **Sign in**: the wordmark, the baseline band large with "low · your normal · high" under it as the one picture, the headline "Know what you can train today." and one line on what you get, then Google's dark "Continue with Google" button (Google only, no passwords). A new account with no access token lands on "No data linked yet": the band with an empty dashed dot, two numbered steps, one action, Add access token.
 - **Account** (avatar at the right of the Today header): profile, "Data you can see" (owner or viewer, add a token, viewers can stop seeing it), Garmin connection status for the owner, "Shared access" for the owner (each token with who added it and when it was last used, Revoke, Create invite token whose token is shown once with Copy), language note, Sign out. Add token and Create invite are bottom sheets.
-- **Hari Ini**: header (date, greeting, Sync pill), today's activity right under the header when there is one ("Done today" in volt, big distance, and the route in pace colors, the worked muscles for strength, or the type icon; otherwise the last activity stays near the bottom), readiness hero with training advice, "Why this score?" factor bars, flags, Body Battery and steps tiles, sleep tile, this week's load bars (Monday to Sunday), last activity, weekly summary card.
+- **Hari Ini**: header (date, greeting, Sync pill), today's activity right under the header when there is one ("Done today" in volt, big distance, and the route in pace colors, the worked muscles for strength, or the type icon; otherwise the last activity stays near the bottom), readiness hero (lit from its top corner in the status color) with training advice, "Why this score?" factor bars, flags, Body Battery and steps tiles, sleep tile, this week's load bars (Monday to Sunday), last activity, weekly summary card.
 - **Tren**: 7/30/90 day picker, four line charts (HRV, RHR, sleep score, Body Battery peak) with delta pill and one insight line each.
 - **Aktivitas**: list with a search field (name or type, over the loaded year), and detail with route card (GPS activities, loaded from `/activities/{id}`), body map and exercise list for strength, hero distance, stat grid (moving vs total time, fastest pace, steps), "Sepanjang sesi" line charts (pace plotted as speed so faster is up, HR, cadence, power, elevation; summaries show averages only because points are bucket averages), running technique with Garmin's running-dynamics bands, fastest splits, comparison with the last 5 similar-distance runs (pace, HR, meters per heartbeat), impact (Body Battery, sweat, intensity minutes, VO2 max), training effect, HR zones with the user's bpm ranges, per-km splits.
 - **Bagikan** (from the detail header): live preview of the share image on top, options below. Backdrop Foto / Kartu / Stiker (transparent PNG), layouts Bold / Minimal / Grid / Rute (Otot for strength), 9:16 or 4:5, ink Putih / Hitam / Volt, stat toggles, KINETIK wordmark. Drag and pinch move the overlay. `renderShare` (`ui/ShareRender.kt`) draws both the preview and the 1080 px export, so they match. Routes lose their first and last 200 m in shared images.

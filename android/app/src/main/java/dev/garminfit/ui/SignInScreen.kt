@@ -3,6 +3,12 @@ package dev.garminfit.ui
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -115,27 +124,45 @@ fun SignInScreen(onSignedIn: () -> Unit) {
         }
     }
     Column(
-        Modifier.fillMaxSize().background(K.base).statusBarsPadding().verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 48.dp),
+        Modifier.fillMaxSize().background(K.base).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())
+            .padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 28.dp),
     ) {
-        Label("garmin-fit")
-        Spacer(Modifier.height(10.dp))
-        Text(tr("Sign in", "Masuk").uppercase(), style = T.statusWord.copy(fontSize = 48.sp, lineHeight = 44.sp), color = K.ink)
-        Spacer(Modifier.height(10.dp))
+        Text("garmin-fit", style = head(15.sp, -0.02f, FontWeight.ExtraBold), color = K.ink)
+        Spacer(Modifier.height(120.dp))
+        // the baseline band, the app's motif, as the one picture of what's behind the door
+        FactorBar(56.0, 0.0, 100.0, 30.0, 66.0, Status.GOOD, "")
+        Spacer(Modifier.height(6.dp))
+        Row {
+            Text(tr("low", "rendah"), style = T.caption, color = K.muted)
+            Text(tr("your normal", "normalmu"), Modifier.weight(1f), style = T.caption, color = K.body2, textAlign = TextAlign.Center)
+            Text(tr("high", "tinggi"), style = T.caption, color = K.muted)
+        }
+        Spacer(Modifier.height(56.dp))
+        Text(tr("Know what you can train today.", "Tahu hari ini boleh latihan apa."), style = head(40.sp, -0.045f, lh = 1.05f), color = K.ink)
+        Spacer(Modifier.height(12.dp))
         Text(
             tr("Readiness, runs and your plan, on any phone you sign in to.", "Readiness, lari, dan plan kamu, di HP mana pun kamu masuk."),
-            style = T.body,
+            style = body(16.sp, lh = 1.5f),
             color = K.body2,
         )
-        Spacer(Modifier.height(20.dp))
-        // the baseline band, the app's motif, as a quiet mark of what's behind the door
-        FactorBar(56.0, 0.0, 100.0, 30.0, 66.0, Status.GOOD, "")
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(48.dp))
         GoogleButton(busy, ::signIn)
         error?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, style = T.bodyS, color = K.fair)
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(K.fair.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Glyph(R.drawable.ic_error, K.fair, 20.dp)
+                Text(it, style = T.bodyS, color = K.ink)
+            }
         }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            tr("Google only, nothing to remember. Got a token from the owner? You add it right after.",
+                "Cukup Google, tanpa password. Punya token dari pemilik? Tambahkan setelah masuk."),
+            Modifier.fillMaxWidth(), style = T.caption, color = K.muted, textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -194,16 +221,40 @@ fun NoAccessScreen(name: String?, onOpenAccount: () -> Unit, onAdded: () -> Unit
             }
             Avatar(name, owner = false, onClick = onOpenAccount)
         }
-        Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 14.dp) {
-            Text(tr("No data linked yet", "Belum ada data").uppercase(), style = T.screenTitle, color = K.ink)
+        Panel(Modifier.fillMaxWidth().padding(top = 8.dp), padding = 22.dp, gap = 18.dp) {
+            // the motif with an empty dashed dot: the band is there, today's value isn't yet
+            Canvas(Modifier.fillMaxWidth().height(16.dp)) {
+                val cy = size.height / 2
+                val h = 8.dp.toPx()
+                val r = CornerRadius(h / 2)
+                drawRoundRect(K.track, Offset(0f, cy - h / 2), Size(size.width, h), r)
+                drawRoundRect(K.good.copy(alpha = 0.3f), Offset(size.width * 0.30f, cy - h / 2), Size(size.width * 0.36f, h), r)
+                val c = Offset(size.width * 0.48f, cy)
+                drawCircle(K.surface, 8.dp.toPx(), c)
+                val d = 3.dp.toPx()
+                drawCircle(K.muted, 7.dp.toPx(), c, style = Stroke(2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(d, d))))
+            }
+            Text(tr("No data linked yet", "Belum ada data"), style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
             Text(
                 tr("Your account is ready, but it can't see any Garmin data yet. Ask the owner for an access token and add it here. You only do this once per account.",
                     "Akun kamu sudah siap, tapi belum bisa melihat data Garmin. Minta token akses ke pemilik lalu tambahkan di sini. Cukup sekali per akun."),
                 style = T.body,
                 color = K.body3,
             )
+            Step(1, tr("Ask the owner to create an invite token in their Account.", "Minta pemilik membuat token undangan di Akun mereka."))
+            Step(2, tr("Paste it here. Every phone you sign in to gets the same data.", "Tempel di sini. Semua HP yang kamu pakai masuk dapat data yang sama."))
             AccentButton(tr("Add access token", "Tambah token akses"), { adding = true }, Modifier.fillMaxWidth())
         }
     }
     if (adding) AddTokenSheet(onDismiss = { adding = false }, onAdded = { adding = false; onAdded() })
+}
+
+@Composable
+private fun Step(n: Int, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(26.dp).clip(CircleShape).background(K.track), contentAlignment = Alignment.Center) {
+            Text(n.toString(), style = body(13.sp, FontWeight.Bold, 1.2f), color = K.ink)
+        }
+        Text(text, Modifier.padding(top = 2.dp), style = body(14.sp, lh = 1.5f), color = K.body2)
+    }
 }

@@ -108,7 +108,7 @@ fun RecapScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Stepper(R.drawable.ic_chevron_left, tr("Previous period", "Periode sebelumnya"), enabled = true) { key = shift(period, key, -1) }
-            Text(periodLabel(period, key).uppercase(), Modifier.weight(1f), style = T.screenTitle, color = K.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(periodLabel(period, key), Modifier.weight(1f), style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Stepper(R.drawable.ic_chevron_right, tr("Next period", "Periode berikutnya"), enabled = key < currentKey(period)) { key = shift(period, key, 1) }
         }
         LoadView(loader, loadingText = tr("Loading recap", "Memuat rekap"), isEmpty = { it.first.count == 0 }, emptyText = tr("No activities in ${periodLabel(period, key)}.", "Belum ada aktivitas di ${periodLabel(period, key)}.")) { (r, routes) ->

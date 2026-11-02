@@ -48,3 +48,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.7 | 2026-10-15 | Today's activity card shows the route in pace colors (or worked muscles) beside a big distance |
 | v0.8 | 2026-10-27 | Widgets match the app: caps labels, HRV on the baseline band, normal band and 30 day average in the trend, plan progress in This week, type icon on Last activity; new picker previews |
 | v0.9 | 2026-10-29 | Google sign-in and Account screen: tokens are added to the account, owners invite and revoke from the app; old tokens link themselves after the first sign-in |
+| v0.10 | 2026-11-02 | Kinetik 2: Plus Jakarta Sans in sentence case (condensed only for numbers and the status word), hairline cards, section headers on Today, status-lit readiness hero, area-filled charts, floating bottom nav, new sign-in and no-data screens |

@@ -157,7 +157,7 @@ private fun Profile(a: Account, owner: Boolean) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Avatar(a.name, owner, onClick = null, size = 60)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(a.name ?: "", style = num(26.sp, FontWeight.Bold), color = K.ink)
+                Text(a.name ?: "", style = head(22.sp, -0.03f), color = K.ink)
                 a.email?.let { Text(it, style = T.bodyS, color = K.muted) }
                 Box(Modifier.padding(top = 4.dp)) { NeutralChip(tr("Signed in with Google", "Masuk dengan Google")) }
             }
@@ -307,7 +307,7 @@ fun AddTokenSheet(onDismiss: () -> Unit, onAdded: () -> Unit) {
         }
     }
     Sheet(onDismiss) {
-        Text(tr("Add access token", "Tambah token akses").uppercase(), style = num(28.sp), color = K.ink)
+        Text(tr("Add access token", "Tambah token akses"), style = T.sheetTitle, color = K.ink)
         Text(
             tr("Ask the owner for it. It's saved to your account, so every phone you sign in to sees the same data.",
                 "Minta ke pemilik. Token disimpan di akun kamu, jadi semua HP tempat kamu masuk melihat data yang sama."),
@@ -362,7 +362,7 @@ private fun InviteSheet(onDismiss: () -> Unit) {
     Sheet(onDismiss) {
         val inv = created
         if (inv == null) {
-            Text(tr("Create invite token", "Buat token undangan").uppercase(), style = num(28.sp), color = K.ink)
+            Text(tr("Create invite token", "Buat token undangan"), style = T.sheetTitle, color = K.ink)
             Text(tr("Name it after the person, like \"partner\" or \"mom\". They get read-only access.",
                 "Namai sesuai orangnya, misalnya \"pasangan\" atau \"ibu\". Mereka dapat akses hanya lihat."), style = T.bodyS, color = K.body3)
             OutlinedTextField(
@@ -380,7 +380,7 @@ private fun InviteSheet(onDismiss: () -> Unit) {
             )
             AccentButton(if (busy) tr("Creating…", "Membuat…") else tr("Create", "Buat"), ::submit, Modifier.fillMaxWidth(), enabled = !busy)
         } else {
-            Text(tr("Invite created", "Undangan dibuat").uppercase(), style = num(28.sp), color = K.ink)
+            Text(tr("Invite created", "Undangan dibuat"), style = T.sheetTitle, color = K.ink)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label(inv.name)
                 NeutralChip(tr("Viewer, read-only", "Viewer, hanya lihat"))

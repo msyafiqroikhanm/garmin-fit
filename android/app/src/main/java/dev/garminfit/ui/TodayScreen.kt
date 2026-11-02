@@ -13,6 +13,10 @@ import dev.garminfit.activityIcon
 import dev.garminfit.time
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -156,7 +160,7 @@ private fun flagStatus(key: String, level: String) = when {
 private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
     val now = LocalDate.now()
     Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Label(dayLabel(now.toString()))
                 val name = t.name?.replaceFirstChar { it.uppercase() }
@@ -168,15 +172,16 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
-                    Modifier.clip(CircleShape).background(K.surface).padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                    Modifier.clip(CircleShape).background(K.surface).border(1.dp, K.line, CircleShape)
+                        .padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(listOfNotNull("Sync", syncTime(t.latest?.syncedAt)).joinToString(" "), style = T.caption, color = K.muted)
-                    Glyph(R.drawable.ic_refresh, K.muted, 16.dp)
+                    Glyph(R.drawable.ic_refresh, K.good, 16.dp)
+                    Text(listOfNotNull("Sync", syncTime(t.latest?.syncedAt)).joinToString(" "), style = body(13.sp, FontWeight.SemiBold, 1.2f), color = K.ink)
                 }
             }
-            Avatar(t.name, t.role == "owner", onOpenAccount, size = 36)
+            Avatar(t.name, t.role == "owner", onOpenAccount, size = 40)
         }
         val latest = t.latest
         if (latest != null && latest.date != now.toString()) {
@@ -193,7 +198,9 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
 @Composable
 private fun Hero(d: Daily, v: Verdict) {
     val c = v.status.color()
-    Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 16.dp) {
+    // the status color lights the hero from its top corner, so the screen's one focal point carries the verdict
+    val tint = Brush.radialGradient(listOf(c.copy(alpha = 0.22f), Color.Transparent), center = Offset(900f, -60f), radius = 820f)
+    Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 16.dp, background = tint) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ReadinessRing(d.readiness!!.roundToInt(), c)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -203,7 +210,8 @@ private fun Hero(d: Daily, v: Verdict) {
             }
         }
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(K.base).padding(14.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(K.base.copy(alpha = 0.72f))
+                .border(1.dp, K.line, RoundedCornerShape(16.dp)).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Label(tr("Today's training advice", "Saran latihan hari ini"), color = c)
@@ -248,8 +256,8 @@ private fun factors(d: Daily, t: Today): List<Factor> = buildList {
 private fun Factors(d: Daily, t: Today) {
     val list = factors(d, t)
     if (list.isEmpty()) return
-    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Why this score?", "Kenapa skornya segini?"), icon = R.drawable.ic_monitor_heart)
+    SectionHeader(tr("Why this score?", "Kenapa skornya segini?"), tr("green = your normal", "hijau = normalmu"))
+    Panel(Modifier.fillMaxWidth(), gap = 18.dp) {
         list.forEach { f ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -284,6 +292,7 @@ private fun FlagBox(text: String, status: Status) {
 private fun Tiles(d: Daily, readiness: Status) {
     val bb = d.bbNow ?: d.bbHigh
     val hasSteps = d.steps != null
+    if (bb != null || hasSteps || d.sleepS != null) SectionHeader(tr("Recovery", "Pemulihan"))
     if (bb != null || hasSteps) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (bb != null) Tile(Modifier.weight(1f).fillMaxHeight()) {
@@ -347,16 +356,14 @@ private fun WeekPanel(t: Today) {
     val w = t.week
     var sel by remember { mutableStateOf<Int?>(null) }
     val haptic = LocalHapticFeedback.current
+    SectionHeader(tr("This week", "Minggu ini"))
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            CardTitle(tr("This week", "Minggu ini"), Modifier.weight(1f).alignByBaseline(), icon = R.drawable.ic_calendar_month)
-            val picked = sel?.let { w.dailyLoad.getOrNull(it) }
-            Text(
-                if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
-                else tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"),
-                Modifier.alignByBaseline(), style = body(13.sp, FontWeight.SemiBold), color = K.good,
-            )
-        }
+        val picked = sel?.let { w.dailyLoad.getOrNull(it) }
+        Text(
+            if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
+            else tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"),
+            style = body(13.sp, FontWeight.SemiBold), color = K.good,
+        )
         if (w.count == 0) {
             Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = T.body, color = K.muted)
             return@Panel
@@ -427,7 +434,7 @@ private fun LastActivity(a: Activity, onOpen: (Long) -> Unit) {
     ) {
         Label(tr("Last activity · ${weekday(a.date)}", "Aktivitas terakhir · ${weekday(a.date)}"))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(a.name ?: activityType(a.type), Modifier.weight(1f), style = num(24.sp, FontWeight.Bold), color = K.ink)
+            Text(a.name ?: activityType(a.type), Modifier.weight(1f), style = head(18.sp, -0.02f), color = K.ink)
             Glyph(R.drawable.ic_chevron_right, K.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -467,7 +474,7 @@ private fun TodayActivity(a: Activity, onOpen: (Long) -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(a.name ?: activityType(a.type), style = num(20.sp, FontWeight.Bold), color = K.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(a.name ?: activityType(a.type), style = head(17.sp, -0.02f), color = K.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (hasDistance) Value(km(a.distanceM), "km", num(56.sp, italic = true, lh = 0.9f), unitStyle = body(16.sp), gap = 4.dp, roll = true)
                 else RollingText(duration(a.durationS), num(48.sp, italic = true, lh = 0.9f), K.ink)
             }
@@ -518,16 +525,16 @@ private fun SummaryCard(s: Summary) {
         color = K.good,
     ) {
         Text(
-            tr("Weekly summary · ${rangeLabel(s.range.from, s.range.to)}", "Ringkasan minggu · ${rangeLabel(s.range.from, s.range.to)}").uppercase(),
+            tr("Weekly summary · ${rangeLabel(s.range.from, s.range.to)}", "Ringkasan minggu · ${rangeLabel(s.range.from, s.range.to)}"),
             style = T.label.copy(fontWeight = FontWeight.Bold),
             color = K.onAccent,
         )
-        Text(headline.uppercase(), style = num(24.sp, lh = 1.05f), color = K.onAccent)
+        Text(headline, style = head(22.sp, -0.035f, FontWeight.ExtraBold), color = K.onAccent)
         if (open) {
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 sections.forEach { sec ->
                     Column {
-                        Text(sec.title.uppercase(), style = body(12.sp, FontWeight.Bold).copy(letterSpacing = 0.08.em), color = K.onAccent)
+                        Text(sec.title, style = body(13.sp, FontWeight.Bold), color = K.onAccent)
                         Text(sec.body, style = body(14.sp, lh = 1.45f), color = K.onAccent)
                     }
                 }
