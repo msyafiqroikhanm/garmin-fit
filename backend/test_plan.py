@@ -59,7 +59,7 @@ def test_progress_scores_each_session():
     assert s["2026-10-18"]["status"] == "upcoming"
     assert [e["_id"] for e in view["extras"]] == [4]
     assert view["overall"] == round((0.983 + 0.75 + 1.0) / 3, 3)
-    assert view["weeks"] == [{"start": "2026-10-12", "planned": 5, "done": 2, "pct": view["overall"]}]
+    assert view["weeks"] == [{"start": "2026-10-12", "planned": 5, "done": 2, "pct": view["overall"], "goal": None}]
 
 
 def test_double_run_counts_together_and_missed_scores_zero():
@@ -68,3 +68,14 @@ def test_double_run_counts_together_and_missed_scores_zero():
     s = by_date(view)
     assert s["2026-10-16"]["status"] == "done" and s["2026-10-16"]["activity_ids"] == [1, 2]
     assert s["2026-10-12"]["status"] == "missed" and s["2026-10-12"]["pct"] == 0.0
+
+
+def test_week_goals_ride_on_week_rows():
+    goal = {"id": "Minggu ringan", "en": "Easy week"}
+    doc = plan_doc({**PLAN, "weeks": [{"start": "2026-10-12", "goal": goal}]})
+    view = plan_progress(doc, [], date(2026, 10, 16))
+    assert view["weeks"][0]["goal"] == goal
+    assert plan_progress(plan_doc(PLAN), [], date(2026, 10, 16))["weeks"][0]["goal"] is None
+    assert plan_doc({**PLAN, "weeks": [{"start": "2026-10-13", "goal": goal}]}) is None  # not a Monday
+    assert plan_doc({**PLAN, "weeks": [{"start": "2026-10-19", "goal": goal}]}) is None  # after the plan
+    assert plan_doc({**PLAN, "weeks": [{"start": "2026-10-12", "goal": "easy"}]}) is None

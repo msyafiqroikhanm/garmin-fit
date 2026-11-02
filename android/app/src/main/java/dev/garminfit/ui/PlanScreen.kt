@@ -164,6 +164,9 @@ fun PlanWeekCard(v: PlanView, onOpen: () -> Unit) {
             }
             Glyph(R.drawable.ic_chevron_right, K.muted)
         }
+        val monday = LocalDate.now().let { it.minusDays(it.dayOfWeek.value - 1L) }
+        val week = v.weeks.firstOrNull { it.start == monday.toString() }
+        week?.goal?.let { Text(it.text, style = T.bodyS, color = K.body3) }
         if (plan == null) {
             Text(
                 tr("Plan your weeks with Claude: run /training-plan in Claude Code. The plan shows up here and each session is checked against your Garmin data.",
@@ -172,18 +175,18 @@ fun PlanWeekCard(v: PlanView, onOpen: () -> Unit) {
             )
             return@Column
         }
-        val monday = LocalDate.now().let { it.minusDays(it.dayOfWeek.value - 1L) }
         val days = (0..6).map { monday.plusDays(it.toLong()).toString() }
         Row(Modifier.fillMaxWidth()) {
             days.forEach { d ->
-                val s = v.sessions.firstOrNull { it.date == d }
+                // ponytail: one mark per day; on a run + strength day the run's mark shows
+                val s = v.sessions.filter { it.date == d }.let { l -> l.firstOrNull { it.kind == "run" } ?: l.firstOrNull() }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(weekdayShort(d), style = body(11.sp, FontWeight.SemiBold, 1.2f), color = if (d == LocalDate.now().toString()) K.ink else K.muted)
                     if (s != null) PlanStatusMark(s) else Box(Modifier.width(24.dp).height(24.dp))
                 }
             }
         }
-        v.weeks.firstOrNull { it.start == monday.toString() }?.let { WeekLine(it) }
+        week?.let { WeekLine(it) }
     }
 }
 
@@ -251,6 +254,7 @@ private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpenActivity: (
             CardTitle(tr("Week of ${dayMonth(w.start)}", "Minggu ${dayMonth(w.start)}"), Modifier.weight(1f))
             Text("${w.done}/${w.planned} · ${pctText(w.pct)}", style = num(18.sp, FontWeight.Bold), color = if (w.pct == null) K.muted else K.ink)
         }
+        w.goal?.let { Text(it.text, Modifier.padding(bottom = 4.dp), style = T.bodyS, color = K.body3) }
         sessions.forEachIndexed { i, s ->
             if (i > 0) HorizontalDivider(color = K.track)
             SessionRow(s, onOpenActivity)
@@ -261,7 +265,7 @@ private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpenActivity: (
 /** Status mark · title and day · status chip · expand for target vs done. */
 @Composable
 private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
-    var open by rememberSaveable(s.date) { mutableStateOf(false) }
+    var open by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
     val expandable = s.kind != "rest"
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         Row(

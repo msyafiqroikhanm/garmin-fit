@@ -336,7 +336,7 @@ data class PlanSession(
 )
 
 @Serializable
-data class PlanWeek(val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null)
+data class PlanWeek(val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null, val goal: Bi? = null)
 
 @Serializable
 data class PlanMeta(val name: String, val goal: Bi, val start: String, val end: String, @SerialName("race_date") val raceDate: String? = null)

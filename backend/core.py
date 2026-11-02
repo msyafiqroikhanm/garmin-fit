@@ -850,9 +850,17 @@ def plan_doc(p: dict) -> dict | None:
     sessions = [_session(s, p["start"], p["end"]) for s in p["sessions"]]
     if any(s is None for s in sessions):
         return None
+    weeks = p.get("weeks", [])
+    first = week_start(date.fromisoformat(p["start"])).isoformat()
+    if not isinstance(weeks, list) or not all(
+            isinstance(w, dict) and _iso(w.get("start")) and date.fromisoformat(w["start"]).weekday() == 0
+            and first <= w["start"] <= p["end"] and _bi(w.get("goal")) for w in weeks):
+        return None
     doc = {k: p[k] for k in ("name", "goal", "start", "end")}
     if "race_date" in p:
         doc["race_date"] = p["race_date"]
+    if weeks:
+        doc["weeks"] = [{"start": w["start"], "goal": w["goal"]} for w in weeks]
     doc["sessions"] = sorted(sessions, key=lambda s: s["date"])
     return doc
 
@@ -902,7 +910,9 @@ def plan_progress(plan: dict, acts: list[dict], today_: date) -> dict:
             w["done"] += r["status"] == "done"
         if r["pct"] is not None:
             w["scores"].append(r["pct"])
-    week_rows = [{"start": k, "planned": v["planned"], "done": v["done"], "pct": _mean(v["scores"])} for k, v in sorted(weeks.items())]
+    goals = {w["start"]: w["goal"] for w in plan.get("weeks", [])}
+    week_rows = [{"start": k, "planned": v["planned"], "done": v["done"], "pct": _mean(v["scores"]), "goal": goals.get(k)}
+                 for k, v in sorted(weeks.items())]
     extras = [{"_id": a["_id"], "date": a["date"], "type": a.get("type"), "name": a.get("name"), "distance_m": a.get("distance_m")}
               for a in acts if a["_id"] not in used and plan["start"] <= a["date"] <= min(plan["end"], t)]
     return {"sessions": sessions, "weeks": week_rows, "overall": _mean([r["pct"] for r in sessions if r["pct"] is not None]),

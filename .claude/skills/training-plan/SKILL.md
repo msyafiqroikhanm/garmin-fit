@@ -34,6 +34,9 @@ The plan is made in conversation. Nothing is saved until the user says the draft
      "start": "YYYY-MM-DD",
      "end": "YYYY-MM-DD",
      "race_date": "YYYY-MM-DD",
+     "weeks": [
+       {"start": "YYYY-MM-DD", "goal": {"id": "Minggu ringan biar badan nyerap 3 minggu sebelumnya.", "en": "Easy week so the body absorbs the last three."}}
+     ],
      "sessions": [
        {"date": "YYYY-MM-DD", "kind": "run", "type": "easy",
         "title": {"id": "Easy run", "en": "Easy run"},
@@ -49,7 +52,8 @@ The plan is made in conversation. Nothing is saved until the user says the draft
    - `kind`: `run`, `strength`, `other`, `rest`. It decides which activity of that day counts (Garmin running types, `strength_training`, anything else).
    - `type`: `easy`, `long`, `tempo`, `interval`, `recovery`, `race`, `strength`, `rest`, `other`.
    - `target`: `distance_m` or `duration_s`. The app scores done / target, capped at 100%, and calls 95% or more done. Without a target any activity of that kind counts as done.
-   - `race_date`, `pace`, `hr_zone`, `notes` are optional. Every session date must sit between `start` and `end`.
+   - `weeks`: one entry per plan week, `start` is that week's Monday. The goal says what the week is for and why its sessions look like that, in 1 to 2 short sentences. The app shows it under each week. Always write them.
+   - `race_date`, `pace`, `hr_zone`, `notes`, `weeks` are optional to the validator. Every session date must sit between `start` and `end`.
 
 6. Save: `.venv/bin/python backend/cli.py save-plan /tmp/garmin-fit-plan.json`. The previous active plan becomes `replaced`; there is one active plan at a time. The validator prints what it needs if the file is wrong.
 
