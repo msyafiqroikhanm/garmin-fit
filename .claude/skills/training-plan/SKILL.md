@@ -54,6 +54,12 @@ The plan is made in conversation. Nothing is saved until the user says the draft
    - `type`: `easy`, `long`, `tempo`, `interval`, `recovery`, `race`, `strength`, `rest`, `other`.
    - `target`: `distance_m` or `duration_s`. The app scores done / target, capped at 100%, and calls 95% or more done. Without a target any activity of that kind counts as done.
    - `weeks`: one entry per plan week, `start` is that week's Monday. The goal says what the week is for and why its sessions look like that, in 1 to 2 short sentences. The app shows it under each week. Always write them.
+   - `notes` is what the user follows on the phone, so write every session out in full (rest days too). The app reads a small markup, one item per line (`\n`):
+     - first line(s), before any heading: the session's aim in one line. Today shows only this until "Show steps" is tapped.
+     - `## Heading` for a section; `1. text` for numbered steps; `- text` for bullets. Wrapped lines hang under the text, not the number.
+     - Runs: aim, warm up, main set (pace, HR, duration or distance), cool down, cues, when to stop or ease off, and a short version for a busy day.
+     - Strength: ground rules (effort, rest, how to progress), warm up, then one `## 1. Move · sets×reps` heading per exercise with tempo, cues and knee or ankle notes as bullets, then a busy-day version.
+     - Rest: what's fine to do (easy walk, mobility, the daily balance work).
    - `race_date`, `pace`, `hr_zone`, `notes`, `weeks` are optional to the validator. Every session date must sit between `start` and `end`.
 
 6. Save: `.venv/bin/python backend/cli.py save-plan /tmp/garmin-fit-plan.json`. The previous active plan becomes `replaced`; there is one active plan at a time. The validator prints what it needs if the file is wrong.

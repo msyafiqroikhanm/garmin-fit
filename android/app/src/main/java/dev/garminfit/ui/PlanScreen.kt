@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -133,7 +134,18 @@ fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit) {
                 if (s.pct != null) RollingText(pctText(s.pct), num(28.sp), statusColor(s.status))
             }
             s.pct?.let { SpanBar(0f, it.toFloat(), statusColor(s.status)) }
-            s.notes?.let { Text(it.text, style = T.bodyS, color = K.body3) }
+            s.notes?.let { n ->
+                var steps by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
+                SessionNotes(n.text, full = steps)
+                if (n.text.lines().any { isNoteMarkup(it) }) {
+                    Text(
+                        if (steps) tr("Hide steps", "Tutup langkah") else tr("Show steps", "Lihat langkah"),
+                        Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { steps = !steps }
+                            .sizeIn(minHeight = 44.dp).wrapContentHeight(),
+                        style = body(14.sp, FontWeight.SemiBold), color = K.good,
+                    )
+                }
+            }
         }
         p.week?.let { WeekLine(it) }
     }
@@ -268,7 +280,7 @@ private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpenActivity: (
 @Composable
 private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
     var open by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
-    val expandable = s.kind != "rest"
+    val expandable = s.kind != "rest" || s.notes != null
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         Row(
             Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp)
@@ -300,7 +312,7 @@ private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
                     )
                 }
                 s.pct?.let { SpanBar(0f, it.toFloat(), statusColor(s.status)) }
-                s.notes?.let { Text(it.text, style = T.bodyS, color = K.body3) }
+                s.notes?.let { SessionNotes(it.text, full = true) }
                 s.activityIds.firstOrNull()?.let { id ->
                     Text(
                         tr("Open activity", "Buka aktivitas"),
@@ -308,6 +320,39 @@ private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
                         style = body(14.sp, FontWeight.SemiBold), color = K.good,
                     )
                 }
+            }
+        }
+    }
+}
+
+private fun isNoteMarkup(line: String) = line.startsWith("## ") || line.startsWith("- ") || NUMBERED.containsMatchIn(line)
+private val NUMBERED = Regex("""^\d+\. """)
+
+/**
+ * Session notes from the plan: text before the first "## " heading is the session's aim, then
+ * "## " headings, "1. " steps and "- " bullets with a hanging indent so wrapped lines stay aligned.
+ * [full] false shows only the aim.
+ */
+@Composable
+private fun SessionNotes(text: String, full: Boolean) {
+    val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    val aimEnd = lines.indexOfFirst { isNoteMarkup(it) }.let { if (it < 0) lines.size else it }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        lines.forEachIndexed { i, l ->
+            if (!full && i >= aimEnd) return@forEachIndexed
+            val step = NUMBERED.find(l)
+            when {
+                i < aimEnd -> Text(l, style = T.bodyS, color = K.body2)
+                l.startsWith("## ") -> Text(l.removePrefix("## "), Modifier.padding(top = 6.dp), style = body(13.5.sp, FontWeight.SemiBold), color = K.ink)
+                step != null || l.startsWith("- ") -> Row {
+                    Text(
+                        step?.value?.trim()?.removeSuffix(".") ?: "•",
+                        Modifier.width(20.dp).alignByBaseline(),
+                        style = if (step != null) num(15.sp, FontWeight.Bold) else T.bodyS, color = K.muted,
+                    )
+                    Text(l.substring(step?.value?.length ?: 2), Modifier.weight(1f).alignByBaseline(), style = T.bodyS, color = K.body3)
+                }
+                else -> Text(l, style = T.bodyS, color = K.body3)
             }
         }
     }

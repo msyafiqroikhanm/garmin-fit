@@ -51,3 +51,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.10 | 2026-11-02 | Kinetik 2: Plus Jakarta Sans in sentence case (condensed only for numbers and the status word), hairline cards, section headers on Today, status-lit readiness hero, area-filled charts, floating bottom nav, new sign-in and no-data screens |
 | v0.11 | 2026-11-02 | Training plan weeks carry a goal that says why the week looks the way it does; a day with a run and strength shows the run in the week strip |
 | v0.12 | 2026-11-02 | Today's advice follows the plan session; two low HRV nights plus a raised RHR swap quality for easy, cut a long run 30%, or call an easy week after 3 days |
+| v0.13 | 2026-11-03 | Plan notes read as steps: headings, numbered steps and bullets; Today shows the aim with a Show steps toggle; rest days open too |
