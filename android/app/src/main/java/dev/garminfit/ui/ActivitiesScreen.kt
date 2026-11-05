@@ -188,7 +188,7 @@ private fun Activity.matches(query: String): Boolean {
 }
 
 @Composable
-private fun SearchField(value: String, onChange: (String) -> Unit) {
+fun SearchField(value: String, hint: String = tr("Search name or type", "Cari nama atau jenis"), onChange: (String) -> Unit) {
     val focus = LocalFocusManager.current
     Row(
         Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp).fillMaxWidth()
@@ -207,7 +207,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
             decorationBox = { inner ->
-                if (value.isEmpty()) Text(tr("Search name or type", "Cari nama atau jenis"), style = body(16.sp), color = K.muted)
+                if (value.isEmpty()) Text(hint, style = body(16.sp), color = K.muted)
                 inner()
             },
         )
@@ -272,11 +272,14 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         }
         val strength = a.type == "strength_training"
         DetailCard(tr("Route", "Rute"), R.drawable.ic_route, detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) { onMap(it) } }
-        DetailCard(tr("Muscles worked", "Otot yang dilatih"), R.drawable.ic_fitness_center, detail, expected = strength, pick = { it.strength }) { BodyView(it) }
+        DetailCard(tr("Muscles worked", "Otot yang dilatih"), R.drawable.ic_fitness_center, detail, expected = strength, pick = { it.workout?.let { w -> Strength(muscles = w.muscles) } ?: it.strength }) { BodyView(it) }
         val full = (detail.state as? Load.Ok)?.data
         val extra = full?.extra
-        StatsCard(a, full?.strength, extra)
-        full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
+        val log = full?.workout
+        StatsCard(a, log?.let { Strength(totalSets = it.totalSets, totalReps = it.reps) } ?: full?.strength, extra)
+        if (log != null) {
+            Panel(Modifier.fillMaxWidth()) { CardTitle(tr("Exercises · from your workout log", "Latihan · dari catatan workout"), icon = R.drawable.ic_fitness_center); LogExercises(log.exercises) }
+        } else full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
             Panel(Modifier.fillMaxWidth()) { CardTitle(tr("Exercises", "Latihan"), icon = R.drawable.ic_fitness_center); ExercisesView(it) }
         }
         full?.series?.let { SeriesCard(it, a.hasDistance(), a.distanceM) }

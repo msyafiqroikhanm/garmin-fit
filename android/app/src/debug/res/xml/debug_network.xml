@@ -3,5 +3,7 @@
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- a phone over USB reaches the laptop's server through adb reverse on localhost -->
+        <domain includeSubdomains="false">localhost</domain>
     </domain-config>
 </network-security-config>

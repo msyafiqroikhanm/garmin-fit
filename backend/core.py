@@ -15,6 +15,8 @@ from cryptography.fernet import Fernet
 from garminconnect import Garmin, GarminConnectTooManyRequestsError
 from pymongo import MongoClient
 
+import workout_data as wd
+
 # ponytail: single Garmin account; add real user ids when family members bring their own watches
 OWNER = "owner"
 TZ = ZoneInfo(os.environ.get("APP_TZ", "Asia/Jakarta"))
@@ -41,6 +43,8 @@ def ensure_indexes() -> None:
     d.users.create_index("google_sub", unique=True)
     d.users.create_index("access_id")
     d.sessions.create_index("user_id")
+    d.workout_logs.create_index([("user_id", 1), ("start_time", -1)])
+    d.workout_logs.create_index([("user_id", 1), ("activity_id", 1)])
 
 
 def create_access_token(name: str, role: str, data_user_id: str = OWNER) -> tuple[str, str]:
@@ -706,6 +710,10 @@ def sync_range(user_id: str, start: date, end: date, skip_existing=False, pause=
         log(f"activities {start}..{end}: {n}")
         refresh_prs(user_id)
         try:
+            link_workouts(user_id, start.isoformat(), end.isoformat())
+        except Exception as e:
+            errors.append(f"workouts: {e}")
+        try:
             sync_profile(g, user_id)
         except GarminConnectTooManyRequestsError:
             raise
@@ -836,6 +844,12 @@ def _session(s, start: str, end: str) -> dict | None:
         if not _bi(s["notes"]):
             return None
         out["notes"] = s["notes"]
+    if "workout" in s:
+        w = s["workout"]
+        if not (s["kind"] == "strength" and isinstance(w, dict) and set(w) == {"program", "day"}
+                and w["program"] == "strength28" and _int(w["day"], 1, 28)):
+            return None
+        out["workout"] = {"program": "strength28", "day": w["day"]}
     return out
 
 
@@ -869,10 +883,14 @@ def _mean(xs):
     return round(statistics.fmean(xs), 3) if xs else None
 
 
-def plan_progress(plan: dict, acts: list[dict], today_: date) -> dict:
+def plan_progress(plan: dict, acts: list[dict], today_: date, logs=()) -> dict:
     """Score each planned session against the activities of its day and kind.
     pct = done / target on distance, else duration, capped at 1; no target means any activity counts fully.
-    Rest days and future sessions are not scored; neither is today's until something is done."""
+    Rest days and future sessions are not scored; neither is today's until something is done.
+    A strength day with no watch activity is scored from the app's workout log of that day instead."""
+    logs_by_day = {}
+    for l in logs:
+        logs_by_day.setdefault(l["date"], []).append(l)
     by_day = {}
     for a in acts:
         by_day.setdefault((a["date"], _kind(a.get("type"))), []).append(a)
@@ -895,6 +913,10 @@ def plan_progress(plan: dict, acts: list[dict], today_: date) -> dict:
                 row.update(status="done" if pct >= DONE_AT else "partial", pct=round(pct, 3),
                            activity_ids=[a["_id"] for a in match], done={"distance_m": dist, "duration_s": dur})
                 used.update(a["_id"] for a in match)
+            elif s["kind"] == "strength" and logs_by_day.get(s["date"]):
+                log = max(logs_by_day[s["date"]], key=lambda l: len(_done_sets(l)))
+                pct = 1.0 if log["completed"] else round(len(_done_sets(log)) / len(log["sets"]), 3)
+                row.update(status="done" if log["completed"] else "partial", pct=pct)
             elif s["date"] > t:
                 row["status"] = "upcoming"
             elif s["date"] == t:
@@ -929,8 +951,10 @@ def plan_view(user_id: str) -> dict:
         return {"plan": None, "sessions": [], "weeks": [], "overall": None, "extras": []}
     proj = {"date": 1, "type": 1, "name": 1, "distance_m": 1, "duration_s": 1}
     acts = list(db().activities.find({"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}}, proj))
+    logs = list(db().workout_logs.find({"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}},
+                                       {"date": 1, "completed": 1, "sets.skipped": 1}))
     meta = {k: plan[k] for k in ("name", "goal", "start", "end", "race_date", "created_at") if k in plan}
-    return {"plan": meta, **plan_progress(plan, acts, today())}
+    return {"plan": meta, **plan_progress(plan, acts, today(), logs)}
 
 
 CUT = 0.7  # a long run or an easy-week session keeps 70% of its target
@@ -998,4 +1022,234 @@ def plan_today(view: dict, days: list[dict] | None = None) -> dict | None:
         "week": next((w for w in view["weeks"] if w["start"] == week), None),
         "overall": view["overall"],
         "adjust": plan_adjust(days or [], session),
+    }
+
+
+# Workouts
+
+REP_SECONDS = 3
+ROUND_REST_S = 60
+REST_DEFAULT_S = 20
+DIFFICULTY = {-1: 0.8, 0: 1.0, 1: 1.2}
+LINK_BEFORE = timedelta(minutes=15)
+LINK_AFTER = timedelta(minutes=5)
+LOG_PROGRAMS = ("strength28", "focus", "homeworkout")
+LOG_BLOCKS = ("warmup", "main", "finisher", "cooldown")
+WORK_BLOCKS = ("main", "finisher")
+
+
+def _scale(ex_id: str, target: dict, factor: float, block: str) -> dict:
+    """Difficulty scales bodyweight work only: warmups, cooldowns and dumbbell reps stay as written."""
+    if block in ("warmup", "cooldown") or factor == 1.0:
+        return dict(target)
+    if "seconds" in target:
+        return {"seconds": max(10, round(target["seconds"] * factor))}
+    if wd.EXERCISES[ex_id]["equipment"] == "dumbbell":
+        return dict(target)
+    return {"reps": max(1, round(target["reps"] * factor))}
+
+
+def workout_items(warmup, blocks, cooldown, factor) -> list[dict]:
+    """warmup/cooldown: [(ex, target)]; blocks: [{"block", "rounds": int, "items": [(ex, target)]}] already for the week."""
+    one = lambda ex, tgt, block, r, n: {"ex": ex, **_scale(ex, tgt, factor, block), "block": block, "round": r, "rounds": n}
+    out = [one(ex, t, "warmup", 1, 1) for ex, t in warmup]
+    for b in blocks:
+        for r in range(1, b["rounds"] + 1):
+            out += [one(ex, t, b["block"], r, b["rounds"]) for ex, t in b["items"]]
+    return out + [one(ex, t, "cooldown", 1, 1) for ex, t in cooldown]
+
+
+def workout_minutes(items: list[dict], rest_s: int) -> int:
+    work = sum(i.get("reps", 0) * REP_SECONDS + i.get("seconds", 0) for i in items)
+    rounds = sum(1 for a, b in zip(items, items[1:]) if a["block"] == b["block"] and b["round"] == a["round"] + 1)
+    return math.ceil((work + rest_s * max(0, len(items) - 1) + ROUND_REST_S * rounds) / 60)
+
+
+def _workout(key, program, day, week, type_, title, items, rest_s) -> dict:
+    return {"key": key, "program": program, "day": day, "week": week, "type": type_, "title": title,
+            "minutes": workout_minutes(items, rest_s), "items": items}
+
+
+def program_day(day: int, difficulty: int = 0, rest_s: int = REST_DEFAULT_S) -> dict:
+    if not (isinstance(day, int) and 1 <= day <= wd.PROGRAM["days"]):
+        raise ValueError(f"day {day} outside 1..{wd.PROGRAM['days']}")
+    week, kind = (day - 1) // 7 + 1, "ABC"[(day - 1) % 3]
+    t = wd.TEMPLATES[kind]
+    blocks = [{"block": b["block"], "rounds": b["rounds"][week - 1],
+               "items": [(i["ex"], {k: i[k] + i["step"] * (week - 1)}) for i in b["items"]
+                         for k in ("reps", "seconds") if k in i
+                         if i.get("weeks", [1, 4])[0] <= week <= i.get("weeks", [1, 4])[1]]}
+              for b in t["blocks"]]
+    items = workout_items(t["warmup"], blocks, t["cooldown"], DIFFICULTY[difficulty])
+    return _workout(f"strength28:{day}", "strength28", day, week, kind, t["title"], items, rest_s)
+
+
+def focus_workout(fid: str, difficulty: int = 0, rest_s: int = REST_DEFAULT_S) -> dict:
+    f = next(f for f in wd.FOCUS if f["id"] == fid)
+    blocks = [{"block": "main", "rounds": f["rounds"], "items": f["items"]}]
+    items = workout_items(f["warmup"], blocks, f["cooldown"], DIFFICULTY[difficulty])
+    return _workout(f"focus:{fid}", "focus", None, None, fid, f["title"], items, rest_s)
+
+
+def workout_muscles(log: dict) -> dict:
+    """Same shape as strength_summary's muscles so merge_muscles takes both."""
+    muscles, n = {}, 0
+    for s in log.get("sets") or []:
+        if s.get("block") not in WORK_BLOCKS or s.get("skipped"):
+            continue
+        n += 1
+        ex = wd.EXERCISES.get(s["ex"]) or {}
+        for kind, key in (("p", "primary"), ("s", "secondary")):
+            for m in ex.get(kind, []):
+                muscles.setdefault(m, {"primary": 0, "secondary": 0})[key] += 1
+    return {"muscles": muscles, "total_sets": n}
+
+
+def _int(v, lo, hi) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def _stamp(s) -> datetime | None:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def _set(s) -> dict | None:
+    if not (isinstance(s, dict) and s.get("ex") in wd.EXERCISES and s.get("block") in LOG_BLOCKS
+            and _int(s.get("round"), 1, 100) and isinstance(s.get("skipped"), bool)):
+        return None
+    tgt = s.get("target")
+    if not (isinstance(tgt, dict) and len(tgt) == 1 and next(iter(tgt)) in ("reps", "seconds")
+            and _int(next(iter(tgt.values())), 1, 3600)):
+        return None
+    reps, secs, kg = s.get("reps"), s.get("seconds"), s.get("kg")
+    if not ((reps is None or _int(reps, 0, 500)) and (secs is None or _int(secs, 0, 3600))
+            and (kg is None or (isinstance(kg, (int, float)) and not isinstance(kg, bool) and 0 <= kg <= 200))):
+        return None
+    return {"ex": s["ex"], "block": s["block"], "round": s["round"], "target": dict(tgt),
+            "reps": reps, "seconds": secs, "kg": kg, "skipped": s["skipped"]}
+
+
+def log_doc(body: dict) -> dict | None:
+    """Validate a workout log posted by the app (or the Home Workout import); returns the stored shape."""
+    b = body if isinstance(body, dict) else {}
+    start, end = _stamp(b.get("start_time")), _stamp(b.get("end_time"))
+    sets = b.get("sets")
+    if not (isinstance(b.get("id"), str) and 8 <= len(b["id"]) <= 64 and isinstance(b.get("key"), str)
+            and b.get("program") in LOG_PROGRAMS and (b.get("day") is None or _int(b.get("day"), 1, 28))
+            and _bi(b.get("title")) and start and end and start <= end and _int(b.get("duration_s"), 0, 14400)
+            and isinstance(b.get("completed"), bool) and isinstance(sets, list) and 1 <= len(sets) <= 300):
+        return None
+    clean = [_set(s) for s in sets]
+    if any(s is None for s in clean):
+        return None
+    return {"_id": b["id"], **{k: b.get(k) for k in ("key", "program", "day", "title", "start_time", "end_time",
+                                                       "duration_s", "completed")},
+            "date": b["start_time"][:10], "sets": clean, "source": "homeworkout" if b.get("source") == "homeworkout" else "app"}
+
+
+def program_progress(logs: list[dict]) -> dict:
+    done = sorted((l for l in logs if l.get("program") == "strength28" and l.get("completed")), key=lambda l: l["start_time"])
+    last28 = max((i for i, l in enumerate(done) if l["day"] == 28), default=-1)
+    days = sorted({l["day"] for l in done[last28 + 1:]})
+    nxt = next((d for d in range(1, 29) if d not in days), 1)
+    return {"next_day": nxt, "done_days": days, "runs_completed": sum(l["day"] == 28 for l in done)}
+
+
+def weight_hints(logs: list[dict]) -> dict:
+    """Last dumbbell weight per exercise; +1 kg when every set of the latest session beat the target by 2 reps."""
+    out = {}
+    for log in sorted(logs, key=lambda l: l["start_time"], reverse=True):
+        for ex in dict.fromkeys(s["ex"] for s in log.get("sets") or []):
+            if ex in out or wd.EXERCISES[ex]["equipment"] != "dumbbell":
+                continue
+            sets = [s for s in log["sets"] if s["ex"] == ex and not s["skipped"]]
+            kgs = [s["kg"] for s in sets if (s.get("kg") or 0) > 0]
+            if not kgs:
+                continue
+            easy = all((s.get("reps") or 0) >= (s["target"].get("reps") or 0) + 2 for s in sets)
+            out[ex] = {"kg": kgs[-1], "suggest": kgs[-1] + 1 if easy else kgs[-1]}
+    return out
+
+
+def match_workouts(logs: list[dict], acts: list[dict]) -> list[tuple]:
+    """Pair unlinked logs with the nearest strength activity that started 15 min before to 5 min after the log.
+    acts must already exclude activities another log uses."""
+    free = [a for a in acts if a.get("type") == "strength_training" and _stamp(a.get("start_time"))]
+    pairs = []
+    for log in sorted((l for l in logs if not l.get("activity_id")), key=lambda l: l["start_time"]):
+        start, end = _stamp(log["start_time"]), _stamp(log["end_time"])
+        near = [a for a in free if start - LINK_BEFORE <= _stamp(a["start_time"]) <= end + LINK_AFTER]
+        if near:
+            best = min(near, key=lambda a: abs(_stamp(a["start_time"]) - start))
+            free.remove(best)
+            pairs.append((log["_id"], best["_id"]))
+    return pairs
+
+
+def link_workouts(user_id: str, frm: str, to: str) -> int:
+    d = db()
+    logs = list(d.workout_logs.find({"user_id": user_id, "date": {"$gte": frm, "$lte": to}},
+                                    {"start_time": 1, "end_time": 1, "activity_id": 1}))
+    used = {x["activity_id"] for x in d.workout_logs.find({"user_id": user_id, "activity_id": {"$ne": None}}, {"activity_id": 1})}
+    acts = [a for a in d.activities.find({"user_id": user_id, "type": "strength_training", "date": {"$gte": frm, "$lte": to}},
+                                         {"start_time": 1, "type": 1}) if a["_id"] not in used]
+    pairs = match_workouts(logs, acts)
+    for log_id, act_id in pairs:
+        d.workout_logs.update_one({"_id": log_id, "user_id": user_id}, {"$set": {"activity_id": act_id}})
+    return len(pairs)
+
+
+def workout_prefs(user_id: str) -> dict:
+    doc = db().meta.find_one({"_id": f"workout_prefs:{user_id}"}) or {}
+    return {"difficulty": doc.get("difficulty", 0), "rest_s": doc.get("rest_s", REST_DEFAULT_S)}
+
+
+def _done_sets(log: dict) -> list[dict]:
+    return [s for s in log.get("sets") or [] if not s.get("skipped")]
+
+
+def log_summary(log: dict) -> dict:
+    done = _done_sets(log)
+    return {"id": log["_id"], **{k: log.get(k) for k in ("key", "program", "day", "title", "date", "start_time",
+                                                          "duration_s", "completed", "source", "activity_id")},
+            "reps": sum(s.get("reps") or 0 for s in done),
+            "volume_kg": round(sum((s.get("reps") or 0) * (s.get("kg") or 0) for s in done), 1),
+            "exercises": len({s["ex"] for s in done})}
+
+
+def log_view(log: dict) -> dict:
+    rows = {}
+    for s in _done_sets(log):
+        r = rows.setdefault(s["ex"], {"ex": s["ex"], "name": wd.EXERCISES[s["ex"]]["name"], "sets": 0, "reps": 0,
+                                      "seconds": 0, "kg_max": None})
+        r["sets"] += 1
+        r["reps"] += s.get("reps") or 0
+        r["seconds"] += s.get("seconds") or 0
+        if s.get("kg"):
+            r["kg_max"] = max(r["kg_max"] or 0, s["kg"])
+    m = workout_muscles(log)
+    return {**log_summary(log), "muscles": m["muscles"], "total_sets": m["total_sets"],
+            "exercises": list(rows.values()), "sets": log.get("sets") or []}
+
+
+def workouts_home(user_id: str) -> dict:
+    d, t = db(), today()
+    prefs = workout_prefs(user_id)
+    args = (prefs["difficulty"], prefs["rest_s"])
+    logs = list(d.workout_logs.find({"user_id": user_id}).sort("start_time", -1))
+    since_w, since_kg = week_start(t).isoformat(), (t - timedelta(days=120)).isoformat()
+    week = [l for l in logs if l["date"] >= since_w]
+    return {
+        "exercises": wd.EXERCISES,
+        "program": {**wd.PROGRAM, **program_progress(logs), "difficulty": prefs["difficulty"]},
+        "workouts": [program_day(n, *args) for n in range(1, wd.PROGRAM["days"] + 1)]
+                    + [focus_workout(f["id"], *args) for f in wd.FOCUS],
+        "prefs": prefs,
+        "week": {"sessions": len(week), "minutes": round(sum(l["duration_s"] for l in week) / 60),
+                 "reps": sum(log_summary(l)["reps"] for l in week), "dates": sorted({l["date"] for l in week})},
+        "recent": [log_summary(l) for l in logs[:20]],
+        "weights": weight_hints([l for l in logs if l["date"] >= since_kg]),
     }

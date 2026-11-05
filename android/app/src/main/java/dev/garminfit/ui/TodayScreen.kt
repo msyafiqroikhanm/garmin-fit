@@ -94,7 +94,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAccount: () -> Unit) {
+fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAccount: () -> Unit, onStartWorkout: (String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     // widgets redraw on their own coroutine so the screen does not wait for five Glance renders
@@ -138,7 +138,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 } else {
                     val verdict = readinessVerdict(latest.readinessLevel, latest.readiness, latest.recoveryMin)
                     if (verdict != null && latest.readiness != null) Hero(latest, verdict, todayAdvice(verdict, today.plan))
-                    today.plan?.let { PlanTodayCard(it, onOpenPlan) }
+                    today.plan?.let { PlanTodayCard(it, onOpenPlan, onStartWorkout.takeIf { today.role == "owner" }) }
                     Factors(latest, today)
                     today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
                     Tiles(latest, verdict?.status ?: Status.GOOD)

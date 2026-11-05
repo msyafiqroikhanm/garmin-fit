@@ -2,11 +2,13 @@ package dev.garminfit
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -16,6 +18,9 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
+import retrofit2.HttpException
+import java.io.IOException
 import retrofit2.http.Path
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
@@ -77,6 +82,8 @@ data class Activity(
     val series: Series? = null,
     val prs: List<Int> = emptyList(),
     val similar: Similar? = null,
+    /** The app's workout log linked to this strength activity; preferred over [strength] when present. */
+    val workout: LogView? = null,
 )
 
 @Serializable
@@ -333,7 +340,12 @@ data class PlanSession(
     val pct: Double? = null,
     @SerialName("activity_ids") val activityIds: List<Long> = emptyList(),
     val done: PlanTarget? = null,
+    /** A Strength 28 day placed on this strength session. */
+    val workout: PlanWorkout? = null,
 )
+
+@Serializable
+data class PlanWorkout(val program: String, val day: Int)
 
 @Serializable
 data class PlanWeek(val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null, val goal: Bi? = null)
@@ -426,6 +438,138 @@ data class Profile(
 @Serializable
 data class SyncResult(val ok: Boolean, val errors: List<String> = emptyList())
 
+/** Steps in both languages, like [Bi]. */
+@Serializable
+data class BiList(val id: List<String> = emptyList(), val en: List<String>? = null) {
+    val text: List<String> get() = if (isId()) id else en ?: id
+}
+
+/** [kind]: reps | time; [equipment]: none | dumbbell; [p]/[s]: primary/secondary Garmin muscle keys. */
+@Serializable
+data class ExerciseDef(val name: Bi, val kind: String, val equipment: String, val p: List<String> = emptyList(), val s: List<String> = emptyList(), val steps: BiList = BiList())
+
+/** One exercise slot in a workout; [block]: warmup | main | finisher | cooldown. */
+@Serializable
+data class WorkoutItem(val ex: String, val reps: Int? = null, val seconds: Int? = null, val block: String, val round: Int = 1, val rounds: Int = 1)
+
+@Serializable
+data class WorkoutDef(
+    val key: String,
+    val program: String,
+    val day: Int? = null,
+    val week: Int? = null,
+    val type: String,
+    val title: Bi,
+    val minutes: Int = 0,
+    val items: List<WorkoutItem> = emptyList(),
+)
+
+@Serializable
+data class ProgramInfo(
+    val id: String,
+    val name: Bi,
+    val days: Int = 28,
+    @SerialName("next_day") val nextDay: Int = 1,
+    @SerialName("done_days") val doneDays: List<Int> = emptyList(),
+    @SerialName("runs_completed") val runsCompleted: Int = 0,
+    val difficulty: Int = 0,
+)
+
+@Serializable
+data class WorkoutPrefs(val difficulty: Int = 0, @SerialName("rest_s") val restS: Int = 20)
+
+@Serializable
+data class WorkoutWeek(val sessions: Int = 0, val minutes: Int = 0, val reps: Int = 0, val dates: List<String> = emptyList())
+
+@Serializable
+data class LogSummary(
+    val id: String,
+    val key: String = "",
+    val program: String = "",
+    val day: Int? = null,
+    val title: Bi,
+    val date: String,
+    @SerialName("start_time") val startTime: String,
+    @SerialName("duration_s") val durationS: Int = 0,
+    val completed: Boolean = true,
+    val source: String = "app",
+    @SerialName("activity_id") val activityId: Long? = null,
+    val reps: Int = 0,
+    @SerialName("volume_kg") val volumeKg: Double = 0.0,
+    val exercises: Int = 0,
+)
+
+@Serializable
+data class WeightHint(val kg: Double, val suggest: Double)
+
+@Serializable
+data class WorkoutsHome(
+    val exercises: Map<String, ExerciseDef> = emptyMap(),
+    val program: ProgramInfo,
+    val workouts: List<WorkoutDef> = emptyList(),
+    val prefs: WorkoutPrefs = WorkoutPrefs(),
+    val week: WorkoutWeek = WorkoutWeek(),
+    val recent: List<LogSummary> = emptyList(),
+    val weights: Map<String, WeightHint> = emptyMap(),
+)
+
+@Serializable
+data class SetTarget(val reps: Int? = null, val seconds: Int? = null)
+
+@Serializable
+data class SetLog(
+    val ex: String,
+    val block: String,
+    val round: Int,
+    val target: SetTarget,
+    val reps: Int? = null,
+    val seconds: Int? = null,
+    val kg: Double? = null,
+    val skipped: Boolean = false,
+)
+
+@Serializable
+data class LogIn(
+    val id: String,
+    val key: String,
+    val program: String,
+    val day: Int? = null,
+    val title: Bi,
+    @SerialName("start_time") val startTime: String,
+    @SerialName("end_time") val endTime: String,
+    @SerialName("duration_s") val durationS: Int,
+    val completed: Boolean,
+    val sets: List<SetLog>,
+)
+
+@Serializable
+data class LogExercise(val ex: String, val name: Bi, val sets: Int = 0, val reps: Int = 0, val seconds: Int = 0, @SerialName("kg_max") val kgMax: Double? = null)
+
+@Serializable
+data class LogView(
+    val id: String,
+    val key: String = "",
+    val program: String = "",
+    val day: Int? = null,
+    val title: Bi,
+    val date: String,
+    @SerialName("start_time") val startTime: String,
+    @SerialName("duration_s") val durationS: Int = 0,
+    val completed: Boolean = true,
+    val source: String = "app",
+    @SerialName("activity_id") val activityId: Long? = null,
+    val reps: Int = 0,
+    @SerialName("volume_kg") val volumeKg: Double = 0.0,
+    val muscles: Map<String, MuscleLoad> = emptyMap(),
+    @SerialName("total_sets") val totalSets: Int = 0,
+    val exercises: List<LogExercise> = emptyList(),
+    val sets: List<SetLog> = emptyList(),
+)
+
+/** A workout in progress, saved on every step so a killed app resumes at the same exercise. */
+@Serializable
+data class WorkoutDraft(val workout: WorkoutDef, val index: Int, val sets: List<SetLog?>, val startTime: String, val activeMs: Long, val logId: String)
+
 interface ApiService {
     @GET("me") suspend fun me(): Me
     @POST("auth/google") suspend fun signIn(@Body body: GoogleSignIn): SignedIn
@@ -447,15 +591,27 @@ interface ApiService {
     @GET("recap") suspend fun recap(@Query("period") period: String, @Query("key") key: String): Recap
     @GET("plan") suspend fun plan(): PlanView
     @GET("routes") suspend fun routes(@Query("from") from: String, @Query("to") to: String): List<List<List<Double>>>
+    @GET("workouts") suspend fun workouts(): WorkoutsHome
+    @GET("workouts/logs") suspend fun workoutLogs(@Query("from") from: String): List<LogSummary>
+    @GET("workouts/logs/{id}") suspend fun workoutLog(@Path("id") id: String): LogView
+    @POST("workouts/logs") suspend fun saveWorkoutLog(@Body body: LogIn): LogSummary
+    @DELETE("workouts/logs/{id}") suspend fun deleteWorkoutLog(@Path("id") id: String)
+    @PUT("workouts/prefs") suspend fun saveWorkoutPrefs(@Body body: WorkoutPrefs): WorkoutPrefs
 }
 
-val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
+// encodeDefaults: the server validates workout logs and prefs strictly, so a false or 0 must not be left out
+val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true; encodeDefaults = true }
 
 private val Context.store by preferencesDataStore("garmin_fit")
 private val TOKEN = stringPreferencesKey("token")
 // an access token from the old setup screen, linked to the account right after the first sign-in
 private val LEGACY_TOKEN = stringPreferencesKey("legacy_token")
 private val TODAY_CACHE = stringPreferencesKey("today_cache")
+private val WORKOUT_DRAFT = stringPreferencesKey("workout_draft")
+// finished workouts not yet on the server; queued before upload so a crash or no signal never loses one
+private val WORKOUT_PENDING = stringPreferencesKey("workout_pending")
+private val WORKOUT_VOICE = booleanPreferencesKey("workout_voice")
+private val pendingSer = ListSerializer(LogIn.serializer())
 
 object Repo {
     @Volatile private var cached: Pair<String, ApiService>? = null
@@ -493,7 +649,7 @@ object Repo {
     /** Signs out on the server (best effort) and forgets the session and everything cached for it. */
     suspend fun signOut(ctx: Context) {
         token(ctx)?.let { t -> runCatching { api(t).logout() } }
-        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE) }
+        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING) }
         me = null
     }
 
@@ -516,4 +672,48 @@ object Repo {
 
     suspend fun cachedToday(ctx: Context): Today? =
         ctx.store.data.first()[TODAY_CACHE]?.let { runCatching { json.decodeFromString(Today.serializer(), it) }.getOrNull() }
+
+    suspend fun saveDraft(ctx: Context, d: WorkoutDraft?) {
+        ctx.store.edit { if (d == null) it.remove(WORKOUT_DRAFT) else it[WORKOUT_DRAFT] = json.encodeToString(WorkoutDraft.serializer(), d) }
+    }
+
+    suspend fun draft(ctx: Context): WorkoutDraft? =
+        ctx.store.data.first()[WORKOUT_DRAFT]?.let { runCatching { json.decodeFromString(WorkoutDraft.serializer(), it) }.getOrNull() }
+
+    private suspend fun pending(ctx: Context): List<LogIn> =
+        ctx.store.data.first()[WORKOUT_PENDING]?.let { runCatching { json.decodeFromString(pendingSer, it) }.getOrNull() } ?: emptyList()
+
+    suspend fun queueLog(ctx: Context, l: LogIn) {
+        ctx.store.edit { p ->
+            val list = p[WORKOUT_PENDING]?.let { runCatching { json.decodeFromString(pendingSer, it) }.getOrNull() }.orEmpty()
+            p[WORKOUT_PENDING] = json.encodeToString(pendingSer, list.filter { it.id != l.id } + l)
+        }
+    }
+
+    /** Uploads queued workouts; returns how many are still waiting. A log the server rejects is dropped, a network or server error keeps it. */
+    suspend fun flushWorkoutLogs(ctx: Context): Int {
+        val sent = mutableSetOf<String>()
+        for (l in pending(ctx)) {
+            try {
+                api(ctx).saveWorkoutLog(l)
+                sent += l.id
+            } catch (e: HttpException) {
+                if (e.code() in setOf(400, 403, 422)) sent += l.id
+            } catch (_: IOException) {
+            }
+        }
+        var left = 0
+        ctx.store.edit { p ->
+            val list = p[WORKOUT_PENDING]?.let { runCatching { json.decodeFromString(pendingSer, it) }.getOrNull() }.orEmpty().filter { it.id !in sent }
+            left = list.size
+            if (list.isEmpty()) p.remove(WORKOUT_PENDING) else p[WORKOUT_PENDING] = json.encodeToString(pendingSer, list)
+        }
+        return left
+    }
+
+    suspend fun voice(ctx: Context): Boolean = ctx.store.data.first()[WORKOUT_VOICE] ?: true
+
+    suspend fun setVoice(ctx: Context, on: Boolean) {
+        ctx.store.edit { it[WORKOUT_VOICE] = on }
+    }
 }

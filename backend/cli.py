@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -73,7 +74,51 @@ def cmd_export(a):
     }
     days_all = list(core.db().daily.find({"user_id": core.OWNER}, COMPACT_EXCLUDE).sort("date", -1).limit(core.HRV_BASELINE_DAYS + 1))
     out["insights"] = core.insights(days_all[::-1])
+    logs = core.db().workout_logs
+    out["workouts"] = [core.log_summary(l) for l in logs.find(q).sort("start_time", 1)]
+    out["program"] = core.program_progress(list(logs.find({"user_id": core.OWNER, "program": "strength28"},
+                                                          {"program": 1, "day": 1, "completed": 1, "start_time": 1})))
     print(json.dumps(out, default=str, ensure_ascii=False, indent=1))
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower().replace("&", "and").replace("'", "")).strip("-")
+
+
+def homeworkout_log(session: dict, plan: list[dict]) -> dict:
+    """One Home Workout session as a log body; its sets are that day's plan as written, every set done."""
+    day, start = session["day"], datetime.fromisoformat(session["start"])
+    entries = plan[day - 1]["exercises"]
+    kinds = [core.wd.EXERCISES[_slug(e["name"])]["kind"] for e in entries]
+    warm = next(i for i, e in enumerate(entries) if e["name"] not in ("Jumping Jacks", "Arm Circles"))
+    cool = len(entries)
+    while cool > warm and kinds[cool - 1] == "time":
+        cool -= 1
+    sets = []
+    for i, e in enumerate(entries):
+        tgt = {"reps": e["reps"]} if "reps" in e else {"seconds": e["seconds"]}
+        sets.append({"ex": _slug(e["name"]), "block": "warmup" if i < warm else "cooldown" if i >= cool else "main",
+                     "round": e["set"], "target": tgt, "reps": tgt.get("reps"), "seconds": tgt.get("seconds"),
+                     "kg": None, "skipped": False})
+    title = f"Day {day} · Massive Body Challenge"
+    return {"id": f"hw-{start:%Y%m%d%H%M}", "key": f"homeworkout:{day}", "program": "homeworkout", "day": day,
+            "title": {"id": title, "en": title}, "start_time": f"{start:%Y-%m-%d %H:%M:%S}",
+            "end_time": f"{start + timedelta(seconds=session['duration_s']):%Y-%m-%d %H:%M:%S}",
+            "duration_s": session["duration_s"], "completed": True, "source": "homeworkout", "sets": sets}
+
+
+def cmd_import_homeworkout(a):
+    data = json.loads(Path(a.file).read_text())
+    docs = []
+    for s in data["sessions"]:
+        doc = core.log_doc(homeworkout_log(s, data["plan"]))
+        if doc is None:
+            sys.exit(f"invalid session {s['start']} day {s['day']}")
+        docs.append({**doc, "user_id": core.OWNER, "created_at": datetime.now(timezone.utc)})
+    for d in docs:
+        core.db().workout_logs.replace_one({"_id": d["_id"]}, d, upsert=True)
+    dates = sorted(d["date"] for d in docs)
+    print(f"imported {len(docs)}, linked {core.link_workouts(core.OWNER, dates[0], dates[-1])}")
 
 
 def _text_ok(t) -> bool:
@@ -113,7 +158,8 @@ def cmd_save_plan(a):
     doc = core.plan_doc(json.loads(Path(a.file).read_text()))
     if doc is None:
         sys.exit("invalid plan: need name, goal{id,en?}, start, end, sessions[{date in range, kind, type, title{id,en?}, "
-                 "target{distance_m|duration_s}?, pace{min_s_km,max_s_km}?, hr_zone 1-5?, notes{id,en?}?}], optional race_date")
+                 "target{distance_m|duration_s}?, pace{min_s_km,max_s_km}?, hr_zone 1-5?, notes{id,en?}?, "
+                 "workout{program:\"strength28\", day 1-28} on strength sessions}], optional race_date")
     plans = core.db().plans
     plans.update_many({"user_id": core.OWNER, "status": "active"}, {"$set": {"status": "replaced"}})
     plans.insert_one({**doc, "user_id": core.OWNER, "status": "active", "created_at": datetime.now(timezone.utc)})
@@ -159,6 +205,9 @@ def main():
     sp.add_argument("file")
     sp.set_defaults(fn=cmd_save_plan)
     sub.add_parser("plan-status").set_defaults(fn=cmd_plan_status)
+    hw = sub.add_parser("import-homeworkout", help="import Home Workout sessions as workout logs")
+    hw.add_argument("file")
+    hw.set_defaults(fn=cmd_import_homeworkout)
     a = p.parse_args()
     a.fn(a)
 

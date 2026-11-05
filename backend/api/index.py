@@ -236,10 +236,13 @@ def race_predictions(days: int = Query(90, ge=1, le=730), user: dict = Depends(a
 
 @app.get("/muscles/week")
 def muscles_week(user: dict = Depends(auth)):
-    since = (core.today() - timedelta(days=6)).isoformat()
-    docs = core.db().activities.find({"user_id": user["data_user_id"], "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
+    uid, since = user["data_user_id"], (core.today() - timedelta(days=6)).isoformat()
+    logs = list(core.db().workout_logs.find({"user_id": uid, "date": {"$gte": since}}, {"sets": 1, "activity_id": 1}))
+    linked = {l["activity_id"] for l in logs if l.get("activity_id")}
+    docs = core.db().activities.find({"user_id": uid, "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
     catalog = core.muscle_catalog()
-    return core.merge_muscles([s for d in docs if (s := core.strength_summary(d.get("raw") or {}, catalog))])
+    acts = [s for d in docs if d["_id"] not in linked and (s := core.strength_summary(d.get("raw") or {}, catalog))]
+    return core.merge_muscles([core.workout_muscles(l) for l in logs] + acts)
 
 
 @app.get("/trends/running")
@@ -272,6 +275,9 @@ def activity(activity_id: int, user: dict = Depends(auth)):
             pass  # route is optional, the rest of the detail still renders
     if doc.get("type") == "strength_training":
         doc["strength"] = core.strength_summary(doc.get("raw") or {}, core.muscle_catalog())
+        log = core.db().workout_logs.find_one({"user_id": uid, "activity_id": activity_id})
+        if log:
+            doc["workout"] = core.log_view(log)
     doc["extra"] = core.activity_extra(doc.get("raw") or {})
     if "running" in (doc.get("type") or ""):
         marks, _ = core.prs(uid)
@@ -326,6 +332,60 @@ def today_view(user: dict = Depends(auth)):
 @app.get("/plan")
 def plan(user: dict = Depends(auth)):
     return core.plan_view(user["data_user_id"])
+
+
+@app.get("/workouts")
+def workouts(user: dict = Depends(auth)):
+    return core.workouts_home(user["data_user_id"])
+
+
+@app.get("/workouts/logs")
+def workout_logs(frm: date | None = Query(None, alias="from"), user: dict = Depends(auth)):
+    f, t = _range(frm, None, 365)
+    q = {"user_id": user["data_user_id"], "date": {"$gte": f, "$lte": t}}
+    return [core.log_summary(l) for l in core.db().workout_logs.find(q).sort("start_time", -1)]
+
+
+@app.get("/workouts/logs/{log_id}")
+def workout_log(log_id: str, user: dict = Depends(auth)):
+    log = core.db().workout_logs.find_one({"_id": log_id, "user_id": user["data_user_id"]})
+    if not log:
+        raise HTTPException(404, "not found")
+    return core.log_view(log)
+
+
+@app.post("/workouts/logs")
+def save_workout_log(body: dict, user: dict = Depends(owner_only)):
+    doc = core.log_doc(body)
+    if doc is None:
+        raise HTTPException(400, "invalid workout log")
+    uid, logs = user["data_user_id"], core.db().workout_logs
+    old = logs.find_one({"_id": doc["_id"]}, {"user_id": 1, "created_at": 1, "activity_id": 1})
+    if old and old["user_id"] != uid:
+        raise HTTPException(403, "not yours")
+    doc.update(user_id=uid, created_at=(old or {}).get("created_at") or datetime.now(timezone.utc))
+    if old and old.get("activity_id"):
+        doc["activity_id"] = old["activity_id"]  # a repost keeps its watch link
+    logs.replace_one({"_id": doc["_id"]}, doc, upsert=True)
+    core.link_workouts(uid, doc["date"], doc["date"])
+    return core.log_summary(logs.find_one({"_id": doc["_id"]}))
+
+
+@app.delete("/workouts/logs/{log_id}")
+def delete_workout_log(log_id: str, user: dict = Depends(owner_only)):
+    if not core.db().workout_logs.delete_one({"_id": log_id, "user_id": user["data_user_id"]}).deleted_count:
+        raise HTTPException(404, "not found")
+    return {"ok": True}
+
+
+@app.put("/workouts/prefs")
+def save_workout_prefs(body: dict, user: dict = Depends(owner_only)):
+    diff, rest = body.get("difficulty"), body.get("rest_s")
+    if diff not in (-1, 0, 1) or isinstance(diff, bool) or not core._int(rest, 10, 60) or rest % 5:
+        raise HTTPException(400, "invalid prefs")
+    uid = user["data_user_id"]
+    core.db().meta.update_one({"_id": f"workout_prefs:{uid}"}, {"$set": {"difficulty": diff, "rest_s": rest}}, upsert=True)
+    return core.workout_prefs(uid)
 
 
 @app.get("/summaries/latest")

@@ -108,9 +108,9 @@ fun PlanStatusMark(s: PlanSession, size: androidx.compose.ui.unit.Dp = 24.dp) {
     )
 }
 
-/** Today: what the plan says for today, and how much of it is already done. */
+/** Today: what the plan says for today, and how much of it is already done. [onStartWorkout] is null for viewers. */
 @Composable
-fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit) {
+fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit, onStartWorkout: ((String) -> Unit)? = null) {
     val s = p.session
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(K.surface)
@@ -145,6 +145,10 @@ fun PlanTodayCard(p: PlanToday, onOpen: () -> Unit) {
                         style = body(14.sp, FontWeight.SemiBold), color = K.good,
                     )
                 }
+            }
+            val w = s.workout
+            if (w != null && s.kind == "strength" && s.status in setOf("today", "upcoming", "missed") && onStartWorkout != null) {
+                AccentButton(tr("Start Day ${w.day}", "Mulai Day ${w.day}"), { onStartWorkout("strength28:${w.day}") }, icon = R.drawable.ic_play_arrow)
             }
         }
         p.week?.let { WeekLine(it) }
@@ -293,6 +297,7 @@ private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = if (s.status == "rest") K.muted else K.ink)
                 Text(listOf("${weekday(s.date)} ${dayMonth(s.date)}", planTarget(s)).filter { it.isNotEmpty() }.joinToString(" · "), style = T.caption, color = K.muted)
+                s.workout?.let { Text("Strength 28 · Day ${it.day}", style = T.caption, color = K.muted) }
             }
             if (s.status != "rest" && s.status != "upcoming") StatusPill(statusLabel(s), statusColor(s.status))
             if (expandable) Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.muted, 20.dp)

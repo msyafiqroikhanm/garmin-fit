@@ -67,6 +67,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import dev.garminfit.ui.TodayScreen
+import dev.garminfit.ui.WorkoutScreen
 import dev.garminfit.ui.TrainingScreen
 import dev.garminfit.ui.TrendsScreen
 import dev.garminfit.widget.RefreshWorker
@@ -81,6 +82,7 @@ import kotlinx.coroutines.launch
 
 enum class Tab(private val en: String, private val id: String, @DrawableRes val icon: Int) {
     TODAY("Today", "Hari Ini", R.drawable.ic_monitor_heart),
+    WORKOUT("Workout", "Workout", R.drawable.ic_fitness_center),
     TRENDS("Trends", "Tren", R.drawable.ic_show_chart),
     ACTIVITIES("Activities", "Aktivitas", R.drawable.ic_directions_run),
     TRAINING("Training", "Latihan", R.drawable.ic_speed);
@@ -173,14 +175,20 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
     var activityId by rememberSaveable { mutableStateOf<Long?>(null) }
     var planOpen by rememberSaveable { mutableStateOf(false) }
+    // a workout Today asked to open; the Workout tab shows its preview once and clears it
+    var workoutKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var playing by rememberSaveable { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { runCatching { Repo.flushWorkoutLogs(ctx) } }
     LaunchedEffect(launch) {
         launch?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name }?.let { tab = it } }
         launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it }
     }
-    BackHandler(enabled = tab != Tab.TODAY) { tab = Tab.TODAY }
+    // the player handles back itself (it pauses)
+    BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { BottomNav(tab) { t -> tab = t; planOpen = false; if (t != Tab.ACTIVITIES) activityId = null } },
+        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; planOpen = false; if (t != Tab.ACTIVITIES) activityId = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             val reduce = LocalReduceMotion.current
@@ -198,7 +206,18 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                     label = "tab",
                 ) { t ->
                     when (t) {
-                        Tab.TODAY -> TodayScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, onOpenPlan = { planOpen = true; tab = Tab.TRAINING }, onOpenAccount = onOpenAccount)
+                        Tab.TODAY -> TodayScreen(
+                            onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES },
+                            onOpenPlan = { planOpen = true; tab = Tab.TRAINING },
+                            onOpenAccount = onOpenAccount,
+                            onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
+                        )
+                        Tab.WORKOUT -> WorkoutScreen(
+                            openKey = workoutKey,
+                            onKeyOpened = { workoutKey = null },
+                            onPlaying = { playing = it },
+                            onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES },
+                        )
                         Tab.TRENDS -> TrendsScreen()
                         Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
                         Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it })
