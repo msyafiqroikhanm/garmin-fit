@@ -61,6 +61,7 @@ The plan is made in conversation. Nothing is saved until the user says the draft
      - Runs: aim, warm up, main set (pace, HR, duration or distance), cool down, cues, when to stop or ease off, and a short version for a busy day.
      - Strength: ground rules (effort, rest, how to progress), warm up, then one `## 1. Move · sets×reps` heading per exercise with tempo, cues and knee or ankle notes as bullets, then a busy-day version.
      - Rest: what's fine to do (easy walk, mobility, the daily balance work).
+     - After a week review, append the verdict to each past session as the last section: `## Hasil` (id) / `## Result` (en) with 2–3 bullets: what was done against the target, what went right or wrong with numbers (HR per km, pace), and one fix for next time. Replace an existing one rather than adding a second.
    - `race_date`, `pace`, `hr_zone`, `notes`, `weeks` are optional to the validator. Every session date must sit between `start` and `end`.
 
 6. Save: `.venv/bin/python backend/cli.py save-plan /tmp/garmin-fit-plan.json`. The previous active plan becomes `replaced`; there is one active plan at a time. The validator prints what it needs if the file is wrong.
