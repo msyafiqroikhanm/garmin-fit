@@ -58,10 +58,10 @@ The plan is made in conversation. Nothing is saved until the user says the draft
    - `notes` is what the user follows on the phone, so write every session out in full (rest days too). The app reads a small markup, one item per line (`\n`):
      - first line(s), before any heading: the session's aim in one line. Today shows only this until "Show steps" is tapped.
      - `## Heading` for a section; `1. text` for numbered steps; `- text` for bullets. Wrapped lines hang under the text, not the number.
-     - Runs: aim, warm up, main set (pace, HR, duration or distance), cool down, cues, when to stop or ease off, and a short version for a busy day.
+     - Runs: aim, warm up, main set (pace, HR, duration or distance), cool down, cues, when to stop or ease off, and a short version for a busy day as `## Short on time?` (a heading ending in `?` folds shut in the app).
      - Strength: ground rules (effort, rest, how to progress), warm up, then one `## 1. Move · sets×reps` heading per exercise with tempo, cues and knee or ankle notes as bullets, then a busy-day version.
      - Rest: what's fine to do (easy walk, mobility, the daily balance work).
-     - After a week review, append the verdict to each past session as the last section: `## Hasil` (id) / `## Result` (en) with 2–3 bullets: what was done against the target, what went right or wrong with numbers (HR per km, pace), and one fix for next time. Replace an existing one rather than adding a second.
+     - After a week review, append the verdict to each past session as the last section: `## Hasil` (id) / `## Result` (en) with 2–3 bullets: what was done against the target, what went right or wrong with numbers (HR per km, pace), and one fix for next time written as the last bullet starting `Next time: ` (id: `Lain kali: `), which the app shows in its own box. Replace an existing one rather than adding a second.
    - `race_date`, `pace`, `hr_zone`, `notes`, `weeks` are optional to the validator. Every session date must sit between `start` and `end`.
 
 6. Save: `.venv/bin/python backend/cli.py save-plan /tmp/garmin-fit-plan.json`. The previous active plan becomes `replaced`; there is one active plan at a time. The validator prints what it needs if the file is wrong.

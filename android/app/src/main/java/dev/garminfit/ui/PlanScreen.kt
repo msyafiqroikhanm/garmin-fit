@@ -2,7 +2,6 @@ package dev.garminfit.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,7 +66,7 @@ fun planTarget(s: PlanSession): String = listOfNotNull(
     s.pace?.let { "${paceSec(it.minSKm)}–${paceSec(it.maxSKm)} /km" },
 ).joinToString(" · ")
 
-private fun statusLabel(s: PlanSession) = when (s.status) {
+internal fun statusLabel(s: PlanSession) = when (s.status) {
     "done" -> tr("Done", "Selesai")
     "partial" -> pctText(s.pct)
     "missed" -> tr("Missed", "Terlewat")
@@ -85,7 +84,7 @@ private fun statusIcon(status: String) = when (status) {
     else -> R.drawable.ic_radio_button_unchecked
 }
 
-private fun statusColor(status: String) = when (status) {
+internal fun statusColor(status: String) = when (status) {
     "done" -> K.good
     "partial" -> K.fair
     "missed" -> K.low
@@ -213,9 +212,10 @@ fun PlanWeekCard(v: PlanView, onOpen: () -> Unit) {
 fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
+    var picked by rememberSaveable { mutableStateOf<String?>(null) }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
-        BackLink(tr("Training", "Latihan"), onBack)
+        if (picked == null) BackLink(tr("Training", "Latihan"), onBack)
         LoadView(
             loader,
             loadingText = tr("Loading your plan", "Memuat plan"),
@@ -223,6 +223,12 @@ fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
             emptyText = tr("No training plan yet. Run /training-plan in Claude Code to make one.", "Belum ada training plan. Jalankan /training-plan di Claude Code untuk bikin."),
         ) { v ->
             val plan = v.plan!!
+            val sel = picked?.let { k -> v.sessions.firstOrNull { it.key == k } }
+            if (sel != null) {
+                val first = LocalDate.parse(weekOf(plan.start))
+                PlanSessionScreen(sel, ChronoUnit.WEEKS.between(first, LocalDate.parse(weekOf(sel.date))).toInt() + 1, { picked = null }, onOpenActivity)
+                return@LoadView
+            }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 10.dp) {
                     Label(plan.name)
@@ -243,7 +249,7 @@ fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
                     if (scored > 0) SegmentBar(done.toDouble(), K.good, of = scored.coerceAtMost(40))
                     Text(tr("$done of $scored sessions done. Each session scores distance (or time) done against its target.", "$done dari $scored sesi selesai. Tiap sesi dinilai dari jarak (atau waktu) yang dicapai dibanding target."), style = T.caption, color = K.muted)
                 }
-                v.weeks.forEach { w -> WeekCard(w, v.sessions.filter { weekOf(it.date) == w.start }, onOpenActivity) }
+                v.weeks.forEach { w -> WeekCard(w, v.sessions.filter { weekOf(it.date) == w.start }) { picked = it.key } }
                 if (v.extras.isNotEmpty()) {
                     Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
                         CardTitle(tr("Outside the plan", "Di luar plan"))
@@ -263,10 +269,12 @@ fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
     }
 }
 
+private val PlanSession.key get() = "$date/$kind"
+
 private fun weekOf(date: String) = LocalDate.parse(date).let { it.minusDays(it.dayOfWeek.value - 1L) }.toString()
 
 @Composable
-private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpenActivity: (Long) -> Unit) {
+private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpen: (PlanSession) -> Unit) {
     Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CardTitle(tr("Week of ${dayMonth(w.start)}", "Minggu ${dayMonth(w.start)}"), Modifier.weight(1f))
@@ -275,63 +283,32 @@ private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpenActivity: (
         w.goal?.let { Text(it.text, Modifier.padding(bottom = 4.dp), style = T.bodyS, color = K.body3) }
         sessions.forEachIndexed { i, s ->
             if (i > 0) HorizontalDivider(color = K.track)
-            SessionRow(s, onOpenActivity)
+            SessionRow(s) { onOpen(s) }
         }
     }
 }
 
-/** Status mark · title and day · status chip · expand for target vs done. */
+/** Status mark · title and day · status chip; tap opens the session. */
 @Composable
-private fun SessionRow(s: PlanSession, onOpenActivity: (Long) -> Unit) {
-    var open by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
-    val expandable = s.kind != "rest" || s.notes != null
-    Column(Modifier.fillMaxWidth().animateContentSize()) {
-        Row(
-            Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp)
-                .then(if (expandable) Modifier.clickable(role = Role.Button) { open = !open } else Modifier)
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            PlanStatusMark(s)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = if (s.status == "rest") K.muted else K.ink)
-                Text(listOf("${weekday(s.date)} ${dayMonth(s.date)}", planTarget(s)).filter { it.isNotEmpty() }.joinToString(" · "), style = T.caption, color = K.muted)
-                s.workout?.let { Text("Strength 28 · Day ${it.day}", style = T.caption, color = K.muted) }
-            }
-            if (s.status != "rest" && s.status != "upcoming") StatusPill(statusLabel(s), statusColor(s.status))
-            if (expandable) Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.muted, 20.dp)
+private fun SessionRow(s: PlanSession, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PlanStatusMark(s)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = if (s.status == "rest") K.muted else K.ink)
+            Text(listOf("${weekday(s.date)} ${dayMonth(s.date)}", planTarget(s)).filter { it.isNotEmpty() }.joinToString(" · "), style = T.caption, color = K.muted)
+            s.workout?.let { Text("Strength 28 · Day ${it.day}", style = T.caption, color = K.muted) }
         }
-        if (open) {
-            Column(Modifier.padding(start = 36.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Stat(planTarget(s).ifEmpty { "–" }, tr("target", "target"), num(18.sp, FontWeight.Bold), Modifier.weight(1f))
-                    val d = s.done
-                    Stat(
-                        when {
-                            d == null -> "–"
-                            (s.target?.distanceM ?: 0.0) > 0 -> "${km(d.distanceM)} km"
-                            else -> duration(d.durationS)
-                        },
-                        tr("done", "tercapai"), num(18.sp, FontWeight.Bold), Modifier.weight(1f),
-                    )
-                }
-                s.pct?.let { SpanBar(0f, it.toFloat(), statusColor(s.status)) }
-                s.notes?.let { SessionNotes(it.text, full = true) }
-                s.activityIds.firstOrNull()?.let { id ->
-                    Text(
-                        tr("Open activity", "Buka aktivitas"),
-                        Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { onOpenActivity(id) }.padding(vertical = 6.dp),
-                        style = body(14.sp, FontWeight.SemiBold), color = K.good,
-                    )
-                }
-            }
-        }
+        if (s.status != "rest" && s.status != "upcoming") StatusPill(statusLabel(s), statusColor(s.status))
+        Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
     }
 }
 
 private fun isNoteMarkup(line: String) = line.startsWith("## ") || line.startsWith("- ") || NUMBERED.containsMatchIn(line)
-private val NUMBERED = Regex("""^\d+\. """)
+internal val NUMBERED = Regex("""^\d+\. """)
 
 /**
  * Session notes from the plan: text before the first "## " heading is the session's aim, then
@@ -364,7 +341,7 @@ private fun SessionNotes(text: String, full: Boolean) {
 }
 
 @Composable
-private fun StatusPill(text: String, c: Color) {
+internal fun StatusPill(text: String, c: Color) {
     Text(
         text,
         Modifier.clip(CircleShape).background(c.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
