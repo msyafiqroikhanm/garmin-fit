@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import dev.garminfit.PlanSession
 import dev.garminfit.R
 import dev.garminfit.dayMonth
@@ -79,6 +81,17 @@ private val NEXT_TIME = Regex("""^(next time|lain kali):\s*""", RegexOption.IGNO
 
 private fun daysFromToday(date: String) = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(date)).toInt()
 
+private val TARGETS = Regex(
+    """\d{1,2}:\d{2}(?:\s?[–-]\s?\d{1,2}:\d{2})?\s?/km|\b\d+(?:[.,]\d+)?\s?(?:km|m)\b|(?<=\bHR\b[^.\d]{0,24})\d{2,3}\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** Bold ink on the numbers a session is judged by: pace, distance and HR. */
+private fun targets(text: String) = buildAnnotatedString {
+    append(text)
+    TARGETS.findAll(text).forEach { addStyle(SpanStyle(color = K.ink, fontWeight = FontWeight.Bold), it.range.first, it.range.last + 1) }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 /** One planned session: target vs done, the result written after the week, and the full notes. */
 @Composable
@@ -121,7 +134,7 @@ fun PlanSessionScreen(s: PlanSession, weekNo: Int, onBack: () -> Unit, onOpenAct
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Label(tr("Next time", "Lain kali"), K.good)
-                            Text(it, style = body(15.sp, lh = 1.5f), color = K.ink)
+                            Text(targets(it), style = body(15.sp, lh = 1.5f), color = K.ink)
                         }
                     }
                 }
@@ -218,16 +231,17 @@ private fun SectionView(sec: Section, aim: Boolean, key: String) {
             else -> Text(sec.heading!!, style = T.cardTitle, color = K.ink)
         }
         if (fold && !open) return@Column
-        sec.items.forEach {
+        val single = sec.items.count { it is Item.Step } == 1
+        sec.items.map { if (single && it is Item.Step) Item.Para(it.text) else it }.forEach {
             when (it) {
-                is Item.Para -> Text(it.text, style = if (aim) body(17.sp, FontWeight.Medium, 1.5f) else body(15.sp, lh = 1.55f), color = if (aim) K.ink else K.body3)
+                is Item.Para -> Text(targets(it.text), style = if (aim) body(17.sp, FontWeight.Medium, 1.5f) else body(15.sp, lh = 1.55f), color = if (aim) K.ink else K.body3)
                 is Item.Step -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         it.n,
                         Modifier.size(26.dp).clip(CircleShape).background(K.track).wrapContentHeight(),
                         style = num(15.sp, FontWeight.Bold), color = K.ink, textAlign = TextAlign.Center,
                     )
-                    Text(it.text, Modifier.weight(1f), style = body(15.sp, lh = 1.55f), color = K.body3)
+                    Text(targets(it.text), Modifier.weight(1f), style = body(15.sp, lh = 1.55f), color = K.body3)
                 }
                 is Item.Bullet -> BulletRow(it.text)
             }
@@ -239,6 +253,6 @@ private fun SectionView(sec: Section, aim: Boolean, key: String) {
 private fun BulletRow(text: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("•", Modifier.width(8.dp), style = body(15.sp, lh = 1.55f), color = K.muted)
-        Text(text, Modifier.weight(1f), style = body(15.sp, lh = 1.55f), color = K.body3)
+        Text(targets(text), Modifier.weight(1f), style = body(15.sp, lh = 1.55f), color = K.body3)
     }
 }

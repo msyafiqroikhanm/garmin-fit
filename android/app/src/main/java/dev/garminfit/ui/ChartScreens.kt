@@ -214,7 +214,7 @@ private fun TrendCard(
 }
 
 @Composable
-fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit) {
+fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit, onOpenToday: () -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("training") {
         coroutineScope {
@@ -228,7 +228,7 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen
     val plan = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
     var recap by rememberSaveable { mutableStateOf(false) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
-    if (planOpen) return PlanScreen(onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity)
+    if (planOpen) return PlanScreen(onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenToday = onOpenToday)
     LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),

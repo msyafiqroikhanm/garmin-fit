@@ -1,5 +1,27 @@
 package dev.garminfit.ui
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.Dp
+import dev.garminfit.PlanMeta
+import kotlinx.coroutines.flow.first
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
@@ -94,11 +116,11 @@ internal fun statusColor(status: String) = when (status) {
 
 /** Status mark; a finished session's check pops in once, like ticking it off a list. */
 @Composable
-fun PlanStatusMark(s: PlanSession, size: androidx.compose.ui.unit.Dp = 24.dp) {
+fun PlanStatusMark(s: PlanSession, size: androidx.compose.ui.unit.Dp = 24.dp, tint: Color? = null) {
     val pop = rememberReveal(s.date + s.status, durationMs = 450)
     val finished = s.status == "done" || s.status == "partial"
     Glyph(
-        statusIcon(s.status), statusColor(s.status), size,
+        statusIcon(s.status), tint ?: statusColor(s.status), size,
         Modifier.graphicsLayer {
             val k = if (finished) 0.6f + 0.4f * pop.value else 1f
             scaleX = k; scaleY = k
@@ -207,64 +229,33 @@ fun PlanWeekCard(v: PlanView, onOpen: () -> Unit) {
     }
 }
 
-/** The whole plan: overall score, then each week as a list of sessions you can expand. */
+/** The plan: this week first with a strip to move between weeks; an empty and a finished screen around it. */
 @Composable
-fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit) {
+fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenToday: () -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
     var picked by rememberSaveable { mutableStateOf<String?>(null) }
-    BackHandler(onBack = onBack)
+    var lookBack by rememberSaveable { mutableStateOf(false) }
+    val back = { if (lookBack) lookBack = false else onBack() }
+    BackHandler(onBack = back)
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
-        if (picked == null) BackLink(tr("Training", "Latihan"), onBack)
-        LoadView(
-            loader,
-            loadingText = tr("Loading your plan", "Memuat plan"),
-            isEmpty = { it.plan == null },
-            emptyText = tr("No training plan yet. Run /training-plan in Claude Code to make one.", "Belum ada training plan. Jalankan /training-plan di Claude Code untuk bikin."),
-        ) { v ->
-            val plan = v.plan!!
-            val sel = picked?.let { k -> v.sessions.firstOrNull { it.key == k } }
-            if (sel != null) {
-                val first = LocalDate.parse(weekOf(plan.start))
-                PlanSessionScreen(sel, ChronoUnit.WEEKS.between(first, LocalDate.parse(weekOf(sel.date))).toInt() + 1, { picked = null }, onOpenActivity)
+        if (picked == null) BackLink(tr("Training", "Latihan"), back)
+        LoadView(loader, loadingText = tr("Loading your plan", "Memuat plan")) { v ->
+            val plan = v.plan
+            val body = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)
+            if (plan == null) {
+                NoPlan(body, onOpenToday)
                 return@LoadView
             }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 10.dp) {
-                    Label(plan.name)
-                    Text(plan.goal.text, style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
-                    Text(
-                        "${dayMonth(plan.start)} – ${dayMonth(plan.end)}" + (plan.raceDate?.let { r ->
-                            val left = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(r))
-                            if (left >= 0) tr(" · race in $left days", " · lomba $left hari lagi") else ""
-                        } ?: ""),
-                        style = T.bodyS, color = K.muted,
-                    )
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RollingText(pctText(v.overall), T.hero, K.good)
-                        Text(tr("achieved so far", "tercapai sejauh ini"), Modifier.padding(bottom = 10.dp), style = T.bodyS, color = K.muted)
-                    }
-                    val scored = v.sessions.count { it.kind != "rest" }
-                    val done = v.sessions.count { it.status == "done" }
-                    if (scored > 0) SegmentBar(done.toDouble(), K.good, of = scored.coerceAtMost(40))
-                    Text(tr("$done of $scored sessions done. Each session scores distance (or time) done against its target.", "$done dari $scored sesi selesai. Tiap sesi dinilai dari jarak (atau waktu) yang dicapai dibanding target."), style = T.caption, color = K.muted)
-                }
-                v.weeks.forEach { w -> WeekCard(w, v.sessions.filter { weekOf(it.date) == w.start }) { picked = it.key } }
-                if (v.extras.isNotEmpty()) {
-                    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-                        CardTitle(tr("Outside the plan", "Di luar plan"))
-                        v.extras.forEach { e ->
-                            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpenActivity(e.id) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(e.name ?: activityType(e.type), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-                                    Text("${weekday(e.date)} ${dayMonth(e.date)}", style = T.caption, color = K.muted)
-                                }
-                                e.distanceM?.takeIf { it > 0 }?.let { Text("${km(it)} km", style = num(18.sp, FontWeight.Bold), color = K.ink) }
-                            }
-                        }
-                    }
-                }
+            val sel = picked?.let { k -> v.sessions.firstOrNull { it.key == k } }
+            if (sel != null) {
+                PlanSessionScreen(sel, weekNo(plan, weekOf(sel.date)), { picked = null }, onOpenActivity)
+                return@LoadView
             }
+            val scored = v.sessions.count { it.kind != "rest" }
+            val done = v.sessions.count { it.status == "done" }
+            if (LocalDate.now() > LocalDate.parse(plan.end) && !lookBack) FinishedPlan(body, v, plan, done, scored, { lookBack = true }, onOpenActivity)
+            else WeekView(body, v, plan, done, scored, { picked = it.key }, onOpenActivity)
         }
     }
 }
@@ -273,37 +264,235 @@ private val PlanSession.key get() = "$date/$kind"
 
 private fun weekOf(date: String) = LocalDate.parse(date).let { it.minusDays(it.dayOfWeek.value - 1L) }.toString()
 
+private fun weekNo(plan: PlanMeta, start: String) =
+    ChronoUnit.WEEKS.between(LocalDate.parse(weekOf(plan.start)), LocalDate.parse(start)).toInt() + 1
+
 @Composable
-private fun WeekCard(w: PlanWeek, sessions: List<PlanSession>, onOpen: (PlanSession) -> Unit) {
-    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CardTitle(tr("Week of ${dayMonth(w.start)}", "Minggu ${dayMonth(w.start)}"), Modifier.weight(1f))
-            Text("${w.done}/${w.planned} · ${pctText(w.pct)}", style = num(18.sp, FontWeight.Bold), color = if (w.pct == null) K.muted else K.ink)
+private fun StripRow(scroll: ScrollState, width: Dp, userScroll: Boolean = true, content: @Composable RowScope.() -> Unit) {
+    // requiredWidth undoes the screen's 16dp side padding so chips run to the edges and the next one peeks
+    Row(
+        Modifier.requiredWidth(width + 32.dp).horizontalScroll(scroll, enabled = userScroll).padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), content = content,
+    )
+}
+
+@Composable
+private fun WeekChip(n: Int, start: String, ratio: Float, current: Boolean, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        Modifier.width(64.dp).sizeIn(minHeight = 64.dp).clip(shape).background(if (selected) K.ink else K.surface)
+            .border(1.dp, if (selected) K.ink else if (current) K.good else K.line, shape)
+            .selectable(selected, role = Role.Tab, onClick = onClick).padding(horizontal = 8.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text("W$n", style = head(15.sp, -0.02f), color = if (selected) K.onAccent else K.ink)
+        Text(dayMonth(start), style = body(11.5.sp), color = if (selected) Color(0xFF3B423C) else K.muted, maxLines = 1, softWrap = false)
+        SpanBar(0f, ratio, if (selected) K.onAccent else K.good, height = 4.dp)
+    }
+}
+
+@Composable
+private fun WeekView(
+    modifier: Modifier, v: PlanView, plan: PlanMeta, done: Int, scored: Int,
+    onOpen: (PlanSession) -> Unit, onOpenActivity: (Long) -> Unit,
+) {
+    val today = LocalDate.now()
+    val cur = v.weeks.indexOfFirst { it.start == weekOf(today.toString()) }.takeIf { it >= 0 }
+        ?: if (today < LocalDate.parse(plan.start)) 0 else v.weeks.lastIndex
+    var sel by rememberSaveable { mutableIntStateOf(-1) }
+    val s = if (sel < 0) cur else sel.coerceAtMost(v.weeks.lastIndex)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(plan.goal.text, style = T.screenTitle, color = K.ink)
+            Label(
+                plan.raceDate?.let { r ->
+                    val left = ChronoUnit.DAYS.between(today, LocalDate.parse(r))
+                    if (left >= 0) tr("Race on ${weekdayShort(r)} ${dayMonth(r)}, in $left days", "Lomba ${weekdayShort(r)} ${dayMonth(r)}, $left hari lagi") else null
+                } ?: "${dayMonth(plan.start)} – ${dayMonth(plan.end)}",
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RollingText(pctText(v.overall), num(30.sp), K.good)
+                SpanBar(0f, (v.overall ?: 0.0).toFloat(), K.good, height = 6.dp, modifier = Modifier.weight(1f))
+                Text(tr("$done of $scored done", "$done dari $scored selesai"), style = T.caption, color = K.muted)
+            }
         }
-        w.goal?.let { Text(it.text, Modifier.padding(bottom = 4.dp), style = T.bodyS, color = K.body3) }
-        sessions.forEachIndexed { i, s ->
-            if (i > 0) HorizontalDivider(color = K.track)
-            SessionRow(s) { onOpen(s) }
+
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val scroll = rememberScrollState()
+            val density = LocalDensity.current
+            val reduce = LocalReduceMotion.current
+            var placed by remember { mutableStateOf(false) }
+            LaunchedEffect(s, maxWidth) {
+                val max = snapshotFlow { scroll.maxValue }.first { it > 0 }
+                val t = with(density) { (s * 72 + 32).dp.toPx() - maxWidth.toPx() / 2 }.roundToInt().coerceIn(0, max)
+                if (!placed || reduce) scroll.scrollTo(t) else scroll.animateScrollTo(t)
+                placed = true
+            }
+            StripRow(scroll, maxWidth) {
+                v.weeks.forEachIndexed { i, w ->
+                    WeekChip(weekNo(plan, w.start), w.start, if (w.planned > 0) w.done.toFloat() / w.planned else 0f, i == cur, i == s) { sel = i }
+                }
+            }
+        }
+
+        val w = v.weeks.getOrNull(s) ?: return@Column
+        val rows = v.sessions.filter { weekOf(it.date) == w.start }
+        Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    val ago = ChronoUnit.WEEKS.between(LocalDate.parse(w.start), LocalDate.parse(weekOf(today.toString()))).toInt()
+                    val tag = when {
+                        ago == 0 -> tr("This week", "Minggu ini")
+                        ago == 1 -> tr("Last week", "Minggu lalu")
+                        ago > 1 -> tr("$ago weeks ago", "$ago minggu lalu")
+                        ago == -1 -> tr("Next week", "Minggu depan")
+                        else -> tr("In ${-ago} weeks", "${-ago} minggu lagi")
+                    }
+                    Text("$tag · ${dayMonth(w.start)}–${dayMonth(LocalDate.parse(w.start).plusDays(6).toString())}", style = head(20.sp, -0.025f), color = K.ink)
+                    val progress = if (ago < 0) tr("${w.planned} planned", "${w.planned} direncanakan") else tr("${w.done} of ${w.planned} done", "${w.done} dari ${w.planned} selesai")
+                    Text(tr("Week ${weekNo(plan, w.start)} · $progress", "Minggu ${weekNo(plan, w.start)} · $progress"), style = T.caption, color = K.muted)
+                }
+                if (s != cur) Text(
+                    tr("This week", "Minggu ini"),
+                    Modifier.clip(CircleShape).background(K.track).clickable(role = Role.Button) { sel = -1 }
+                        .sizeIn(minHeight = 44.dp).padding(horizontal = 16.dp).wrapContentHeight(),
+                    style = body(13.sp, FontWeight.SemiBold), color = K.ink,
+                )
+            }
+            w.goal?.let { Text(it.text, style = T.bodyS, color = K.body3) }
+            Column {
+                rows.forEachIndexed { i, r ->
+                    if (i > 0 && !r.isToday && !rows[i - 1].isToday) HorizontalDivider(color = K.line)
+                    SessionRow(r) { onOpen(r) }
+                }
+            }
+        }
+
+        val extras = v.extras.filter { weekOf(it.date) == w.start }
+        if (extras.isNotEmpty()) {
+            Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
+                CardTitle(tr("Outside the plan this week", "Di luar plan minggu ini"))
+                extras.forEach { e ->
+                    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpenActivity(e.id) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(e.name ?: activityType(e.type), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                            Text("${weekday(e.date)} ${dayMonth(e.date)}", style = T.caption, color = K.muted)
+                        }
+                        e.distanceM?.takeIf { it > 0 }?.let { Text("${km(it)} km", style = num(18.sp, FontWeight.Bold), color = K.ink) }
+                    }
+                }
+            }
         }
     }
 }
 
-/** Status mark · title and day · status chip; tap opens the session. */
+@Composable
+private fun FinishedPlan(
+    modifier: Modifier, v: PlanView, plan: PlanMeta, done: Int, scored: Int,
+    onLookBack: () -> Unit, onOpenActivity: (Long) -> Unit,
+) {
+    val race = v.sessions.filter { it.type == "race" }.maxByOrNull { it.date }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(plan.goal.text, style = T.screenTitle, color = K.ink)
+            Label(tr("Plan ended ${weekdayShort(plan.end)} ${dayMonth(plan.end)} · ${v.weeks.size} weeks", "Plan selesai ${weekdayShort(plan.end)} ${dayMonth(plan.end)} · ${v.weeks.size} minggu"))
+        }
+        Panel(Modifier.fillMaxWidth(), padding = 22.dp, gap = 14.dp) {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                RollingText(pctText(v.overall), num(64.sp), K.good)
+                Text(
+                    tr("of the plan achieved · $done of $scored done", "plan tercapai · $done dari $scored selesai"),
+                    Modifier.weight(1f).padding(bottom = 8.dp), style = T.caption, color = K.muted,
+                )
+            }
+            SpanBar(0f, (v.overall ?: 0.0).toFloat(), K.good, height = 8.dp)
+            if (race != null) {
+                HorizontalDivider(color = K.line)
+                val id = race.activityIds.firstOrNull()
+                Row(
+                    Modifier.fillMaxWidth().then(if (id != null) Modifier.clickable(role = Role.Button) { onOpenActivity(id) } else Modifier),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(tr("Race · ${weekdayShort(race.date)} ${dayMonth(race.date)}", "Lomba · ${weekdayShort(race.date)} ${dayMonth(race.date)}"), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                        Text(planTarget(race), style = T.caption, color = K.muted)
+                    }
+                    race.done?.durationS?.let { Text(duration(it), style = num(30.sp), color = K.good) }
+                }
+            }
+        }
+        SecondaryButton(tr("Look back week by week", "Lihat lagi per minggu"), onLookBack, Modifier.fillMaxWidth())
+        Text(
+            tr("The next plan you save with /training-plan replaces this one.", "Plan berikutnya yang disimpan lewat /training-plan menggantikan yang ini."),
+            Modifier.padding(horizontal = 4.dp), style = T.caption, color = K.muted,
+        )
+    }
+}
+
+@Composable
+private fun NoPlan(modifier: Modifier, onOpenToday: () -> Unit) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(tr("Training plan", "Training plan"), Modifier.padding(horizontal = 4.dp), style = T.screenTitle, color = K.ink)
+        BoxWithConstraints(Modifier.fillMaxWidth().clearAndSetSemantics {}) {
+            StripRow(rememberScrollState(), maxWidth, userScroll = false) {
+                repeat(6) {
+                    Box(
+                        Modifier.width(64.dp).height(64.dp).drawBehind {
+                            val w = 1.5.dp.toPx()
+                            drawRoundRect(
+                                K.border, Offset(w / 2, w / 2), Size(size.width - w, size.height - w), CornerRadius(16.dp.toPx()),
+                                style = Stroke(w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))),
+                            )
+                        },
+                    )
+                }
+            }
+        }
+        Panel(Modifier.fillMaxWidth(), padding = 22.dp, gap = 12.dp) {
+            Text(tr("No plan yet", "Belum ada plan"), style = head(20.sp, -0.025f), color = K.ink)
+            Text(
+                tr("Plans are written with Claude on the laptop using /training-plan. Once saved, the weeks show up here and each session is scored against your watch.",
+                    "Plan disusun bareng Claude di laptop lewat /training-plan. Setelah disimpan, minggunya muncul di sini dan tiap sesi dinilai dari data jam tangan."),
+                style = T.bodyS, color = K.body3,
+            )
+            Text(tr("Until then, Today's advice follows your readiness.", "Sampai saat itu, saran di Today mengikuti readiness kamu."), style = T.bodyS, color = K.body3)
+            SecondaryButton(tr("Open Today", "Buka Today"), onOpenToday, Modifier.fillMaxWidth())
+        }
+    }
+}
+
+private val PlanSession.isToday get() = date == LocalDate.now().toString()
+
+/** Date · title, then target and result; today's row sits on the base fill. Rows with nothing to open are not clickable. */
 @Composable
 private fun SessionRow(s: PlanSession, onOpen: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    val rest = s.status == "rest"
+    val finished = s.status == "done" || s.status == "partial"
+    val suffix = when {
+        s.status == "missed" -> tr("skipped", "terlewat")
+        finished && s.target?.distanceM != null && s.done != null -> tr("done ${km(s.done.distanceM)} km", "tercapai ${km(s.done.distanceM)} km")
+        finished -> tr("done", "tercapai")
+        else -> null
+    }
+    val meta = if (rest) "" else listOfNotNull(planTarget(s).ifEmpty { null }, suffix).joinToString(" · ")
+    val open = s.kind != "rest" || s.notes != null
     Row(
-        Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 8.dp),
+        Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp)
+            .then(if (s.isToday) Modifier.clip(shape).background(K.base).border(1.dp, K.good.copy(alpha = 0.25f), shape) else Modifier)
+            .then(if (open) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier)
+            .padding(horizontal = if (s.isToday) 10.dp else 0.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PlanStatusMark(s)
+        PlanStatusMark(s, tint = if (s.isToday) K.ink else null)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = if (s.status == "rest") K.muted else K.ink)
-            Text(listOf("${weekday(s.date)} ${dayMonth(s.date)}", planTarget(s)).filter { it.isNotEmpty() }.joinToString(" · "), style = T.caption, color = K.muted)
+            Text("${weekdayShort(s.date)} ${LocalDate.parse(s.date).dayOfMonth} · ${s.title.text}", style = body(15.sp, FontWeight.SemiBold), color = if (rest) K.muted else K.ink)
+            if (meta.isNotEmpty()) Text(meta, style = T.caption, color = K.muted)
             s.workout?.let { Text("Strength 28 · Day ${it.day}", style = T.caption, color = K.muted) }
         }
-        if (s.status != "rest" && s.status != "upcoming") StatusPill(statusLabel(s), statusColor(s.status))
-        Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
+        s.pct?.let { Text(pctText(it), style = num(20.sp, FontWeight.Bold), color = if (s.status == "partial") K.fair else K.ink) }
+        if (open) Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
     }
 }
 

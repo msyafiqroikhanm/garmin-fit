@@ -733,3 +733,17 @@ fun RowScope.LegendKey(name: String, color: Color, swatch: Modifier = Modifier.s
     Box(swatch.clip(RoundedCornerShape(2.dp)).background(color).align(Alignment.CenterVertically))
     Text(name, style = body(11.sp, lh = 1.2f), color = K.muted)
 }
+
+/** Track-colored pill for the second action next to a volt one. */
+@Composable
+fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = K.ink, icon: Int? = null) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(containerColor = K.track, contentColor = color),
+    ) {
+        icon?.let { Glyph(it, color, 18.dp, Modifier.padding(end = 6.dp)) }
+        Text(text, style = body(15.sp, FontWeight.Bold))
+    }
+}

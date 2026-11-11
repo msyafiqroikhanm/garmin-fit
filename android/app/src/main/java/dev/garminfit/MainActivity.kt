@@ -220,7 +220,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                         )
                         Tab.TRENDS -> TrendsScreen()
                         Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
-                        Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it })
+                        Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it }, onOpenToday = { planOpen = false; tab = Tab.TODAY })
                     }
                 }
             }
