@@ -219,10 +219,11 @@ fun SearchField(value: String, hint: String = tr("Search name or type", "Cari na
     }
 }
 
+/** One activity in a list; Today reuses it for the last activity so equal objects look equal everywhere. */
 @Composable
-private fun ActivityRow(a: Activity, onClick: () -> Unit) {
+fun ActivityRow(a: Activity, hPad: androidx.compose.ui.unit.Dp = 20.dp, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = hPad, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

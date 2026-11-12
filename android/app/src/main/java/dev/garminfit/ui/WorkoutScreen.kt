@@ -207,9 +207,15 @@ private fun WorkoutHome(
         next?.let { NextHero(it, home, owner) { onPreview(it.key) } }
         ProgramCard(home, owner, reload, onPreview)
         SectionHeader(tr("Body focus", "Fokus otot"))
-        home.workouts.filter { it.program == "focus" }.forEach { w ->
-            Panel(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(role = Role.Button) { onPreview(w.key) }, padding = 14.dp, radius = 20.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val focus = home.workouts.filter { it.program == "focus" }
+        Column(Modifier.fillMaxWidth()) {
+            focus.forEachIndexed { i, w ->
+                if (i > 0) HorizontalDivider(color = K.line)
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Button) { onPreview(w.key) }.sizeIn(minHeight = 60.dp).padding(horizontal = 4.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(w.title.text, style = T.cardTitle, color = K.ink)
                         Text(tr("${w.minutes} min · ${w.items.distinctBy { it.ex }.size} exercises", "${w.minutes} mnt · ${w.items.distinctBy { it.ex }.size} latihan"), style = T.caption, color = K.muted)
@@ -265,23 +271,32 @@ private fun ResumeCard(d: WorkoutDraft, onResume: () -> Unit, onDiscard: () -> U
 
 @Composable
 private fun NextHero(w: WorkoutDef, home: WorkoutsHome, owner: Boolean, onOpen: () -> Unit) {
-    Panel(Modifier.fillMaxWidth(), padding = 20.dp) {
-        Label("${home.program.name.text} · ${tr("week", "minggu")} ${w.week}")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                RollingText("Day ${w.day}", num(54.sp), K.ink)
-                Text(w.title.text, style = T.cardTitle, color = K.body2)
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    Stat("${w.minutes}", tr("min", "mnt"), num(24.sp, FontWeight.Bold))
-                    Stat("${w.items.distinctBy { it.ex }.size}", tr("exercises", "latihan"), num(24.sp, FontWeight.Bold))
+    val muscles = itemMuscles(w.items, home.exercises)
+    val names = w.items.filter { it.block == "main" }.mapNotNull { home.exercises[it.ex]?.name?.text }.distinct()
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(w.title.text, style = T.headline, color = K.ink)
+            Text(
+                listOfNotNull(w.day?.let { "Day $it" }, w.week?.let { tr("week $it", "minggu $it") }, home.program.name.text).joinToString(" · "),
+                style = T.bodyS, color = K.muted,
+            )
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { BodyFigure(muscles, 200.dp, tr("Muscles this day works", "Otot yang dilatih hari ini")) }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Value("${w.minutes}", tr("min", "mnt"), num(28.sp, FontWeight.Bold), unitStyle = T.bodyS)
+                Value("${w.items.distinctBy { it.ex }.size}", tr("exercises", "latihan"), num(28.sp, FontWeight.Bold), unitStyle = T.bodyS)
+                musclesText(muscles).takeIf { it.isNotEmpty() }?.let {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Label(tr("Works", "Melatih"))
+                        Text(it, style = T.bodyS, color = K.body2, maxLines = 4)
+                    }
                 }
             }
-            Box(Modifier.width(120.dp)) {
-                BodyFigure(itemMuscles(w.items, home.exercises), 116.dp, tr("Muscles this day works", "Otot yang dilatih hari ini"))
-            }
         }
-        if (owner) AccentButton(tr("Start Day ${w.day}", "Mulai Day ${w.day}"), onOpen, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
-        else Text(tr("See exercises", "Lihat latihan"), Modifier.clickable(role = Role.Button, onClick = onOpen).sizeIn(minHeight = 44.dp).padding(vertical = 12.dp), style = body(14.sp, FontWeight.SemiBold), color = K.good)
+        if (names.isNotEmpty()) Text(names.take(5).joinToString(" · ") + if (names.size > 5) " · +${names.size - 5}" else "", style = T.bodyS, color = K.body2, maxLines = 3)
+        if (owner) AccentButton(tr("Start workout", "Mulai workout"), onOpen, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
+        else Text(tr("See exercises", "Lihat latihan"), Modifier.clickable(role = Role.Button, onClick = onOpen).sizeIn(minHeight = 44.dp).padding(vertical = 12.dp), style = body(14.sp, FontWeight.SemiBold), color = K.ink)
     }
 }
 
@@ -290,12 +305,22 @@ private fun ProgramCard(home: WorkoutsHome, owner: Boolean, reload: () -> Unit, 
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val p = home.program
+    var open by rememberSaveable { mutableStateOf(false) }
     Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CardTitle(p.name.text, Modifier.weight(1f), icon = R.drawable.ic_calendar_month)
-            RollingText("${(p.doneDays.size * 100f / p.days).roundToInt()}%", num(28.sp), K.ink)
+        Row(
+            Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClickLabel = if (open) tr("Hide calendar", "Tutup kalender") else tr("Show calendar", "Tampilkan kalender")) { open = !open },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                CardTitle(p.name.text, icon = R.drawable.ic_calendar_month)
+                Text(tr("${p.doneDays.size} of ${p.days} days done", "${p.doneDays.size} dari ${p.days} hari selesai"), style = T.caption, color = K.muted)
+            }
+            if (p.runsCompleted > 0) NeutralChip("${p.runsCompleted}×")
+            Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.muted)
         }
-        (0 until 4).forEach { w ->
+        SegmentBar(p.doneDays.size.toDouble(), K.ink, of = p.days)
+        if (open) (0 until 4).forEach { w ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Label(tr("Week ${w + 1}", "Minggu ${w + 1}"))
                 Row(Modifier.fillMaxWidth()) {
@@ -306,8 +331,8 @@ private fun ProgramCard(home: WorkoutsHome, owner: Boolean, reload: () -> Unit, 
                         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                             Box(
                                 Modifier.size(36.dp).clip(CircleShape)
-                                    .background(if (done) K.good else if (isNext) K.surface else K.track)
-                                    .then(if (isNext) Modifier.border(2.dp, K.good, CircleShape) else Modifier)
+                                    .background(if (done) K.ink else K.track)
+                                    .then(if (isNext) Modifier.border(2.dp, K.ink, CircleShape) else Modifier)
                                     .clickable(role = Role.Button, onClickLabel = "Day $d") { onPreview("strength28:$d") },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -319,7 +344,6 @@ private fun ProgramCard(home: WorkoutsHome, owner: Boolean, reload: () -> Unit, 
                 }
             }
         }
-        if (p.runsCompleted > 0) NeutralChip(tr("Completed ${p.runsCompleted}×", "Selesai ${p.runsCompleted}×"))
         if (owner) {
             var diff by remember(p.difficulty) { mutableIntStateOf(p.difficulty) }
             Label(tr("Difficulty", "Tingkat"))
@@ -387,7 +411,7 @@ private fun SettingsCard(home: WorkoutsHome, reload: () -> Unit) {
             Switch(
                 voice,
                 { on -> voice = on; scope.launch { Repo.setVoice(ctx, on) } },
-                colors = SwitchDefaults.colors(checkedThumbColor = K.onAccent, checkedTrackColor = K.good, uncheckedTrackColor = K.track, uncheckedBorderColor = K.border),
+                colors = SwitchDefaults.colors(checkedThumbColor = K.onAccent, checkedTrackColor = K.ink, uncheckedTrackColor = K.track, uncheckedBorderColor = K.border),
             )
         }
     }
@@ -410,7 +434,7 @@ private fun StepButton(icon: Int, description: String, enabled: Boolean, onClick
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.size(36.dp).clip(CircleShape).background(K.track), contentAlignment = Alignment.Center) {
-            Glyph(icon, if (enabled) K.good else K.muted.copy(alpha = 0.4f), 20.dp, description = description)
+            Glyph(icon, if (enabled) K.ink else K.muted.copy(alpha = 0.4f), 20.dp, description = description)
         }
     }
 }
@@ -485,7 +509,7 @@ private fun WorkoutPreview(def: WorkoutDef, home: WorkoutsHome, owner: Boolean, 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { BackLink("Workout", onBack) }
                 if (owner) TextButton({ editing = !editing }) {
-                    Text(if (editing) tr("Done editing", "Selesai edit") else "Edit", style = body(14.sp, FontWeight.SemiBold), color = K.good)
+                    Text(if (editing) tr("Done editing", "Selesai edit") else "Edit", style = body(14.sp, FontWeight.SemiBold), color = K.ink)
                 }
             }
             Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

@@ -91,7 +91,7 @@ fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: ()
             ) {
                 BackLink(tr("Today", "Hari Ini"), onBack)
                 ScreenTitle(tr("Account", "Akun"))
-                Profile(a, owner)
+                Profile(a)
                 DataAccess(
                     a,
                     onAdd = { adding = true },
@@ -152,10 +152,10 @@ fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: ()
 }
 
 @Composable
-private fun Profile(a: Account, owner: Boolean) {
+private fun Profile(a: Account) {
     Panel(Modifier.fillMaxWidth(), padding = 20.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Avatar(a.name, owner, onClick = null, size = 60)
+            Avatar(a.name, onClick = null, size = 60)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(a.name ?: "", style = head(22.sp, -0.03f), color = K.ink)
                 a.email?.let { Text(it, style = T.bodyS, color = K.muted) }
@@ -177,7 +177,7 @@ private fun DataAccess(a: Account, onAdd: () -> Unit, onRemove: () -> Unit) {
         }
         val owner = access.role == "owner"
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Avatar(access.ownerName, owner, onClick = null, size = 40)
+            Avatar(access.ownerName, onClick = null, size = 40)
             Column(Modifier.weight(1f)) {
                 val who = access.ownerName?.let { tr("$it's Garmin", "Garmin $it") } ?: tr("Garmin data", "Data Garmin")
                 Text(who, style = body(15.sp, FontWeight.SemiBold), color = K.ink)
@@ -224,7 +224,7 @@ private fun SharedAccess(invites: List<Invite>, onCreate: () -> Unit, onRevoke: 
             invites.forEachIndexed { i, inv ->
                 if (i > 0) HorizontalDivider(color = K.track)
                 Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Avatar(inv.name, inv.role == "owner", onClick = null, size = 40)
+                    Avatar(inv.name, onClick = null, size = 40)
                     Column(Modifier.weight(1f)) {
                         Text(inv.name, style = body(15.sp, FontWeight.SemiBold), color = K.ink)
                         Text(inviteLine(inv), style = T.caption, color = K.muted)
@@ -247,9 +247,9 @@ private fun inviteLine(inv: Invite): String {
 
 @Composable
 private fun fieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = K.good, unfocusedBorderColor = K.border, errorBorderColor = K.low,
-    focusedTextColor = K.ink, unfocusedTextColor = K.ink, cursorColor = K.good,
-    focusedLabelColor = K.good, unfocusedLabelColor = K.muted, focusedContainerColor = K.base, unfocusedContainerColor = K.base,
+    focusedBorderColor = K.ink, unfocusedBorderColor = K.border, errorBorderColor = K.low,
+    focusedTextColor = K.ink, unfocusedTextColor = K.ink, cursorColor = K.ink,
+    focusedLabelColor = K.ink, unfocusedLabelColor = K.muted, focusedContainerColor = K.base, unfocusedContainerColor = K.base,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

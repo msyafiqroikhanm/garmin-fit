@@ -87,6 +87,8 @@ object T {
     val hero = num(80.sp, italic = true, lh = 0.85f)
     val statusWord = num(44.sp, italic = true, lh = 0.9f)
     val screenTitle = head(32.sp, -0.035f, lh = 1.05f)
+    /** The one message a screen leads with, set straight on the background (Today's session, Trends' insight). */
+    val headline = head(28.sp, -0.03f, lh = 1.12f)
     val sectionTitle = head(20.sp, -0.025f, lh = 1.2f)
     val sheetTitle = head(24.sp, -0.03f)
     val cardTitle = head(16.sp, -0.015f, lh = 1.25f)
@@ -98,8 +100,10 @@ object T {
     val mono = TextStyle(fontFamily = Mono, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
 }
 
+// primary is ink, not volt: Material's own interaction marks (pull-to-refresh, selection, progress) are
+// interaction, and volt is kept for the body's "good" and for work that is done.
 private val Scheme = darkColorScheme(
-    primary = K.good,
+    primary = K.ink,
     onPrimary = K.onAccent,
     background = K.base,
     onBackground = K.ink,

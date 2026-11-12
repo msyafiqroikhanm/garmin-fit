@@ -125,22 +125,28 @@ fun readinessVerdict(level: String?, score: Double?, recoveryMin: Double?): Verd
 fun targetText(t: PlanTarget?): String? =
     t?.distanceM?.let { "${km(it).trimEnd('0').trimEnd('.', ',')} km" } ?: t?.durationS?.let { duration(it) }
 
+/** Why the plan still stands on a day Garmin's readiness is not good; null when readiness is good. */
+fun planStandsNote(v: Verdict): String? = if (v.status == Status.GOOD) null else tr(
+    "Readiness is low, but HRV and RHR are normal, so the plan stands. If your legs feel heavy, keep it easy.",
+    "Readiness rendah, tapi HRV dan RHR masih normal, jadi plan tetap jalan. Kalau kaki terasa berat, bawa santai aja.",
+)
+
+/** What's left after the day's session is done. */
+fun restUp(): String = tr("Rest up and eat well.", "Sisanya istirahat dan makan yang cukup.")
+
 /**
  * Today's advice and chips. With a plan session today the plan leads, changed by [PlanAdjust] when HRV and RHR say
  * recovery is off. Readiness alone never changes it: Garmin undercounts split sleep. No session: Garmin's readiness advice.
  */
 fun todayAdvice(v: Verdict, plan: PlanToday?): Pair<String, List<String>> {
     val s = plan?.session?.takeIf { it.kind != "rest" } ?: return v.advice to v.chips
-    if (s.status == "done") return tr("Today's session is done. Rest up and eat well.", "Sesi hari ini udah selesai. Sisanya istirahat dan makan yang cukup.") to emptyList()
+    if (s.status == "done") return tr("Today's session is done. ", "Sesi hari ini udah selesai. ") + restUp() to emptyList()
     val title = s.title.text
     val planned = targetText(s.target)
     val a = plan.adjust
     if (a == null) {
         val lead = tr("Per plan: $title", "Sesuai plan: $title") + (planned?.let { ", $it" } ?: "") + "."
-        val note = if (v.status == Status.GOOD) "" else " " + tr(
-            "Readiness is low, but HRV and RHR are normal, so the plan stands. If your legs feel heavy, keep it easy.",
-            "Readiness rendah, tapi HRV dan RHR masih normal, jadi plan tetap jalan. Kalau kaki terasa berat, bawa santai aja.",
-        )
+        val note = planStandsNote(v)?.let { " $it" } ?: ""
         val pace = s.pace?.let { "${paceSec(it.minSKm)}–${paceSec(it.maxSKm)} /km" }
         return lead + note to listOfNotNull(planned, pace)
     }

@@ -61,6 +61,11 @@ import dev.garminfit.paceSec
 import dev.garminfit.dateLabel
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import dev.garminfit.VO2_CATEGORIES
 import dev.garminfit.groupLabel
@@ -87,6 +92,7 @@ private fun List<Daily>.hasAny(pick: (Daily) -> Double?) = any { pick(it) != nul
 fun TrendsScreen() {
     val ctx = LocalContext.current
     var range by rememberSaveable { mutableIntStateOf(30) }
+    var picked by rememberSaveable { mutableIntStateOf(0) }
     val loader = rememberCachedLoad("daily", range) { Repo.api(ctx).daily(from(range)) }
     // weekly technique needs a few weeks to say anything, so 7/30/90 days map to 4/8/13 weeks
     val dynamics = rememberCachedLoad("dynamics", range) { Repo.api(ctx).runningTrends(mapOf(7 to 4, 30 to 8, 90 to 13)[range] ?: 8) }
@@ -100,31 +106,42 @@ fun TrendsScreen() {
             emptyText = tr("No data in this range yet. Pick a longer range or wait for the next sync.", "Belum ada data di rentang ini. Pilih rentang lebih panjang atau tunggu sync berikutnya."),
         ) { days ->
             val start = dayMonth(days.first().date)
+            val hrvBase = days.lastOrNull { it.hrvLow != null && it.hrvHigh != null }
+            val rhr = days.map { it.rhr }
+            val rhrMean = rhr.filterNotNull().takeIf { it.isNotEmpty() }?.average()
+            val metrics = listOf(
+                TrendMetric(
+                    tr("Overnight HRV", "HRV semalam"), "ms", K.good, true,
+                    tr("The green band is your normal range. Staying inside it means steady recovery.", "Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil."),
+                    days.map { it.hrv }, hrvBase?.let { it.hrvLow!!..it.hrvHigh!! }, bandIsNormal = true,
+                ),
+                TrendMetric(
+                    "Resting HR", "bpm", K.ink, false,
+                    tr("Lower usually means fitter. A slow decline means a more efficient heart. The band is ±4 around the range average.", "Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien. Pita = ±4 dari rata-rata rentang."),
+                    rhr, rhrMean?.let { (it - 4)..(it + 4) },
+                ),
+                TrendMetric(
+                    tr("Sleep score", "Skor tidur"), "/100", K.blue, true,
+                    tr("A score above 70 lifts your readiness the next day. The band marks 70 to 100.", "Skor di atas 70 bikin readiness naik keesokan harinya. Pita menandai 70 sampai 100."),
+                    days.map { it.sleepScore }, 70.0..100.0,
+                ),
+                TrendMetric(
+                    tr("Peak Body Battery", "Body Battery tertinggi"), "", K.fair, true,
+                    tr("Daily energy peak after sleep. Below 60 means sleep didn't fully recharge you.", "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang."),
+                    days.map { it.bbHigh },
+                ),
+            ).filter { m -> m.values.any { it != null } }
             Column(
                 Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val hrvBase = days.lastOrNull { it.hrvLow != null && it.hrvHigh != null }
-                TrendCard(
-                    days, start, tr("Overnight HRV", "HRV semalam"), "ms", { it.hrv }, K.good, higherIsBetter = true,
-                    band = hrvBase?.let { it.hrvLow!!..it.hrvHigh!! },
-                    insight = tr("The green band is your normal range. Staying inside it means steady recovery.", "Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil."),
-                )
-                val rhrMean = days.mapNotNull { it.rhr }.takeIf { it.isNotEmpty() }?.average()
-                TrendCard(
-                    days, start, "Resting HR", "bpm", { it.rhr }, K.ink, higherIsBetter = false,
-                    band = rhrMean?.let { (it - 4)..(it + 4) },
-                    insight = tr("Lower usually means fitter. A slow decline means a more efficient heart.", "Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien."),
-                )
-                TrendCard(
-                    days, start, tr("Sleep score", "Skor tidur"), "/100", { it.sleepScore }, K.blue, higherIsBetter = true,
-                    band = 70.0..100.0,
-                    insight = tr("A score above 70 lifts your readiness the next day.", "Skor di atas 70 bikin readiness naik keesokan harinya."),
-                )
-                TrendCard(
-                    days, start, tr("Peak Body Battery", "Body Battery tertinggi"), "", { it.bbHigh }, K.fair, higherIsBetter = true,
-                    insight = tr("Daily energy peak after sleep. Below 60 means sleep didn't fully recharge you.", "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang."),
-                )
+                if (metrics.isNotEmpty()) {
+                    val current = metrics[picked.coerceIn(0, metrics.lastIndex)]
+                    TrendMain(current, days, start, range)
+                    Column(Modifier.selectableGroup()) {
+                        metrics.forEachIndexed { i, m -> TrendRow(m, m === current) { picked = i } }
+                    }
+                }
                 CardLoad(dynamics, isEmpty = { w -> w.none { it.cadence != null } }) { DynamicsTrendCard(it) }
             }
         }
@@ -138,8 +155,8 @@ private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
         Triple(tr("Ground contact", "Kontak tanah"), "ms", weeks.map { it.gctMs }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> gctBand(v) } },
         Triple(tr("Vertical ratio", "Rasio vertikal"), "%", weeks.map { it.vrPct }).takeIf { r -> r.third.any { it != null } }?.let { it to { v: Double -> ratioBand(v) } },
     )
-    Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
-        CardTitle(tr("Weekly running form", "Teknik lari per minggu"), icon = R.drawable.ic_directions_run)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionHeader(tr("Weekly running form", "Teknik lari per minggu"))
         rows.forEach { (r, band) ->
             val (name, unit, values) = r
             val latest = values.lastOrNull { it != null } ?: return@forEach
@@ -164,22 +181,48 @@ private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
     }
 }
 
+private class TrendMetric(
+    val title: String,
+    val unit: String,
+    val color: Color,
+    val higherIsBetter: Boolean,
+    val help: String,
+    val values: List<Double?>,
+    val band: ClosedFloatingPointRange<Double>? = null,
+    /** true when [band] is Garmin's recorded normal range, not a drawn reference. */
+    val bandIsNormal: Boolean = false,
+)
+
+/** One sentence from the numbers on screen: latest against the recorded normal range, or against the range average. */
+private fun trendInsight(m: TrendMetric, days: Int): String {
+    val present = m.values.filterNotNull()
+    val last = present.last()
+    val u = if (m.unit.isEmpty()) "" else " ${m.unit.trim()}"
+    val band = m.band?.takeIf { m.bandIsNormal }
+    if (band != null) {
+        val lo = band.start.roundToInt()
+        val hi = band.endInclusive.roundToInt()
+        return when {
+            last < band.start -> tr("${last.roundToInt()}$u, below your normal $lo–$hi.", "${last.roundToInt()}$u, di bawah normal kamu $lo–$hi.")
+            last > band.endInclusive -> tr("${last.roundToInt()}$u, above your normal $lo–$hi.", "${last.roundToInt()}$u, di atas normal kamu $lo–$hi.")
+            else -> tr("${last.roundToInt()}$u, inside your normal $lo–$hi.", "${last.roundToInt()}$u, di dalam normal kamu $lo–$hi.")
+        }
+    }
+    val avg = present.average().roundToInt()
+    val d = last.roundToInt() - avg
+    val n = present.size
+    return when {
+        d > 0 -> tr("${last.roundToInt()}$u, $d above the $days-day average of $avg.", "${last.roundToInt()}$u, $d di atas rata-rata $days hari ($avg).")
+        d < 0 -> tr("${last.roundToInt()}$u, ${-d} below the $days-day average of $avg.", "${last.roundToInt()}$u, ${-d} di bawah rata-rata $days hari ($avg).")
+        else -> tr("${last.roundToInt()}$u, right at the $days-day average (from $n days).", "${last.roundToInt()}$u, pas di rata-rata $days hari (dari $n hari).")
+    }
+}
+
 @Composable
-private fun TrendCard(
-    days: List<Daily>,
-    start: String,
-    title: String,
-    unit: String,
-    pick: (Daily) -> Double?,
-    color: Color,
-    higherIsBetter: Boolean,
-    insight: String,
-    band: ClosedFloatingPointRange<Double>? = null,
-) {
-    val values = days.map(pick)
-    val present = values.filterNotNull()
-    if (present.isEmpty()) return
-    var sel by remember { mutableStateOf<Int?>(null) }
+private fun TrendMain(m: TrendMetric, days: List<Daily>, start: String, range: Int) {
+    val present = m.values.filterNotNull()
+    var sel by remember(m.title, range) { mutableStateOf<Int?>(null) }
+    var help by remember(m.title) { mutableStateOf(false) }
     val last = present.last().roundToInt()
     val diff = last - present.first().roundToInt()
     val deltaText = when {
@@ -189,15 +232,16 @@ private fun TrendCard(
     }
     val deltaStatus = when {
         diff == 0 -> null
-        (diff > 0) == higherIsBetter -> Status.GOOD
+        (diff > 0) == m.higherIsBetter -> Status.GOOD
         else -> Status.FAIR
     }
-    Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(trendInsight(m, range), style = T.headline, color = K.ink)
         Row(verticalAlignment = Alignment.Top) {
             val i = sel
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label(title)
-                Value(if (i == null) last.toString() else values[i]?.roundToInt()?.toString() ?: "–", unit, num(36.sp), unitStyle = T.bodyS)
+                Label(m.title)
+                Value(if (i == null) last.toString() else m.values[i]?.roundToInt()?.toString() ?: "–", m.unit, num(36.sp), unitStyle = T.bodyS)
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (i == null) DeltaPill(deltaText, deltaStatus, up = if (diff == 0) null else diff > 0) else NeutralChip(weekday(days[i].date).take(3) + " " + dayMonth(days[i].date))
@@ -205,11 +249,36 @@ private fun TrendCard(
             }
         }
         LineChart(
-            values, tr("$title chart over ${days.size} days, latest $last $unit, change $diff", "Grafik $title ${days.size} hari, terakhir $last $unit, berubah $diff"),
-            color = color, band = band, selected = sel, onSelect = { sel = it },
+            m.values, tr("${m.title} chart over ${days.size} days, latest $last ${m.unit}, change $diff", "Grafik ${m.title} ${days.size} hari, terakhir $last ${m.unit}, berubah $diff"),
+            color = m.color, band = m.band, selected = sel, onSelect = { sel = it },
         )
         ChartDates(start)
-        Text(insight, style = T.bodyS, color = K.body3)
+        Text(
+            if (help) tr("Hide explanation", "Sembunyikan penjelasan") else tr("What does this show?", "Ini menunjukkan apa?"),
+            Modifier.heightIn(min = 48.dp).wrapContentHeight(Alignment.CenterVertically)
+                .clickable(role = Role.Button) { help = !help },
+            style = body(13.sp, FontWeight.SemiBold), color = K.muted,
+        )
+        if (help) Text(m.help, style = T.bodyS, color = K.body3)
+    }
+}
+
+@Composable
+private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
+    val last = m.values.filterNotNull().last()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (selected) K.surface else Color.Transparent)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(if (selected) m.color else K.track))
+        Text(
+            m.title, Modifier.weight(1f).padding(start = 12.dp),
+            style = body(15.sp, if (selected) FontWeight.Bold else FontWeight.Medium), color = if (selected) K.ink else K.body2,
+        )
+        Value(last.roundToInt().toString(), m.unit, num(22.sp, FontWeight.Bold), color = if (selected) K.ink else K.body2, unitStyle = T.caption)
     }
 }
 
@@ -235,8 +304,8 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenTitle(tr("Training", "Latihan"))
-            days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             CardLoad(plan) { PlanWeekCard(it) { onPlanOpen(true) } }
+            days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             RecapEntry { recap = true }
             CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }
             CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
@@ -260,8 +329,8 @@ private fun PredictionsCard(rows: List<Prediction>) {
         Triple("Half marathon", last.half, month.half),
         Triple("Marathon", last.marathon, month.marathon),
     )
-    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        CardTitle(tr("Race predictions", "Prediksi lomba"), icon = R.drawable.ic_flag)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionHeader(tr("Race predictions", "Prediksi lomba"))
         Text(tr("Garmin's estimate if you raced today, based on VO2 max and training history.", "Perkiraan Garmin kalau kamu lomba hari ini, dari VO2 max dan riwayat latihan."), style = T.bodyS, color = K.muted)
         items.forEach { (name, now, before) ->
             now ?: return@forEach
@@ -327,12 +396,13 @@ private fun RecapEntry(onOpen: () -> Unit) {
 
 @Composable
 private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
-    Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-        CardTitle(tr("Personal records", "Rekor pribadi"), icon = R.drawable.ic_emoji_events)
+    Column(Modifier.fillMaxWidth()) {
+        SectionHeader(tr("Personal records", "Rekor pribadi"))
+        Spacer(Modifier.height(6.dp))
         records.forEachIndexed { i, r ->
             if (i > 0) HorizontalDivider(color = K.track)
             Row(
-                Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(r.activityId) }.padding(vertical = 10.dp),
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(r.activityId) }.padding(horizontal = 4.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -345,17 +415,17 @@ private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
                 }
             }
         }
-        Text(tr("Counted from runs stored in the app since the first sync.", "Dihitung dari lari yang tersimpan di app sejak data pertama masuk."), Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
+        Text(tr("Counted from runs stored in the app since the first sync.", "Dihitung dari lari yang tersimpan di app sejak data pertama masuk."), Modifier.padding(start = 4.dp, top = 6.dp), style = T.caption, color = K.muted)
     }
 }
 
 @Composable
 private fun StatusCard(status: String?) {
     val (label, desc) = trainingStatus(status) ?: return
-    Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 6.dp, color = trainingTone(status).color()) {
-        Label("Training status", color = K.onAccent)
-        Text(label.uppercase(), style = num(48.sp, italic = true, lh = 0.9f), color = K.onAccent)
-        if (desc.isNotEmpty()) Text(desc, style = body(15.sp, FontWeight.Medium), color = K.onAccent)
+    Panel(Modifier.fillMaxWidth(), padding = 16.dp, gap = 4.dp) {
+        Label(tr("Training status", "Status latihan"))
+        Text(label.uppercase(), style = num(24.sp, italic = true, lh = 1f), color = trainingTone(status).color())
+        if (desc.isNotEmpty()) Text(desc, style = T.bodyS, color = K.body3)
     }
 }
 

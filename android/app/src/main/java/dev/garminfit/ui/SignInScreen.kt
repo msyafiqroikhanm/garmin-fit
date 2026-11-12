@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -187,9 +188,9 @@ private fun GoogleButton(busy: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Round initial that opens Account; volt for the owner, neutral for everyone else. */
+/** Round initial that opens Account. Neutral for everyone: it is a control, and volt is kept for status. */
 @Composable
-fun Avatar(name: String?, owner: Boolean, onClick: (() -> Unit)?, size: Int = 44) {
+fun Avatar(name: String?, onClick: (() -> Unit)?, size: Int = 44) {
     val initial = name?.trim()?.firstOrNull()?.uppercase() ?: "?"
     Box(
         Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -197,10 +198,10 @@ fun Avatar(name: String?, owner: Boolean, onClick: (() -> Unit)?, size: Int = 44
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.size(size.dp).clip(CircleShape).background(if (owner) K.good else K.track),
+            Modifier.size(size.dp).clip(CircleShape).background(K.track).border(1.dp, K.line, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(initial, style = num((size * 0.45f).sp, FontWeight.Bold), color = if (owner) K.onAccent else K.ink)
+            Text(initial, style = num((size * 0.45f).sp, FontWeight.Bold), color = K.ink)
         }
     }
 }
@@ -219,7 +220,7 @@ fun NoAccessScreen(name: String?, onOpenAccount: () -> Unit, onAdded: () -> Unit
                 Label(dayLabel(LocalDate.now().toString()))
                 Text(listOfNotNull(greeting(), name).joinToString(", "), style = T.greeting, color = K.ink)
             }
-            Avatar(name, owner = false, onClick = onOpenAccount)
+            Avatar(name, onClick = onOpenAccount)
         }
         Panel(Modifier.fillMaxWidth().padding(top = 8.dp), padding = 22.dp, gap = 18.dp) {
             // the motif with an empty dashed dot: the band is there, today's value isn't yet

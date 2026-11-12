@@ -14,17 +14,12 @@ import dev.garminfit.time
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,13 +27,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +51,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import dev.garminfit.Activity
 import dev.garminfit.Daily
@@ -77,6 +72,7 @@ import dev.garminfit.one
 import dev.garminfit.pace
 import dev.garminfit.readinessStatus
 import dev.garminfit.readinessVerdict
+import dev.garminfit.restUp
 import dev.garminfit.todayAdvice
 import dev.garminfit.rhrFactor
 import dev.garminfit.sleep
@@ -92,6 +88,11 @@ import java.time.LocalDate
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/**
+ * Today leads with one message that depends on the moment: after a session its result and what comes next,
+ * before it the session itself, with no session Garmin's readiness verdict. Everything else (readiness
+ * detail, recovery, the week) follows as quieter sections, so each number shouts only once.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAccount: () -> Unit, onStartWorkout: (String) -> Unit) {
@@ -125,11 +126,20 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val latest = today.latest
-                // a run done today is the first thing to check after it, so it jumps above the readiness hero
                 val activityToday = today.lastActivity?.takeIf { it.date.take(10) == LocalDate.now().toString() }
+                val verdict = latest?.takeIf { it.readiness != null }?.let { readinessVerdict(it.readinessLevel, it.readiness, it.recoveryMin) }
+                val session = today.plan?.session?.takeIf { it.kind != "rest" }
                 Header(today, onSync = ::refresh, onOpenAccount = onOpenAccount)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
-                activityToday?.let { TodayActivity(it, onOpenActivity) }
+                // the focus: one block on the background, chosen by where the day stands
+                val readinessLeads = activityToday == null && session == null
+                Column(Modifier.padding(top = 12.dp)) {
+                    when {
+                        activityToday != null -> DoneFocus(activityToday, today, verdict, onOpenActivity, onOpenPlan)
+                        session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, onStartWorkout.takeIf { today.role == "owner" })
+                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, restDay = today.plan?.session != null, onOpenPlan)
+                    }
+                }
                 if (latest == null) {
                     Text(
                         if (today.role == "owner") tr("No data yet. Pull down to sync from Garmin.", "Belum ada data. Tarik layar ke bawah untuk sync dari Garmin.")
@@ -139,14 +149,9 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                         color = K.muted,
                     )
                 } else {
-                    val verdict = readinessVerdict(latest.readinessLevel, latest.readiness, latest.recoveryMin)
-                    if (verdict != null && latest.readiness != null) Hero(latest, verdict, todayAdvice(verdict, today.plan))
-                    today.plan?.let { PlanTodayCard(it, onOpenPlan, onStartWorkout.takeIf { today.role == "owner" }) }
-                    Factors(latest, today)
-                    today.flags.forEach { FlagBox(flagText(it, today), flagStatus(it.key, it.level)) }
-                    Tiles(latest, verdict?.status ?: Status.GOOD)
-                    WeekPanel(today)
-                    if (activityToday == null) today.lastActivity?.let { LastActivity(it, onOpenActivity) }
+                    BodySection(latest, today, verdict.takeUnless { readinessLeads })
+                    Recovery(latest, verdict?.status ?: Status.GOOD)
+                    WeekSection(today, lastActivity = today.lastActivity.takeIf { activityToday == null }, onOpenActivity)
                     today.summary?.let { SummaryCard(it) }
                 }
             }
@@ -181,11 +186,11 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Glyph(R.drawable.ic_refresh, K.good, 16.dp)
+                    Glyph(R.drawable.ic_refresh, K.ink, 16.dp)
                     Text(listOfNotNull("Sync", syncTime(t.latest?.syncedAt)).joinToString(" "), style = body(13.sp, FontWeight.SemiBold, 1.2f), color = K.ink)
                 }
             }
-            Avatar(t.name, t.role == "owner", onOpenAccount, size = 40)
+            Avatar(t.name, onOpenAccount, size = 40)
         }
         val latest = t.latest
         if (latest != null && latest.date != now.toString()) {
@@ -199,29 +204,100 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
     }
 }
 
+/**
+ * After a session: the result is the message. The route (mapcn's lesson: the line is the only bright thing
+ * on a quiet ground) sits under a big distance, then one "what's next" line ties it to the plan and recovery.
+ */
 @Composable
-private fun Hero(d: Daily, v: Verdict, advice: Pair<String, List<String>>) {
+private fun DoneFocus(a: Activity, t: Today, verdict: Verdict?, onOpen: (Long) -> Unit, onOpenPlan: () -> Unit) {
+    val ctx = LocalContext.current
+    // same disk cache as the activity detail, so opening it after this is instant
+    val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
+    val full = (detail.state as? Load.Ok)?.data
+    val hasDistance = (a.distanceM ?: 0.0) > 0
+    val stats = listOfNotNull(
+        if (hasDistance) duration(a.durationS) to tr("time", "waktu") else null,
+        a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
+        a.avgHr?.let { it.int() to "bpm" },
+        full?.strength?.totalSets?.let { it.toString() to tr("sets", "set") },
+        a.aerobicTe?.takeIf { !hasDistance }?.let { it.one() to tr("aerobic TE", "TE aerobik") },
+    ).take(3)
+    val open = Modifier.clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.clip(RoundedCornerShape(16.dp)).then(open).padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Label(tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"), K.good)
+            Text(a.name ?: activityType(a.type), style = head(18.sp, -0.02f), color = K.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (hasDistance) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp, FontWeight.SemiBold), gap = 6.dp, roll = true)
+            else RollingText(duration(a.durationS), num(64.sp, italic = true, lh = 0.9f), K.ink)
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                stats.forEach { (v, l) -> Stat(v, l, num(24.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(12.sp, lh = 1.2f)) }
+                repeat(3 - stats.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
+            }
+        }
+        ActivityPicture(a, full, Modifier.fillMaxWidth().height(196.dp).clip(RoundedCornerShape(20.dp)).then(open))
+        WhatsNext(t, verdict, onOpenPlan)
+    }
+}
+
+/** The line after a result: the plan session's state if there is one, then the advice. */
+@Composable
+private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit) {
+    val s = t.plan?.session?.takeIf { it.kind != "rest" }
+    val advice = when {
+        s?.status == "done" -> restUp()
+        verdict != null -> todayAdvice(verdict, t.plan).first
+        else -> null
+    }
+    if (s == null && advice == null) return
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp)),
+    ) {
+        if (s != null) {
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = tr("Open plan", "Buka plan"), onClick = onOpenPlan)
+                    .sizeIn(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PlanStatusMark(s)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(tr("Plan · ${s.title.text}", "Plan · ${s.title.text}"), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    Text(sessionProgress(s), style = T.caption, color = K.muted)
+                }
+                Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
+            }
+        }
+        if (advice != null) {
+            if (s != null) HorizontalDivider(color = K.line)
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Label(tr("What's next", "Selanjutnya"))
+                Text(advice, style = T.body, color = K.ink)
+            }
+        }
+    }
+}
+
+/** No session today (or a rest day): Garmin's readiness verdict is the message. */
+@Composable
+private fun ReadinessFocus(d: Daily, v: Verdict, restDay: Boolean, onOpenPlan: () -> Unit) {
     val c = v.status.color()
-    // the status color lights the hero from its top corner, so the screen's one focal point carries the verdict
-    val tint = Brush.radialGradient(listOf(c.copy(alpha = 0.22f), Color.Transparent), center = Offset(900f, -60f), radius = 820f)
-    Panel(Modifier.fillMaxWidth(), padding = 20.dp, gap = 16.dp, background = tint) {
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            ReadinessRing(d.readiness!!.roundToInt(), c)
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Label(if (restDay) tr("Rest day in your plan", "Hari istirahat di plan") else tr("No session planned today", "Tidak ada sesi hari ini"), modifier = Modifier.padding(horizontal = 4.dp))
+        Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            ReadinessRing(d.readiness!!.roundToInt(), c, 112.dp)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(v.word.uppercase(), style = T.statusWord, color = c)
                 Text(v.tagline, style = body(15.sp, FontWeight.SemiBold, 1.3f), color = K.ink)
                 readinessStatus(d.readinessLevel)?.let { Text(tr("Garmin level: ${it.first}", "Level Garmin: ${it.first}"), style = T.bodyS, color = K.muted) }
             }
         }
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(K.base.copy(alpha = 0.72f))
-                .border(1.dp, K.line, RoundedCornerShape(16.dp)).padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Label(tr("Today's training advice", "Saran latihan hari ini"), color = c)
-            Text(advice.first, style = T.body, color = K.ink)
-            ChipRow(advice.second)
-        }
+        Text(v.advice, Modifier.padding(horizontal = 4.dp), style = T.body, color = K.ink)
+        Box(Modifier.padding(horizontal = 4.dp)) { ChipRow(v.chips) }
+        if (restDay) Text(
+            tr("Open plan", "Buka plan"),
+            Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onOpenPlan).sizeIn(minHeight = 48.dp).padding(horizontal = 4.dp, vertical = 14.dp),
+            style = body(14.sp, FontWeight.SemiBold), color = K.ink,
+        )
     }
 }
 
@@ -256,12 +332,29 @@ private fun factors(d: Daily, t: Today): List<Factor> = buildList {
     }
 }
 
+/**
+ * Readiness and why: the compact verdict (when it is not already the focus), the baseline bands straight on the
+ * background, and the flags. [verdict] is null when the focus above already shows it.
+ */
 @Composable
-private fun Factors(d: Daily, t: Today) {
+private fun BodySection(d: Daily, t: Today, verdict: Verdict?) {
     val list = factors(d, t)
-    if (list.isEmpty()) return
-    SectionHeader(tr("Why this score?", "Kenapa skornya segini?"), tr("green = your normal", "hijau = normalmu"))
-    Panel(Modifier.fillMaxWidth(), gap = 18.dp) {
+    if (list.isEmpty() && verdict == null && t.flags.isEmpty()) return
+    SectionHeader(tr("Readiness", "Readiness"), tr("green = your normal", "hijau = normalmu").takeIf { list.isNotEmpty() })
+    if (verdict != null) {
+        val c = verdict.status.color()
+        Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            ReadinessRing(d.readiness!!.roundToInt(), c, 64.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(verdict.word.uppercase(), style = num(26.sp, italic = true, lh = 1f), color = c)
+                Text(
+                    listOfNotNull(verdict.tagline, readinessStatus(d.readinessLevel)?.let { tr("Garmin level ${it.first.lowercase()}", "level Garmin ${it.first.lowercase()}") }).joinToString(" · "),
+                    style = T.bodyS, color = K.body2,
+                )
+            }
+        }
+    }
+    Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         list.forEach { f ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -276,6 +369,7 @@ private fun Factors(d: Daily, t: Today) {
             }
         }
     }
+    t.flags.forEach { FlagBox(flagText(it, t), flagStatus(it.key, it.level)) }
 }
 
 @Composable
@@ -292,56 +386,61 @@ private fun FlagBox(text: String, status: Status) {
     }
 }
 
+/** Body Battery, steps and sleep as one strip: three readings of the same night and day, not three cards. */
 @Composable
-private fun Tiles(d: Daily, readiness: Status) {
+private fun Recovery(d: Daily, readiness: Status) {
     val bb = d.bbNow ?: d.bbHigh
     val hasSteps = d.steps != null
-    if (bb != null || hasSteps || d.sleepS != null) SectionHeader(tr("Recovery", "Pemulihan"))
-    if (bb != null || hasSteps) {
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (bb != null) Tile(Modifier.weight(1f).fillMaxHeight()) {
-                Label("Body Battery")
-                Value(bb.int(), if (d.bbNow != null) tr("now", "sekarang") else tr("peak", "tertinggi"), num(36.sp))
-                val low = d.bbLow
-                val high = d.bbHigh
-                if (low != null && high != null) {
-                    SpanBar((low / 100).toFloat(), (high / 100).toFloat(), readiness.color())
-                    Text(tr("Low ${low.int()} · high ${high.int()}", "Terendah ${low.int()} · tertinggi ${high.int()}"), style = T.caption, color = K.muted)
+    if (bb == null && !hasSteps && d.sleepS == null) return
+    SectionHeader(tr("Recovery", "Pemulihan"))
+    Panel(Modifier.fillMaxWidth(), padding = 16.dp, radius = 20.dp, gap = 14.dp) {
+        if (bb != null || hasSteps) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (bb != null) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Label("Body Battery")
+                    Value(bb.int(), if (d.bbNow != null) tr("now", "sekarang") else tr("peak", "tertinggi"), num(32.sp))
+                    val low = d.bbLow
+                    val high = d.bbHigh
+                    if (low != null && high != null) {
+                        SpanBar((low / 100).toFloat(), (high / 100).toFloat(), readiness.color(), height = 6.dp)
+                        Text(tr("Low ${low.int()} · high ${high.int()}", "Terendah ${low.int()} · tertinggi ${high.int()}"), style = T.caption, color = K.muted)
+                    }
+                }
+                if (bb != null && hasSteps) Box(Modifier.width(1.dp).fillMaxHeight().background(K.line))
+                if (hasSteps) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val goal = d.stepGoal?.takeIf { it > 0 } ?: 8000.0
+                    Label(tr("Steps", "Langkah"))
+                    Value(d.steps.int(), "/ ${goal.int()}", num(32.sp))
+                    SpanBar(0f, (d.steps!! / goal).toFloat(), K.ink, height = 6.dp)
+                    Text(tr("${(d.steps / goal * 100).roundToInt()}% of daily goal", "${(d.steps / goal * 100).roundToInt()}% target harian"), style = T.caption, color = K.muted)
                 }
             }
-            if (hasSteps) Tile(Modifier.weight(1f).fillMaxHeight()) {
-                val goal = d.stepGoal?.takeIf { it > 0 } ?: 8000.0
-                Label(tr("Steps", "Langkah"))
-                Value(d.steps.int(), "/ ${goal.int()}", num(36.sp))
-                SpanBar(0f, (d.steps!! / goal).toFloat(), K.ink)
-                Text(tr("${(d.steps / goal * 100).roundToInt()}% of daily goal", "${(d.steps / goal * 100).roundToInt()}% target harian"), style = T.caption, color = K.muted)
-            }
+        }
+        if (d.sleepS != null) {
+            if (bb != null || hasSteps) HorizontalDivider(color = K.line)
+            Sleep(d)
         }
     }
-    if (d.sleepS != null) SleepTile(d)
 }
 
 @Composable
-private fun Tile(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) =
-    Panel(modifier, padding = 14.dp, radius = 20.dp, gap = 8.dp, content = content)
-
-@Composable
-private fun SleepTile(d: Daily) {
+private fun Sleep(d: Daily) {
     val stages = listOf(
         Triple("Deep", d.deepS, K.deep),
         Triple("REM", d.remS, K.blue),
         Triple(tr("Light", "Ringan"), d.lightS, K.light),
         Triple(tr("Awake", "Bangun"), d.awakeS, K.low),
     )
-    Panel(Modifier.fillMaxWidth(), padding = 14.dp, radius = 20.dp, gap = 10.dp) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
             Label(tr("Last night's sleep", "Tidur semalam"), modifier = Modifier.weight(1f).alignByBaseline())
-            Value(sleep(d.sleepS), d.sleepScore?.let { tr("score ${it.int()}", "skor ${it.int()}") } ?: "", num(28.sp), gap = 6.dp, modifier = Modifier.alignByBaseline())
+            Value(sleep(d.sleepS), d.sleepScore?.let { tr("score ${it.int()}", "skor ${it.int()}") } ?: "", num(26.sp), gap = 6.dp, modifier = Modifier.alignByBaseline())
         }
         if (stages.any { (it.second ?: 0.0) > 0 }) {
             StackedBar(
                 stages.map { (it.second ?: 0.0) to it.third },
                 description = stages.joinToString(", ") { "${it.first} ${sleep(it.second)}" },
+                height = 10.dp,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 stages.forEach { (name, s, c) ->
@@ -355,24 +454,17 @@ private fun SleepTile(d: Daily) {
     }
 }
 
+/** The week straight on the background: a stat strip, the daily load bars, and the last activity as a list row. */
 @Composable
-private fun WeekPanel(t: Today) {
+private fun WeekSection(t: Today, lastActivity: Activity?, onOpenActivity: (Long) -> Unit) {
     val w = t.week
     var sel by remember { mutableStateOf<Int?>(null) }
     val haptic = LocalHapticFeedback.current
-    SectionHeader(tr("This week", "Minggu ini"))
-    Panel(Modifier.fillMaxWidth(), gap = 14.dp) {
-        val picked = sel?.let { w.dailyLoad.getOrNull(it) }
-        Text(
-            if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
-            else tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"),
-            style = body(13.sp, FontWeight.SemiBold), color = K.good,
-        )
-        if (w.count == 0) {
-            Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), style = T.body, color = K.muted)
-            return@Panel
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    SectionHeader(tr("This week", "Minggu ini"), tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"))
+    if (w.count == 0) {
+        Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), Modifier.padding(horizontal = 4.dp), style = T.body, color = K.muted)
+    } else {
+        Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat(w.count.toString(), tr("sessions", "sesi"), num(30.sp), Modifier.weight(1f))
             Stat((w.distanceM / 1000).one(), "km", num(30.sp), Modifier.weight(1f))
             Stat(duration(w.durationS), tr("duration", "durasi"), num(30.sp), Modifier.weight(1f))
@@ -382,9 +474,10 @@ private fun WeekPanel(t: Today) {
             val maxLoad = max(1.0, days.maxOf { it.load })
             val today = LocalDate.now().toString()
             val reveal = rememberReveal(days, durationMs = 600)
+            val picked = sel?.let { days.getOrNull(it) }
             // 64dp tallest bar + load number + day label; the handoff's 92dp clipped the labels under tall bars.
             Row(
-                Modifier.fillMaxWidth().height(104.dp).scrub(days.size, bars = true) { i ->
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).height(104.dp).scrub(days.size, bars = true) { i ->
                     if (i != null && i != sel) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     sel = i
                 },
@@ -417,94 +510,40 @@ private fun WeekPanel(t: Today) {
                     }
                 }
             }
-            Text(tr("Bar height = training load per day · total ${days.sumOf { it.load }.int()}", "Tinggi batang = training load per hari · total ${days.sumOf { it.load }.int()}"), style = T.caption, color = K.muted)
+            Text(
+                if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
+                else tr("Bar height = training load per day · total ${days.sumOf { it.load }.int()}", "Tinggi batang = training load per hari · total ${days.sumOf { it.load }.int()}"),
+                Modifier.padding(horizontal = 4.dp), style = T.caption, color = if (picked != null) K.ink else K.muted,
+            )
         }
     }
-}
-
-@Composable
-private fun LastActivity(a: Activity, onOpen: (Long) -> Unit) {
-    val hasDistance = (a.distanceM ?: 0.0) > 0
-    val stats = listOfNotNull(
-        if (hasDistance) km(a.distanceM) to "km" else duration(a.durationS) to tr("duration", "durasi"),
-        a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
-        a.avgHr?.let { it.int() to "bpm" },
-        a.aerobicTe?.let { it.one() to tr("aerobic TE", "TE aerobik") },
-    )
-    Panel(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) },
-        gap = 10.dp,
-    ) {
-        Label(tr("Last activity · ${weekday(a.date)}", "Aktivitas terakhir · ${weekday(a.date)}"))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(a.name ?: activityType(a.type), Modifier.weight(1f), style = head(18.sp, -0.02f), color = K.ink)
-            Glyph(R.drawable.ic_chevron_right, K.muted)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            stats.forEach { (v, l) -> Stat(v, l, num(20.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(11.sp, lh = 1.2f)) }
-            repeat(4 - stats.size) { Spacer(Modifier.weight(1f)) }
-        }
-    }
-}
-
-/**
- * The session done today, right under the header: its route in pace colors (or the worked muscles for
- * strength) beside a big number, so it reads as today's result rather than one more card.
- */
-@Composable
-private fun TodayActivity(a: Activity, onOpen: (Long) -> Unit) {
-    val ctx = LocalContext.current
-    // same disk cache as the activity detail, so opening it after this is instant
-    val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
-    val full = (detail.state as? Load.Ok)?.data
-    val hasDistance = (a.distanceM ?: 0.0) > 0
-    val stats = listOfNotNull(
-        if (hasDistance) duration(a.durationS) to tr("time", "waktu") else null,
-        a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
-        a.avgHr?.let { it.int() to "bpm" },
-        full?.strength?.totalSets?.let { it.toString() to tr("sets", "set") },
-        a.aerobicTe?.takeIf { !hasDistance }?.let { it.one() to tr("aerobic TE", "TE aerobik") },
-    ).take(3)
-    Panel(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) },
-        padding = 20.dp,
-        gap = 14.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Label(tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"), K.good, Modifier.weight(1f))
-            Glyph(R.drawable.ic_chevron_right, K.muted)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(a.name ?: activityType(a.type), style = head(17.sp, -0.02f), color = K.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (hasDistance) Value(km(a.distanceM), "km", num(56.sp, italic = true, lh = 0.9f), unitStyle = body(16.sp), gap = 4.dp, roll = true)
-                else RollingText(duration(a.durationS), num(48.sp, italic = true, lh = 0.9f), K.ink)
-            }
-            ActivityPicture(a, full)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            stats.forEach { (v, l) -> Stat(v, l, num(20.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(11.sp, lh = 1.2f)) }
-            repeat(3 - stats.size) { Spacer(Modifier.weight(1f)) }
+    lastActivity?.let { a ->
+        Column {
+            Label(tr("Last activity", "Aktivitas terakhir"), modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+            ActivityRow(a, hPad = 4.dp) { onOpenActivity(a.id) }
+            HorizontalDivider(Modifier.padding(horizontal = 4.dp), color = K.track)
         }
     }
 }
 
 /** Route for GPS sessions, body map for strength, otherwise the type icon; the icon also stands in while the detail loads. */
 @Composable
-private fun ActivityPicture(a: Activity, full: Activity?) {
+private fun ActivityPicture(a: Activity, full: Activity?, modifier: Modifier) {
     val route = full?.route?.takeIf { it.size > 1 }
     val muscles = full?.strength?.muscles?.takeIf { it.isNotEmpty() }
-    Box(Modifier.size(width = 116.dp, height = 116.dp).clip(RoundedCornerShape(16.dp)).background(K.base), contentAlignment = Alignment.Center) {
+    Box(modifier.background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
         when {
-            route != null -> Canvas(Modifier.fillMaxSize().padding(10.dp)) {
-                drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, 3.dp.toPx()) }
+            route != null -> Canvas(Modifier.fillMaxSize().padding(20.dp)) {
+                drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, 4.dp.toPx()) }
             }
-            muscles != null -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
+            muscles != null -> Canvas(Modifier.fillMaxSize().padding(12.dp)) {
                 drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, muscles, K.good, K.track) }
             }
-            else -> Glyph(activityIcon(a.type), K.muted, 40.dp)
+            else -> Glyph(activityIcon(a.type), K.muted, 48.dp)
+        }
+        // the one control on the picture, in a corner like a map's own buttons
+        Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(32.dp).clip(CircleShape).background(K.base.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
+            Glyph(R.drawable.ic_chevron_right, K.ink, 20.dp)
         }
     }
 }
@@ -515,6 +554,7 @@ private fun rangeLabel(from: String, to: String): String {
     return if (f.month == t.month) "${f.dayOfMonth}–${dayMonth(to)}" else "${dayMonth(from)}–${dayMonth(to)}"
 }
 
+/** Claude's weekly read: a headline to open, on a plain card so it no longer outshouts today's focus. */
 @Composable
 private fun SummaryCard(s: Summary) {
     var open by remember { mutableStateOf(false) }
@@ -522,31 +562,26 @@ private fun SummaryCard(s: Summary) {
     val text = s.en?.takeUnless { isId() }
     val headline = text?.headline ?: s.headline
     val sections = text?.sections ?: s.sections
+    SectionHeader(tr("Weekly summary", "Ringkasan minggu"), rangeLabel(s.range.from, s.range.to))
     Panel(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).animateContentSize()
             .clickable(role = Role.Button, onClickLabel = if (open) tr("Close summary", "Tutup ringkasan") else tr("Open summary", "Buka ringkasan")) { open = !open },
-        gap = 8.dp,
-        color = K.good,
+        gap = 10.dp,
     ) {
-        Text(
-            tr("Weekly summary · ${rangeLabel(s.range.from, s.range.to)}", "Ringkasan minggu · ${rangeLabel(s.range.from, s.range.to)}"),
-            style = T.label.copy(fontWeight = FontWeight.Bold),
-            color = K.onAccent,
-        )
-        Text(headline, style = head(22.sp, -0.035f, FontWeight.ExtraBold), color = K.onAccent)
+        Text(headline, style = head(21.sp, -0.03f), color = K.ink)
         if (open) {
-            Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 sections.forEach { sec ->
-                    Column {
-                        Text(sec.title, style = body(13.sp, FontWeight.Bold), color = K.onAccent)
-                        Text(sec.body, style = body(14.sp, lh = 1.45f), color = K.onAccent)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(sec.title, style = body(13.sp, FontWeight.Bold), color = K.ink)
+                        Text(sec.body, style = body(14.sp, lh = 1.5f), color = K.body3)
                     }
                 }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(if (open) tr("Close", "Tutup") else tr("Tap to read it all", "Ketuk untuk baca lengkap"), style = body(13.sp, FontWeight.SemiBold), color = K.onAccent)
-            Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.onAccent, 18.dp)
+            Text(if (open) tr("Close", "Tutup") else tr("Read it all", "Baca lengkap"), style = body(13.sp, FontWeight.SemiBold), color = K.ink)
+            Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.ink, 18.dp)
         }
     }
 }

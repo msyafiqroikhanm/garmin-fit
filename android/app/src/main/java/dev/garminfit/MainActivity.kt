@@ -161,7 +161,7 @@ private fun Root(launch: Intent?) {
                 token = Repo.token(ctx)
             }
         }
-        waitForMe -> Centered { CircularProgressIndicator(color = K.good) }
+        waitForMe -> Centered { CircularProgressIndicator(color = K.ink) }
         accountOpen -> AccountScreen(onBack = { accountOpen = false }, onAccessChanged = { meVersion++ }, onSignOut = ::signOut)
         me?.role == null && me != null -> NoAccessScreen(me?.name, onOpenAccount = { accountOpen = true }, onAdded = {
             scope.launch { Widgets.updateAll(ctx) }
@@ -232,7 +232,8 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
 
 /**
  * Icon over label in a floating pill: the icon gives each tab a shape to find at a glance, the label removes
- * guessing. It floats on the screen color instead of a full-width bar so the bottom edge reads lighter.
+ * guessing. The selected tab is a neutral track pill with ink, not volt, so "where am I" never competes with
+ * the body's status colors on the screen above it.
  */
 @Composable
 private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
@@ -251,10 +252,10 @@ private fun BottomNav(selected: Tab, onSelect: (Tab) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Box(
-                        Modifier.size(width = 52.dp, height = 30.dp).clip(CircleShape).background(if (on) K.good else Color.Transparent),
+                        Modifier.size(width = 52.dp, height = 30.dp).clip(CircleShape).background(if (on) K.track else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(painterResource(t.icon), null, Modifier.size(22.dp), tint = if (on) K.onAccent else K.muted)
+                        Icon(painterResource(t.icon), null, Modifier.size(22.dp), tint = if (on) K.ink else K.muted)
                     }
                     Text(
                         t.label,

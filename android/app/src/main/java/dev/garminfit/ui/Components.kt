@@ -273,7 +273,7 @@ private fun LoadingSkeleton(text: String) {
 fun Glyph(@DrawableRes res: Int, tint: Color, size: Dp = 24.dp, modifier: Modifier = Modifier, description: String? = null) =
     Icon(painterResource(res), description, modifier.size(size), tint = tint)
 
-/** Volt back link at the top of a sub-screen. */
+/** Back link at the top of a sub-screen; ink like every other control, volt stays for data. */
 @Composable
 fun BackLink(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
@@ -281,11 +281,12 @@ fun BackLink(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Glyph(R.drawable.ic_chevron_left, K.good, 20.dp)
-        Text(text, style = body(14.sp, FontWeight.SemiBold), color = K.good)
+        Glyph(R.drawable.ic_chevron_left, K.ink, 20.dp)
+        Text(text, style = body(14.sp, FontWeight.SemiBold), color = K.ink)
     }
 }
 
+/** The screen's main action: an ink pill, so it never reads as a "good" status. */
 @Composable
 fun AccentButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, @DrawableRes icon: Int? = null) {
     Button(
@@ -293,7 +294,7 @@ fun AccentButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifie
         modifier = modifier.height(48.dp),
         enabled = enabled,
         shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(containerColor = K.good, contentColor = K.onAccent),
+        colors = ButtonDefaults.buttonColors(containerColor = K.ink, contentColor = K.onAccent),
     ) {
         icon?.let { Icon(painterResource(it), null, Modifier.padding(end = 6.dp).size(18.dp)) }
         Text(text, style = body(15.sp, FontWeight.Bold))
@@ -309,10 +310,7 @@ fun Centered(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/**
- * Card surface with a hairline edge. Radius 24 for cards, 20 for tiles; the padding steps 20/18/14 mark
- * hero, card, tile. [background] replaces the flat fill, for the readiness hero's status tint.
- */
+/** Bounded content with a hairline edge; headlines, peer lists and agenda rows stay on the screen ground. */
 @Composable
 fun Panel(
     modifier: Modifier = Modifier,
@@ -354,17 +352,20 @@ fun ScreenTitle(text: String) {
     Text(text, Modifier.padding(horizontal = 4.dp), style = T.screenTitle, color = K.ink)
 }
 
-/** Heading above a group of cards, with an optional quiet note or link at the right. */
+/**
+ * Heading above a group, with an optional quiet note or link at the right. The 28dp above it is the
+ * gap between groups; items inside a group sit 12dp apart, so sections read as stops in the scroll.
+ */
 @Composable
 fun SectionHeader(text: String, trailing: String? = null, onTrailing: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 28.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, Modifier.weight(1f), style = T.sectionTitle, color = K.ink)
         trailing?.let {
             if (onTrailing == null) Text(it, style = T.caption, color = K.muted)
             else Text(
                 it,
                 Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = onTrailing).padding(start = 12.dp).wrapContentHeight(),
-                style = body(13.sp, FontWeight.SemiBold), color = K.good,
+                style = body(13.sp, FontWeight.SemiBold), color = K.ink,
             )
         }
     }
@@ -469,20 +470,22 @@ fun RollingText(text: String, style: TextStyle, color: Color, modifier: Modifier
 }
 
 @Composable
-fun ReadinessRing(score: Int, color: Color) {
+fun ReadinessRing(score: Int, color: Color, size: Dp = 132.dp) {
     val sweep = rememberReveal(score, durationMs = 900)
-    Box(Modifier.size(132.dp), contentAlignment = Alignment.Center) {
+    val k = size / 132.dp
+    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().semantics { contentDescription = tr("Training readiness $score out of 100", "Training readiness $score dari 100") }) {
-            val w = 12.dp.toPx()
-            val inset = w / 2 + 4.dp.toPx()
-            val arc = Size(size.width - inset * 2, size.height - inset * 2)
+            val w = 12.dp.toPx() * k.coerceAtLeast(0.6f)
+            val inset = w / 2 + 4.dp.toPx() * k
+            val arc = Size(this.size.width - inset * 2, this.size.height - inset * 2)
             val tl = Offset(inset, inset)
             drawArc(K.ink.copy(alpha = 0.08f), 0f, 360f, false, tl, arc, style = Stroke(w))
             drawArc(color, -90f, 360f * score.coerceIn(0, 100) / 100f * sweep.value, false, tl, arc, style = Stroke(w, cap = StrokeCap.Round))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            RollingText(score.toString(), num(52.sp, lh = 0.9f), K.ink)
-            Text("Readiness", style = body(11.5.sp, FontWeight.SemiBold, 1.2f), color = K.muted)
+            RollingText(score.toString(), num((52 * k).sp, lh = 0.9f), K.ink)
+            // the label only fits the full-size ring; the compact one sits next to a "Readiness" heading
+            if (size >= 100.dp) Text("Readiness", style = body(11.5.sp, FontWeight.SemiBold, 1.2f), color = K.muted)
         }
     }
 }
@@ -709,7 +712,7 @@ fun ChartDates(start: String) {
     }
 }
 
-/** Pill-shaped single choice. The pick is ink, not volt, so volt stays for the nav and the main action. */
+/** Pill-shaped single choice: ink fill identifies selection without implying a body status. */
 @Composable
 fun <V> Segmented(options: List<V>, selected: V, label: (V) -> String, onSelect: (V) -> Unit) {
     Row(

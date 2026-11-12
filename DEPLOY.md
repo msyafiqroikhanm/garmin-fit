@@ -56,3 +56,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.15 | 2026-11-10 | Plan session screen: target vs done, Result card with Next time, notes with folded sections |
 | v0.16 | 2026-11-11 | Plan opens on this week with a week chip strip and one week shown; rows start with the date; only pace, distance and HR are bold in notes; empty and finished plan screens |
 | v0.17 | 2026-11-12 | Today's plan widget: session, % and week strip, opens the plan, Sync pulls Garmin now; widgets redraw on new data right away; hairline edge on every widget; the plan line on Readiness shows again |
+| v0.18 | 2026-11-12 | Personal training journal redesign: contextual Today, content-first Workout with larger body map, weekly plan agenda with explicit progress labels, one selected Trends chart, neutral navigation and actions; updated DESIGN.md |
