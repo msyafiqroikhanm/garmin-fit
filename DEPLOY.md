@@ -55,3 +55,4 @@ Same flags for pushing a tag (`… push origin v0.X`).
 | v0.14 | 2026-11-05 | Workout tab with Strength 28, body-focus routines, exercise library, guided player, offline logs, imported history and watch activity linking |
 | v0.15 | 2026-11-10 | Plan session screen: target vs done, Result card with Next time, notes with folded sections |
 | v0.16 | 2026-11-11 | Plan opens on this week with a week chip strip and one week shown; rows start with the date; only pace, distance and HR are bold in notes; empty and finished plan screens |
+| v0.17 | 2026-11-12 | Today's plan widget: session, % and week strip, opens the plan, Sync pulls Garmin now; widgets redraw on new data right away; hairline edge on every widget; the plan line on Readiness shows again |

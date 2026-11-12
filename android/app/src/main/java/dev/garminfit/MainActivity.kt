@@ -92,6 +92,7 @@ enum class Tab(private val en: String, private val id: String, @DrawableRes val 
 
 const val EXTRA_TAB = "tab"
 const val EXTRA_ACTIVITY = "activity_id"
+const val EXTRA_PLAN = "plan"
 
 class MainActivity : ComponentActivity() {
     private var launch by mutableStateOf<Intent?>(null)
@@ -183,6 +184,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     LaunchedEffect(launch) {
         launch?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name }?.let { tab = it } }
         launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it }
+        if (launch?.getBooleanExtra(EXTRA_PLAN, false) == true) { tab = Tab.TRAINING; planOpen = true }
     }
     // the player handles back itself (it pauses)
     BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }

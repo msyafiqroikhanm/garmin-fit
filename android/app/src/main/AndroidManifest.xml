@@ -49,5 +49,9 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/w_last" />
         </receiver>
+        <receiver android:name=".widget.PlanReceiver" android:exported="true" android:label="@string/w_plan">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/w_plan" />
+        </receiver>
     </application>
 </manifest>

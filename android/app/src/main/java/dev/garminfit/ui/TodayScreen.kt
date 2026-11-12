@@ -97,8 +97,11 @@ import kotlin.math.roundToInt
 fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAccount: () -> Unit, onStartWorkout: (String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    // widgets redraw on their own coroutine so the screen does not wait for five Glance renders
-    val loader = rememberCachedLoad("today") { Repo.fetchToday(ctx).also { scope.launch { Widgets.updateAll(ctx) } } }
+    // widgets redraw on their own coroutine so the screen does not wait for five Glance renders; the plan
+    // is fetched there too because the Plan widget's week strip reads it
+    val loader = rememberCachedLoad("today") {
+        Repo.fetchToday(ctx).also { scope.launch { runCatching { Repo.fetchPlan(ctx) }; Widgets.updateAll(ctx) } }
+    }
     var refreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
 

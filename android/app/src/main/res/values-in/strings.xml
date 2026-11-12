@@ -9,4 +9,6 @@
     <string name="w_trend_desc">HRV dibanding rentang normal dan RHR dibanding rata-rata 30 hari</string>
     <string name="w_last">Aktivitas terakhir</string>
     <string name="w_last_desc">Jarak, durasi, dan pace aktivitas terakhir</string>
+    <string name="w_plan">Plan hari ini</string>
+    <string name="w_plan_desc">Sesi plan hari ini dengan progresnya dan sesi minggu ini; ketuk untuk buka plan, sinkron untuk update sekarang</string>
 </resources>

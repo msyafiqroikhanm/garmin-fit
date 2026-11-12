@@ -10,4 +10,6 @@
     <string name="w_trend_desc">HRV against your normal range and RHR against your 30 day average</string>
     <string name="w_last">Last activity</string>
     <string name="w_last_desc">Distance, time, and pace of your last activity</string>
+    <string name="w_plan">Today\'s plan</string>
+    <string name="w_plan_desc">Today\'s plan session with its progress and this week\'s sessions; tap to open the plan, sync to update now</string>
 </resources>

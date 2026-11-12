@@ -98,7 +98,7 @@ internal fun statusLabel(s: PlanSession) = when (s.status) {
 }
 
 @DrawableRes
-private fun statusIcon(status: String) = when (status) {
+internal fun statusIcon(status: String) = when (status) {
     "done" -> R.drawable.ic_check_circle
     "partial" -> R.drawable.ic_check_circle
     "missed" -> R.drawable.ic_cancel

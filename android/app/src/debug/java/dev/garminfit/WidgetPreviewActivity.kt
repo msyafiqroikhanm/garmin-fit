@@ -38,6 +38,7 @@ class WidgetPreviewActivity : ComponentActivity() {
         Triple("week", "WeekReceiver", SizeF(344f, 223f)),
         Triple("trend", "TrendReceiver", SizeF(344f, 223f)),
         Triple("last", "LastActivityReceiver", SizeF(344f, 104f)),
+        Triple("plan", "PlanReceiver", SizeF(344f, 223f)),
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

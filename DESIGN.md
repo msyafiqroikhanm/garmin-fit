@@ -125,11 +125,12 @@ Tabs reopen instantly: `rememberLoad` keeps the last result per call site in mem
 ## Known limits
 
 - VO2 category scale only has the Cooper Institute rows for age 20 to 29; outside that band the scale hides.
-- Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts. Labels are condensed caps like `Label`, without the tracking (Glance has no letter spacing).
-- Widgets are responsive (`SizeMode.Responsive`): each adds detail as it grows, and every header shows freshness ("Sync 17:20", or "Data from <day>" when stale).
+- Widgets use the Kinetik colors but the system condensed font, since Glance cannot load bundled fonts. Labels are condensed caps like `Label`, without the tracking (Glance has no letter spacing). Each sits on a surface card with the 1dp `line` edge (`bg_widget`), like the app's cards.
+- Widgets are responsive (`SizeMode.Responsive`): each adds detail as it grows, and every header shows freshness ("Sync 17:20", or "Data from <day>" when stale). They collect the cached /today (and /plan) as flows, so a widget whose Glance session is still open redraws on new data instead of keeping what it read when the session started.
   - Readiness 2×2: score, verdict word in its status color under it, tagline; taller adds HRV on the baseline band and today's plan session.
   - Today 4×2: verdict and score, HRV / RHR / Sleep / Battery, steps bar; tallest adds the first flag or the advice.
   - This week 4×2: sessions, distance (load when there is none), time, plan sessions done, and daily load bars Monday to Sunday, same as the Today card.
   - 7 day trend 4×2: HRV line in its status color over the normal band, RHR over a dashed 30 day average.
   - Last activity 4×1: type icon in a track circle, date and name, then distance, time and pace (HR only without a distance); two rows show a hero (distance, or time when there is none) and a stat row.
+  - Today's plan 4×2: today's session with its status mark, target and % (bar in the status color), the recovery adjustment in fair; tall adds this week's strip (weekday over status mark, today on the base fill) like the plan card; bottom line "This week 2/5 done". The whole card opens the plan; the Sync control (last sync time plus refresh icon) pulls Garmin right away through `RefreshWorker.now` and reads "Syncing" until it ends. 4×1 keeps the session row and the refresh icon. The plan line in Readiness and Today also opens the plan.
 - Widget picker previews are screenshots of the real widgets (`res/drawable-nodpi/preview_*.png`), so they show the owner's data from the day they were taken and are English only. Retake them when a widget layout changes: on a debug build, `adb shell appwidget grantbind --package dev.garminfit`, start `.WidgetPreviewActivity`, and pull `/sdcard/Android/data/dev.garminfit/files/previews` (instructions in the activity). Take them on a day with activities this week, or This week shows zeros.

@@ -8,6 +8,9 @@ import android.graphics.Paint
 import android.graphics.DashPathEffect
 import android.graphics.Path
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
@@ -20,7 +23,10 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.ColorFilter
 import androidx.glance.LocalSize
+import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.LinearProgressIndicator
@@ -42,6 +48,8 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.semantics.contentDescription
+import androidx.glance.semantics.semantics
 import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -49,15 +57,22 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider as GColor
 import dev.garminfit.Daily
 import dev.garminfit.EXTRA_ACTIVITY
+import dev.garminfit.EXTRA_PLAN
 import dev.garminfit.EXTRA_TAB
 import dev.garminfit.MainActivity
 import dev.garminfit.Repo
 import dev.garminfit.Tab
 import dev.garminfit.Today
 import dev.garminfit.PlanSession
+import dev.garminfit.PlanToday
+import dev.garminfit.PlanView
 import dev.garminfit.R
 import kotlin.math.roundToInt
 import dev.garminfit.ui.planTarget
+import dev.garminfit.ui.statusColor
+import dev.garminfit.ui.statusIcon
+import dev.garminfit.targetText
+import kotlinx.coroutines.flow.first
 import dev.garminfit.activityIcon
 import dev.garminfit.activityType
 import dev.garminfit.dayLabel
@@ -81,7 +96,7 @@ import java.time.LocalDate
 
 // Kinetik palette from the app theme (dark only), so a widget reads like a card from the app.
 private fun c(color: Color) = ColorProvider(color, color)
-private val Bg = c(K.surface)
+private val Hairline = ImageProvider(R.drawable.bg_widget)
 private val Ink = c(K.ink)
 private val Muted = c(K.muted)
 private val Accent = c(K.good)
@@ -108,7 +123,7 @@ private val body = TextStyle(color = Muted, fontSize = 12.sp)
  */
 private val SIZES = setOf(
     DpSize(110.dp, 110.dp), DpSize(110.dp, 200.dp),
-    DpSize(250.dp, 50.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 170.dp), DpSize(250.dp, 230.dp),
+    DpSize(250.dp, 50.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 170.dp), DpSize(250.dp, 200.dp), DpSize(250.dp, 230.dp),
 )
 
 object Widgets {
@@ -118,22 +133,26 @@ object Widgets {
         WeekWidget().updateAll(ctx)
         TrendWidget().updateAll(ctx)
         LastActivityWidget().updateAll(ctx)
+        PlanWidget().updateAll(ctx)
     }
 }
 
-private fun open(ctx: Context, tab: Tab, activityId: Long? = null) = actionStartActivity(
+private fun open(ctx: Context, tab: Tab, activityId: Long? = null, plan: Boolean = false) = actionStartActivity(
     Intent(ctx, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         putExtra(EXTRA_TAB, tab.name)
         activityId?.let { putExtra(EXTRA_ACTIVITY, it) }
-        data = android.net.Uri.parse("garminfit://${tab.name}/${activityId ?: ""}")
+        if (plan) putExtra(EXTRA_PLAN, true)
+        // distinct per target, or Android hands every widget the same PendingIntent
+        data = android.net.Uri.parse("garminfit://${tab.name}/${activityId ?: ""}${if (plan) "plan" else ""}")
     },
 )
 
 @Composable
-private fun Card(ctx: Context, tab: Tab, activityId: Long? = null, content: @Composable () -> Unit) {
+private fun Card(ctx: Context, tab: Tab, activityId: Long? = null, plan: Boolean = false, content: @Composable () -> Unit) {
+    // the app's card: surface fill with a 1dp hairline edge, since a fill step alone reads as one slab on a dark wallpaper
     Box(
-        GlanceModifier.fillMaxSize().background(Bg).cornerRadius(16.dp).padding(14.dp).clickable(open(ctx, tab, activityId)),
+        GlanceModifier.fillMaxSize().background(Hairline).cornerRadius(24.dp).padding(14.dp).clickable(open(ctx, tab, activityId, plan)),
     ) { content() }
 }
 
@@ -185,19 +204,13 @@ private fun Steps(d: Daily) {
     }
 }
 
-/** Today's planned session in one line, with its score once something is done. */
+/** Today's planned session in one line, with its score once something is done; tapping it opens the plan. */
 @Composable
-private fun PlanLine(p: PlanSession) {
-    val color = when (p.status) {
-        "done" -> Status.GOOD.provider()
-        "partial" -> Status.FAIR.provider()
-        "missed" -> Status.LOW.provider()
-        else -> Ink
-    }
-    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+private fun PlanLine(ctx: Context, p: PlanSession) {
+    Row(GlanceModifier.fillMaxWidth().clickable(open(ctx, Tab.TRAINING, plan = true)), verticalAlignment = Alignment.Bottom) {
         Caps("Plan ")
         Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
-        p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, color)) }
+        p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, c(statusColor(p.status)))) }
     }
 }
 
@@ -205,8 +218,12 @@ abstract class TodayWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(SIZES)
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val t = Repo.cachedToday(context)
-        provideContent { Content(context, t) }
+        val first = Repo.cachedToday(context)
+        provideContent {
+            // collected rather than read once: Glance keeps a session alive after an update and only recomposes it
+            val t by remember { Repo.todayFlow(context) }.collectAsState(first)
+            Content(context, t)
+        }
     }
 
     @Composable
@@ -231,8 +248,8 @@ class RecoveryWidget : TodayWidget() {
             Text(d.readiness.int(), style = value(44))
             Text(verdict.word.uppercase(), style = value(20, verdict.status.provider()), maxLines = 1)
             Text(verdict.tagline, style = body, maxLines = 1)
-            if (tall) {
-                Spacer(GlanceModifier.height(8.dp))
+            // one child for the tall extras: Glance caps a Column at 10 and HRV plus the plan line passed it
+            if (tall) Column(GlanceModifier.fillMaxWidth().padding(top = 8.dp)) {
                 d.hrv?.let { hrv ->
                     val status = hrvStatus(d.hrvStatus)
                     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -243,7 +260,7 @@ class RecoveryWidget : TodayWidget() {
                     }
                     HrvBand(d, hrv, status?.second)
                 }
-                t.plan?.session?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(it) }
+                t.plan?.session?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, it) }
             }
             Spacer(GlanceModifier.defaultWeight())
         }
@@ -276,7 +293,8 @@ class MorningWidget : TodayWidget() {
                 }
             }
             Spacer(GlanceModifier.defaultWeight())
-            t.plan?.session?.takeIf { h >= 150.dp }?.let { PlanLine(it); Spacer(GlanceModifier.height(6.dp)) }
+            // grouped: Glance caps a Column at 10 children and the tallest size reaches that
+            t.plan?.session?.takeIf { h >= 150.dp }?.let { Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) { PlanLine(ctx, it) } }
             Steps(d)
             if (h >= 220.dp) {
                 val flag = t.flags.firstOrNull()
@@ -531,8 +549,178 @@ private fun TypeIcon(type: String?, size: Dp) {
     }
 }
 
+/**
+ * What the plan says for today and how much of it is done, then the week. A tap opens the plan; the sync control
+ * pulls Garmin right away instead of waiting for the 2 hour refresh.
+ */
+class PlanWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Responsive(SIZES)
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val today = Repo.cachedToday(context)
+        val plan = Repo.planFlow(context).first()
+        val syncingNow = Repo.widgetSyncingFlow(context).first()
+        provideContent {
+            val t by remember { Repo.todayFlow(context) }.collectAsState(today)
+            val v by remember { Repo.planFlow(context) }.collectAsState(plan)
+            val syncing by remember { Repo.widgetSyncingFlow(context) }.collectAsState(syncingNow)
+            Card(context, Tab.TRAINING, plan = true) {
+                if (t == null) Placeholder(null) else PlanBody(context, t!!, v, syncing)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
+    // Responsive mode lays out for the size bucket, not the real height, so each tier must fit its bucket:
+    // <100 one row; <170 row and week count; <200 header, row and week strip; 200+ adds the bars and count.
+    val h = LocalSize.current.height
+    val compact = h < 100.dp
+    val header = h >= 170.dp
+    val full = h >= 200.dp
+    val p = t.plan
+    val s = p?.session
+    val color = s?.let { c(statusColor(it.status)) } ?: Muted
+    val (title, sub) = when {
+        p == null -> tr("No plan yet", "Belum ada plan") to tr("Tap to open Training", "Ketuk untuk buka Latihan")
+        s == null -> tr("Nothing planned", "Tidak ada sesi") to tr("Rest or move easy", "Istirahat atau gerak santai")
+        else -> s.title.text to planTarget(s).ifEmpty { null }
+    }
+    val days = p?.let { weekDays(it, v) }
+    Column(GlanceModifier.fillMaxSize()) {
+        if (header) {
+            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Caps(tr("Today's plan", "Plan hari ini"), GlanceModifier.defaultWeight().padding(end = 8.dp))
+                SyncControl(t.latest, syncing, showTime = true)
+            }
+            Spacer(GlanceModifier.defaultWeight())
+        }
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                ImageProvider(s?.let { statusIcon(it.status) } ?: if (p == null) R.drawable.ic_event_available else R.drawable.ic_bedtime),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(color),
+                modifier = GlanceModifier.size(if (compact) 24.dp else 30.dp),
+            )
+            Spacer(GlanceModifier.width(12.dp))
+            Column(GlanceModifier.defaultWeight()) {
+                Text(title, style = value(if (compact) 18 else 24), maxLines = 1)
+                sub?.let { Text(it, style = body, maxLines = 1) }
+            }
+            s?.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(if (compact) 22 else 32, color)) }
+            if (!header) SyncControl(t.latest, syncing, showTime = false)
+        }
+        if (compact) return@Column
+        // adjust line and session bar each sit in one child, so the column stays under Glance's 10
+        p?.adjust?.let { a -> targetText(a.target) }?.let {
+            Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = label(Status.FAIR.provider()), maxLines = 1, modifier = GlanceModifier.padding(top = 4.dp))
+        }
+        if (full) s?.pct?.let {
+            Column(GlanceModifier.fillMaxWidth().padding(top = 8.dp)) { Bar(it.toFloat(), color) }
+        }
+        Spacer(GlanceModifier.defaultWeight())
+        if (header && days != null) {
+            WeekStrip(days)
+            if (!full) return@Column
+            Spacer(GlanceModifier.height(8.dp))
+        }
+        val w = p?.week?.takeIf { it.planned > 0 } ?: return@Column
+        // done of planned, not the week's score: "2 of 5" next to "100%" read as a contradiction
+        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Text(tr("This week", "Minggu ini"), style = body, maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            Text("${w.done}/${w.planned}", style = value(16, if (w.done >= w.planned) Accent else Ink))
+            Text(tr(" done", " selesai"), style = body, maxLines = 1)
+        }
+        if (!header) {
+            Spacer(GlanceModifier.height(4.dp))
+            Bar(w.done.toFloat() / w.planned, Accent)
+        }
+    }
+}
+
+@Composable
+private fun Bar(progress: Float, color: GColor) = LinearProgressIndicator(
+    progress = progress.coerceIn(0f, 1f),
+    modifier = GlanceModifier.fillMaxWidth().height(4.dp),
+    color = color,
+    backgroundColor = Track,
+)
+
+/** Monday to Sunday of this week, each with its session; today's comes from /today since it is the freshest. */
+private fun weekDays(p: PlanToday, v: PlanView?): List<Pair<String, PlanSession?>>? {
+    v ?: return null
+    val now = LocalDate.now()
+    val monday = now.minusDays(now.dayOfWeek.value - 1L)
+    return (0..6).map { i ->
+        val d = monday.plusDays(i.toLong()).toString()
+        // one mark per day; on a run + strength day the run's mark shows, as in the app
+        val s = p.session?.takeIf { it.date == d }
+            ?: v.sessions.filter { it.date == d }.let { l -> l.firstOrNull { it.kind == "run" } ?: l.firstOrNull() }
+        d to s
+    }
+}
+
+/** The app's week strip: weekday over a status mark, today on the base fill. */
+@Composable
+private fun WeekStrip(days: List<Pair<String, PlanSession?>>) {
+    val today = LocalDate.now().toString()
+    Row(GlanceModifier.fillMaxWidth()) {
+        days.forEach { (d, s) ->
+            val isToday = d == today
+            Column(
+                GlanceModifier.defaultWeight().padding(vertical = 6.dp)
+                    .let { if (isToday) it.background(ImageProvider(R.drawable.bg_widget_today)) else it },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(weekdayShort(d).take(2), style = if (isToday) label(Ink) else body, maxLines = 1)
+                Spacer(GlanceModifier.height(4.dp))
+                if (s == null) {
+                    Box(GlanceModifier.size(18.dp), contentAlignment = Alignment.Center) {
+                        Box(GlanceModifier.size(6.dp).background(ImageProvider(R.drawable.bg_icon_circle))) {}
+                    }
+                } else {
+                    Image(
+                        ImageProvider(statusIcon(s.status)),
+                        contentDescription = "${weekdayShort(d)}: ${s.title.text}, ${dev.garminfit.ui.statusLabel(s)}",
+                        colorFilter = ColorFilter.tint(c(statusColor(s.status))),
+                        modifier = GlanceModifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Last sync time with a refresh icon; tapping it pulls Garmin now. Reads "Syncing" until the worker finishes. */
+@Composable
+private fun SyncControl(d: Daily?, syncing: Boolean, showTime: Boolean) {
+    val text = if (syncing) tr("Syncing", "Menyinkron") else if (showTime) freshness(d) else null
+    Row(
+        GlanceModifier.height(40.dp).padding(start = 8.dp).cornerRadius(20.dp)
+            .clickable(actionRunCallback<SyncAction>())
+            .semantics { contentDescription = tr("Sync with Garmin now", "Sinkron dengan Garmin sekarang") },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        text?.let { Text(it, style = body, maxLines = 1) }
+        if (!syncing) {
+            Spacer(GlanceModifier.width(6.dp))
+            Image(ImageProvider(R.drawable.ic_refresh), contentDescription = null, colorFilter = ColorFilter.tint(Ink), modifier = GlanceModifier.size(18.dp))
+        }
+    }
+}
+
+class SyncAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        Repo.setWidgetSyncing(context, true)
+        PlanWidget().update(context, glanceId)
+        RefreshWorker.now(context)
+    }
+}
+
 class RecoveryReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = RecoveryWidget() }
 class MorningReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MorningWidget() }
 class WeekReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = WeekWidget() }
 class TrendReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = TrendWidget() }
 class LastActivityReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = LastActivityWidget() }
+class PlanReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = PlanWidget() }

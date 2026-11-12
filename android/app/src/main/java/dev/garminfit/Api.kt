@@ -5,7 +5,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -607,6 +610,9 @@ private val TOKEN = stringPreferencesKey("token")
 // an access token from the old setup screen, linked to the account right after the first sign-in
 private val LEGACY_TOKEN = stringPreferencesKey("legacy_token")
 private val TODAY_CACHE = stringPreferencesKey("today_cache")
+private val PLAN_CACHE = stringPreferencesKey("plan_cache")
+// set while a sync asked for from the Plan widget runs, so the widget can say so
+private val WIDGET_SYNCING = booleanPreferencesKey("widget_syncing")
 private val WORKOUT_DRAFT = stringPreferencesKey("workout_draft")
 // finished workouts not yet on the server; queued before upload so a crash or no signal never loses one
 private val WORKOUT_PENDING = stringPreferencesKey("workout_pending")
@@ -649,7 +655,7 @@ object Repo {
     /** Signs out on the server (best effort) and forgets the session and everything cached for it. */
     suspend fun signOut(ctx: Context) {
         token(ctx)?.let { t -> runCatching { api(t).logout() } }
-        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING) }
+        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(PLAN_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING) }
         me = null
     }
 
@@ -670,8 +676,27 @@ object Repo {
         return today
     }
 
-    suspend fun cachedToday(ctx: Context): Today? =
-        ctx.store.data.first()[TODAY_CACHE]?.let { runCatching { json.decodeFromString(Today.serializer(), it) }.getOrNull() }
+    suspend fun cachedToday(ctx: Context): Today? = todayFlow(ctx).first()
+
+    /** Emits on every new /today, so a running widget session redraws without being restarted. */
+    fun todayFlow(ctx: Context): Flow<Today?> = cached(ctx, TODAY_CACHE, Today.serializer())
+
+    suspend fun fetchPlan(ctx: Context): PlanView {
+        val plan = api(ctx).plan()
+        ctx.store.edit { it[PLAN_CACHE] = json.encodeToString(PlanView.serializer(), plan) }
+        return plan
+    }
+
+    fun planFlow(ctx: Context): Flow<PlanView?> = cached(ctx, PLAN_CACHE, PlanView.serializer())
+
+    private fun <T> cached(ctx: Context, key: androidx.datastore.preferences.core.Preferences.Key<String>, s: kotlinx.serialization.KSerializer<T>): Flow<T?> =
+        ctx.store.data.map { it[key] }.distinctUntilChanged().map { raw -> raw?.let { runCatching { json.decodeFromString(s, it) }.getOrNull() } }
+
+    suspend fun setWidgetSyncing(ctx: Context, on: Boolean) {
+        ctx.store.edit { it[WIDGET_SYNCING] = on }
+    }
+
+    fun widgetSyncingFlow(ctx: Context): Flow<Boolean> = ctx.store.data.map { it[WIDGET_SYNCING] == true }.distinctUntilChanged()
 
     suspend fun saveDraft(ctx: Context, d: WorkoutDraft?) {
         ctx.store.edit { if (d == null) it.remove(WORKOUT_DRAFT) else it[WORKOUT_DRAFT] = json.encodeToString(WorkoutDraft.serializer(), d) }
