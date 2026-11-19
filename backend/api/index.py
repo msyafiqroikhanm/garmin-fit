@@ -236,7 +236,8 @@ def race_predictions(days: int = Query(90, ge=1, le=730), user: dict = Depends(a
 
 @app.get("/muscles/week")
 def muscles_week(user: dict = Depends(auth)):
-    uid, since = user["data_user_id"], (core.today() - timedelta(days=6)).isoformat()
+    # Monday-based, the same week Workout counts, so the two screens agree on "this week"
+    uid, since = user["data_user_id"], core.week_start(core.today()).isoformat()
     logs = list(core.db().workout_logs.find({"user_id": uid, "date": {"$gte": since}}, {"sets": 1, "activity_id": 1}))
     linked = {l["activity_id"] for l in logs if l.get("activity_id")}
     docs = core.db().activities.find({"user_id": uid, "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
@@ -398,7 +399,10 @@ def workouts(user: dict = Depends(auth)):
 def workout_logs(frm: date | None = Query(None, alias="from"), user: dict = Depends(auth)):
     f, t = _range(frm, None, 365)
     q = {"user_id": user["data_user_id"], "date": {"$gte": f, "$lte": t}}
-    return [core.log_summary(l) for l in core.db().workout_logs.find(q).sort("start_time", -1)]
+    logs = list(core.db().workout_logs.find(q).sort("start_time", -1))
+    acts = core.db().activities.find({**q, "type": "strength_training"}, {"date": 1, "start_time": 1, "name": 1, "duration_s": 1})
+    rows = [core.log_summary(l) for l in logs] + core.watch_strength(list(acts), logs)
+    return sorted(rows, key=lambda r: r["start_time"] or "", reverse=True)
 
 
 @app.get("/workouts/logs/{log_id}")
@@ -429,6 +433,47 @@ def save_workout_log(body: dict, user: dict = Depends(owner_only)):
 @app.delete("/workouts/logs/{log_id}")
 def delete_workout_log(log_id: str, user: dict = Depends(owner_only)):
     if not core.db().workout_logs.delete_one({"_id": log_id, "user_id": user["data_user_id"]}).deleted_count:
+        raise HTTPException(404, "not found")
+    return {"ok": True}
+
+
+@app.put("/workouts/logs/{log_id}/activity")
+def link_workout_log(log_id: str, body: dict, user: dict = Depends(owner_only)):
+    """Link a log to the watch's strength activity by hand (or unlink with null), when the auto window missed it."""
+    uid, d = user["data_user_id"], core.db()
+    log = d.workout_logs.find_one({"_id": log_id, "user_id": uid}, {"date": 1})
+    if not log:
+        raise HTTPException(404, "not found")
+    act_id = body.get("activity_id") if isinstance(body, dict) else None
+    if act_id is not None:
+        if not core._int(act_id, 1, 10**13):
+            raise HTTPException(400, "activity_id must be an activity id or null")
+        if not d.activities.find_one({"_id": act_id, "user_id": uid, "type": "strength_training"}, {"_id": 1}):
+            raise HTTPException(400, "no strength activity with that id")
+        if d.workout_logs.find_one({"user_id": uid, "activity_id": act_id, "_id": {"$ne": log_id}}, {"_id": 1}):
+            raise HTTPException(409, "that activity is linked to another workout")
+    d.workout_logs.update_one({"_id": log_id}, {"$set": {"activity_id": act_id}})
+    return core.log_view(d.workout_logs.find_one({"_id": log_id}))
+
+
+@app.post("/workouts/routines")
+def save_routine(body: dict, user: dict = Depends(owner_only)):
+    doc = core.routine_doc(body)
+    if doc is None:
+        raise HTTPException(400, "invalid routine: title, rounds 1-6, items [{ex, reps | seconds}]")
+    uid = user["data_user_id"]
+    rid = body.get("id") if isinstance(body.get("id"), str) and 8 <= len(body["id"]) <= 64 else uuid.uuid4().hex
+    old = core.db().workout_routines.find_one({"_id": rid}, {"user_id": 1, "created_at": 1})
+    if old and old["user_id"] != uid:
+        raise HTTPException(403, "not yours")
+    core.db().workout_routines.replace_one(
+        {"_id": rid}, {**doc, "user_id": uid, "created_at": (old or {}).get("created_at") or datetime.now(timezone.utc)}, upsert=True)
+    return {"id": rid, **doc}
+
+
+@app.delete("/workouts/routines/{rid}")
+def delete_routine(rid: str, user: dict = Depends(owner_only)):
+    if not core.db().workout_routines.delete_one({"_id": rid, "user_id": user["data_user_id"]}).deleted_count:
         raise HTTPException(404, "not found")
     return {"ok": True}
 

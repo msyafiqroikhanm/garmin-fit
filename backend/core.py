@@ -877,10 +877,32 @@ def _session(s, start: str, end: str) -> dict | None:
         out["notes"] = s["notes"]
     if "workout" in s:
         w = s["workout"]
-        if not (s["kind"] == "strength" and isinstance(w, dict) and set(w) == {"program", "day"}
-                and w["program"] == "strength28" and _int(w["day"], 1, 28)):
+        if s["kind"] != "strength" or not isinstance(w, dict):
             return None
-        out["workout"] = {"program": "strength28", "day": w["day"]}
+        if set(w) == {"program", "day"} and w["program"] == "strength28" and _int(w["day"], 1, 28):
+            out["workout"] = {"program": "strength28", "day": w["day"]}
+        elif set(w) == {"items"} and (items := _plan_items(w["items"])):
+            out["workout"] = {"items": items}
+        else:
+            return None
+    return out
+
+
+def _plan_items(items) -> list[dict] | None:
+    """A plan's own strength routine: [{ex, sets, reps | seconds, kg?}], exercises from the app's catalog."""
+    if not (isinstance(items, list) and 1 <= len(items) <= 15):
+        return None
+    out = []
+    for i in items:
+        if not (isinstance(i, dict) and i.get("ex") in wd.EXERCISES and _int(i.get("sets"), 1, 10)
+                and set(i) <= {"ex", "sets", "reps", "seconds", "kg"} and (("reps" in i) != ("seconds" in i))):
+            return None
+        if "reps" in i and not _int(i["reps"], 1, 100) or "seconds" in i and not _int(i["seconds"], 5, 600):
+            return None
+        kg = i.get("kg")
+        if kg is not None and not (isinstance(kg, (int, float)) and not isinstance(kg, bool) and 0 < kg <= 200):
+            return None
+        out.append({k: i[k] for k in ("ex", "sets", "reps", "seconds", "kg") if k in i})
     return out
 
 
@@ -1217,7 +1239,7 @@ REST_DEFAULT_S = 20
 DIFFICULTY = {-1: 0.8, 0: 1.0, 1: 1.2}
 LINK_BEFORE = timedelta(minutes=15)
 LINK_AFTER = timedelta(minutes=5)
-LOG_PROGRAMS = ("strength28", "focus", "homeworkout")
+LOG_PROGRAMS = ("strength28", "focus", "homeworkout", "plan", "routine")
 LOG_BLOCKS = ("warmup", "main", "finisher", "cooldown")
 WORK_BLOCKS = ("main", "finisher")
 
@@ -1273,6 +1295,43 @@ def focus_workout(fid: str, difficulty: int = 0, rest_s: int = REST_DEFAULT_S) -
     blocks = [{"block": "main", "rounds": f["rounds"], "items": f["items"]}]
     items = workout_items(f["warmup"], blocks, f["cooldown"], DIFFICULTY[difficulty])
     return _workout(f"focus:{fid}", "focus", None, None, fid, f["title"], items, rest_s)
+
+
+def plan_workout(session: dict, rest_s: int = REST_DEFAULT_S) -> dict:
+    """A plan session's own routine as a playable workout: each exercise's sets run back to back as rounds, so the
+    player rests ROUND_REST_S between sets and rest_s between exercises. No warm-up or cool-down blocks: the plan's
+    notes carry those."""
+    items = []
+    for it in session["workout"]["items"]:
+        tgt = {k: it[k] for k in ("reps", "seconds") if k in it}
+        for r in range(1, it["sets"] + 1):
+            items.append({"ex": it["ex"], **tgt, **({"kg": it["kg"]} if "kg" in it else {}), "block": "main", "round": r,
+                          "rounds": it["sets"]})
+    return _workout(f"plan:{session['date']}", "plan", None, None, "plan", session["title"], items, rest_s)
+
+
+def routine_workout(r: dict, difficulty: int = 0, rest_s: int = REST_DEFAULT_S) -> dict:
+    blocks = [{"block": "main", "rounds": r["rounds"], "items": [(i["ex"], {k: i[k] for k in ("reps", "seconds") if k in i}) for i in r["items"]]}]
+    items = workout_items(wd.WARMUP, blocks, wd.TEMPLATES["A"]["cooldown"], DIFFICULTY[difficulty])
+    return _workout(f"routine:{r['_id']}", "routine", None, None, "routine", {"id": r["title"], "en": r["title"]}, items, rest_s)
+
+
+def routine_doc(body: dict) -> dict | None:
+    """Validate a routine the owner saved from an edited workout: a title, 1-6 rounds, 1-20 exercises."""
+    b = body if isinstance(body, dict) else {}
+    title, rounds, items = b.get("title"), b.get("rounds"), b.get("items")
+    if not (isinstance(title, str) and 1 <= len(title.strip()) <= 40 and _int(rounds, 1, 6)
+            and isinstance(items, list) and 1 <= len(items) <= 20):
+        return None
+    out = []
+    for i in items:
+        if not (isinstance(i, dict) and i.get("ex") in wd.EXERCISES and set(i) <= {"ex", "reps", "seconds"}
+                and (("reps" in i) != ("seconds" in i))):
+            return None
+        if "reps" in i and not _int(i["reps"], 1, 100) or "seconds" in i and not _int(i["seconds"], 5, 600):
+            return None
+        out.append(dict(i))
+    return {"title": title.strip(), "rounds": rounds, "items": out}
 
 
 def workout_muscles(log: dict) -> dict:
@@ -1338,8 +1397,12 @@ def program_progress(logs: list[dict]) -> dict:
     done = sorted((l for l in logs if l.get("program") == "strength28" and l.get("completed")), key=lambda l: l["start_time"])
     last28 = max((i for i, l in enumerate(done) if l["day"] == 28), default=-1)
     days = sorted({l["day"] for l in done[last28 + 1:]})
+    since = done[last28]["start_time"] if last28 >= 0 else ""
+    # started but not finished in this run of the program, so the calendar can show them as partly done
+    partial = sorted({l["day"] for l in logs if l.get("program") == "strength28" and not l.get("completed")
+                      and l["start_time"] > since and l.get("day") and l["day"] not in days})
     nxt = next((d for d in range(1, 29) if d not in days), 1)
-    return {"next_day": nxt, "done_days": days, "runs_completed": sum(l["day"] == 28 for l in done)}
+    return {"next_day": nxt, "done_days": days, "partial_days": partial, "runs_completed": sum(l["day"] == 28 for l in done)}
 
 
 def weight_hints(logs: list[dict]) -> dict:
@@ -1419,23 +1482,65 @@ def log_view(log: dict) -> dict:
             "exercises": list(rows.values()), "sets": log.get("sets") or []}
 
 
+def exercise_history(logs: list[dict]) -> dict:
+    """Per exercise, its last 5 sessions newest first: date, reps or seconds per set done, heaviest kg."""
+    out: dict[str, list] = {}
+    for log in sorted(logs, key=lambda l: l["start_time"], reverse=True):
+        sets: dict[str, list] = {}
+        for x in log.get("sets") or []:
+            if x.get("skipped") or x.get("block") not in WORK_BLOCKS:
+                continue
+            sets.setdefault(x["ex"], []).append(x)
+        for ex, xs in sets.items():
+            if len(out.setdefault(ex, [])) >= 5:
+                continue
+            kgs = [x["kg"] for x in xs if x.get("kg")]
+            out[ex].append({"date": log["date"], "reps": [x.get("reps") or 0 for x in xs if x.get("reps") is not None],
+                            "seconds": [x.get("seconds") or 0 for x in xs if x.get("seconds") is not None],
+                            "kg": max(kgs) if kgs else None})
+    return out
+
+
+def watch_strength(acts: list[dict], logs: list[dict]) -> list[dict]:
+    """Strength sessions recorded only on the watch (no app log linked), shaped like log summaries."""
+    linked = {l.get("activity_id") for l in logs if l.get("activity_id")}
+    return [{"id": f"act:{a['_id']}", "key": "", "program": "watch", "day": None,
+             "title": {"id": a.get("name") or "Strength", "en": a.get("name") or "Strength"}, "date": a["date"],
+             "start_time": a.get("start_time"), "duration_s": round(a.get("duration_s") or 0), "completed": True,
+             "source": "watch", "activity_id": a["_id"], "reps": 0, "volume_kg": 0, "exercises": 0}
+            for a in acts if a["_id"] not in linked]
+
+
 def workouts_home(user_id: str, role: str | None = None) -> dict:
     d, t = db(), today()
     prefs = workout_prefs(user_id)
     args = (prefs["difficulty"], prefs["rest_s"])
     logs = list(d.workout_logs.find({"user_id": user_id}).sort("start_time", -1))
     since_w, since_kg = week_start(t).isoformat(), (t - timedelta(days=120)).isoformat()
-    week = [l for l in logs if l["date"] >= since_w]
+    acts = list(d.activities.find({"user_id": user_id, "type": "strength_training", "date": {"$gte": (t - timedelta(days=60)).isoformat()}},
+                                  {"date": 1, "start_time": 1, "name": 1, "duration_s": 1}).sort("start_time", -1))
+    watch = watch_strength(acts, logs)
+    week = [log_summary(l) for l in logs if l["date"] >= since_w] + [w for w in watch if w["date"] >= since_w]
+    plan = active_plan(user_id)
+    planned = [plan_workout(s, prefs["rest_s"]) for s in (plan or {}).get("sessions", [])
+               if s["kind"] == "strength" and "items" in (s.get("workout") or {})]
+    routines = list(d.workout_routines.find({"user_id": user_id}).sort("created_at", 1))
+    recent = sorted([log_summary(l) for l in logs[:20]] + watch, key=lambda r: r["start_time"] or "", reverse=True)[:20]
     return {
         "exercises": wd.EXERCISES,
         "program": {**wd.PROGRAM, **program_progress(logs), "difficulty": prefs["difficulty"]},
         "workouts": [program_day(n, *args) for n in range(1, wd.PROGRAM["days"] + 1)]
-                    + [focus_workout(f["id"], *args) for f in wd.FOCUS],
+                    + [focus_workout(f["id"], *args) for f in wd.FOCUS] + planned
+                    + [routine_workout(r, *args) for r in routines],
         "prefs": prefs,
-        "week": {"sessions": len(week), "minutes": round(sum(l["duration_s"] for l in week) / 60),
-                 "reps": sum(log_summary(l)["reps"] for l in week), "dates": sorted({l["date"] for l in week})},
-        "recent": [log_summary(l) for l in logs[:20]],
+        # Monday-based like Training's muscle card, and counting watch-only strength sessions too
+        "week": {"sessions": len(week), "minutes": round(sum(l["duration_s"] or 0 for l in week) / 60),
+                 "reps": sum(l["reps"] for l in week), "dates": sorted({l["date"] for l in week}),
+                 "watch": sum(l["source"] == "watch" for l in week)},
+        "recent": recent,
         "weights": weight_hints([l for l in logs if l["date"] >= since_kg]),
+        "history": exercise_history([l for l in logs if l["date"] >= since_kg]),
+        "routines": [{"id": r["_id"], "title": r["title"], "rounds": r["rounds"], "items": r["items"]} for r in routines],
         # cached with the payload on the phone, so an offline gym visit still knows who may log
         "role": role,
     }

@@ -85,7 +85,7 @@ def test_program_progress():
     three = [p(d, f"2026-11-0{d} 08:00:00") for d in (1, 2, 3)]
     assert program_progress(three + [p(4, "2026-11-05 08:00:00", False)])["next_day"] == 4
     again = program_progress([p(28, "2026-10-01 08:00:00"), p(1, "2026-10-02 08:00:00")])
-    assert again == {"next_day": 2, "done_days": [1], "runs_completed": 1}
+    assert again == {"next_day": 2, "done_days": [1], "partial_days": [], "runs_completed": 1}
 
 
 PLAN = {"start": "2026-11-02", "end": "2026-11-08", "sessions": [
