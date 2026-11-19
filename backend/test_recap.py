@@ -41,3 +41,20 @@ def test_home_routes_drops_far_starts_and_thins():
     out = home_routes(across_town + home + trip)
     assert len(out) == 3
     assert len(out[0]) <= 81 and out[0][-1] == home[0][-1]
+
+
+def test_a_period_in_progress_compares_the_same_days():
+    from core import compare_range
+    assert compare_range("month", "2026-11", date(2026, 11, 19)) == (date(2026, 10, 1), date(2026, 10, 19))
+    assert compare_range("month", "2026-10", date(2026, 11, 19)) == (date(2026, 9, 1), date(2026, 9, 30))
+    assert compare_range("year", "2026", date(2026, 11, 19)) == (date(2025, 1, 1), date(2025, 11, 19))
+    # March has 31 days, February 28: the elapsed days stop at February's end
+    assert compare_range("month", "2027-03", date(2027, 3, 30)) == (date(2027, 2, 1), date(2027, 2, 28))
+
+
+def test_plan_block_range_and_run_only_distance():
+    from core import compare_range, period_range, period_totals
+    assert period_range("range", "2026-11-02..2026-11-29") == (date(2026, 11, 2), date(2026, 11, 29))
+    assert compare_range("range", "2026-11-02..2026-11-29", date(2026, 12, 5)) == (date(2026, 10, 5), date(2026, 11, 1))
+    t = period_totals([{"date": "2026-11-02", "type": "running", "distance_m": 5000}, {"date": "2026-11-03", "type": "cycling", "distance_m": 20000}])
+    assert (t["distance_m"], t["run_distance_m"]) == (25000, 5000)

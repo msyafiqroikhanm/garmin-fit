@@ -490,7 +490,13 @@ def plan_run_types(user_id: str) -> dict:
 
 
 def period_range(period: str, key: str) -> tuple[date, date]:
-    """'month' + 'YYYY-MM' or 'year' + 'YYYY' -> first and last day."""
+    """'month' + 'YYYY-MM', 'year' + 'YYYY' or 'range' + 'YYYY-MM-DD..YYYY-MM-DD' (a plan block) -> first and last day."""
+    if period == "range":
+        a, b = key.split("..")
+        start, end = date.fromisoformat(a), date.fromisoformat(b)
+        if start > end or (end - start).days > 400:
+            raise ValueError("bad range")
+        return start, end
     if period == "year":
         y = int(key[:4])
         return date(y, 1, 1), date(y, 12, 31)
@@ -500,9 +506,21 @@ def period_range(period: str, key: str) -> tuple[date, date]:
 
 
 def previous_key(period: str, key: str) -> str:
-    start, _ = period_range(period, key)
+    start, end = period_range(period, key)
     prev = (start - timedelta(days=1))
+    if period == "range":
+        return f"{(start - (end - start) - timedelta(days=1)).isoformat()}..{prev.isoformat()}"
     return str(prev.year) if period == "year" else prev.isoformat()[:7]
+
+
+def compare_range(period: str, key: str, today_: date) -> tuple[date, date]:
+    """The previous period to compare with. A period still in progress is compared with the same number of days at
+    the start of the previous one (1-19 Oct for 1-19 Nov), so a part month never looks short against a whole one."""
+    start, end = period_range(period, key)
+    pstart, pend = period_range(period, previous_key(period, key))
+    if start <= today_ < end:
+        pend = min(pend, pstart + (today_ - start))
+    return pstart, pend
 
 
 def _kind(t: str | None) -> str:
@@ -514,9 +532,12 @@ def period_totals(acts: list[dict]) -> dict:
     by = {"run": 0, "strength": 0, "other": 0}
     for a in acts:
         by[_kind(a.get("type"))] += 1
+    run_m = sum(a.get("distance_m") or 0 for a in acts if _kind(a.get("type")) == "run")
     return {
         "count": len(acts),
         "distance_m": sum(a.get("distance_m") or 0 for a in acts),
+        # running is the headline; rides and walks are told apart so the km mean one thing
+        "run_distance_m": run_m,
         "duration_s": sum(a.get("duration_s") or 0 for a in acts),
         "active_days": len({a["date"] for a in acts}),
         "by_kind": by,
@@ -561,8 +582,10 @@ def recap(period: str, start: date, end: date, acts: list[dict], prev: list[dict
     for a in acts:
         d = date.fromisoformat(a["date"])
         k = d.isoformat()[:7] if period == "year" else week_start(d).isoformat()
-        b = buckets.setdefault(k, {"key": k, "distance_m": 0, "duration_s": 0, "count": 0})
+        b = buckets.setdefault(k, {"key": k, "distance_m": 0, "run_distance_m": 0, "duration_s": 0, "count": 0})
         b["distance_m"] += a.get("distance_m") or 0
+        if _kind(a.get("type")) == "run":
+            b["run_distance_m"] += a.get("distance_m") or 0
         b["duration_s"] += a.get("duration_s") or 0
         b["count"] += 1
     if period == "year":
@@ -580,7 +603,7 @@ def recap(period: str, start: date, end: date, acts: list[dict], prev: list[dict
         "previous": period_totals(prev),
         "longest_run": {k: longest.get(k) for k in ("_id", "date", "name", "distance_m", "duration_s")} if longest else None,
         "streak_weeks": active_week_streak(all_dates, min(end, today())),
-        "buckets": [buckets.get(k, {"key": k, "distance_m": 0, "duration_s": 0, "count": 0}) for k in keys],
+        "buckets": [buckets.get(k, {"key": k, "distance_m": 0, "run_distance_m": 0, "duration_s": 0, "count": 0}) for k in keys],
         "prs": [{"activity_id": a["_id"], "date": a["date"], "name": a.get("name"), "distances": marks[a["_id"]]}
                 for a in sorted(acts, key=lambda a: a["start_time"]) if a["_id"] in marks],
     }
