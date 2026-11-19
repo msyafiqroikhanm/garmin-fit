@@ -153,7 +153,8 @@ fun WorkoutScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val loader = rememberCachedLoad("workouts") { Repo.api(ctx).workouts() }
+    // the lead reads the cached plan, so refresh it alongside
+    val loader = rememberCachedLoad("workouts") { Repo.api(ctx).workouts().also { scope.launch { runCatching { Repo.fetchPlan(ctx) } } } }
     // the role rides along with /workouts (disk cached); older servers fall back to the saved /me or /today role
     val savedRole by produceState<String?>(null) { value = Repo.role(ctx) }
     var draft by remember { mutableStateOf<WorkoutDraft?>(null) }
@@ -488,7 +489,7 @@ private fun ResumeCard(d: WorkoutDraft, onResume: () -> Unit, onDiscard: () -> U
 private fun NextHero(w: WorkoutDef, home: WorkoutsHome, owner: Boolean, title: String = w.title.text, context: String? = null, onOpen: () -> Unit) {
     val muscles = itemMuscles(w.items, home.exercises)
     val names = w.items.filter { it.block == "main" }.mapNotNull { home.exercises[it.ex]?.name?.text }.distinct()
-    Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             context?.let { Label(it) }
             Text(title, style = T.headline, color = K.ink)
@@ -805,7 +806,7 @@ private fun WorkoutPreview(def: WorkoutDef, home: WorkoutsHome, owner: Boolean, 
                             Column(Modifier.weight(1f)) {
                                 Text(e?.name?.text ?: it.ex, style = body(15.sp, FontWeight.SemiBold), color = K.ink)
                                 Text(
-                                    (if (block == "plan") "${it.rounds} × " else "") + workTarget(it.reps, it.seconds) + (kg?.let { k -> " · ${kgText(k)}" } ?: ""),
+                                    (if (block == "plan") "${it.rounds} × " + (it.reps?.toString() ?: workTarget(null, it.seconds)) else workTarget(it.reps, it.seconds)) + (kg?.let { k -> " · ${kgText(k)}" } ?: ""),
                                     style = num(16.sp, FontWeight.Bold), color = K.muted,
                                 )
                             }
