@@ -503,6 +503,17 @@ def period_totals(acts: list[dict]) -> dict:
     }
 
 
+def daily_load(acts: list[dict], dates: list[str]) -> list[dict]:
+    """Training load per day, with each day's split by sport (oldest activity first) so a double day reads as run + strength."""
+    out = []
+    for d in dates:
+        day = sorted((a for a in acts if a["date"] == d), key=lambda a: a.get("start_time") or "")
+        parts = [{"kind": _kind(a.get("type")), "load": round(a.get("training_load") or 0)} for a in day if a.get("training_load")]
+        # the total is the sum of the rounded parts, so "56 · run 44 + strength 12" always adds up
+        out.append({"date": d, "load": sum(p["load"] for p in parts), "parts": parts})
+    return out
+
+
 def week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 

@@ -74,7 +74,10 @@ import dev.garminfit.readinessStatus
 import dev.garminfit.readinessVerdict
 import dev.garminfit.daySessions
 import dev.garminfit.doneToday
-import dev.garminfit.mainActivity
+import dev.garminfit.speedText
+import dev.garminfit.readinessReason
+import dev.garminfit.loadBreakdown
+import androidx.compose.runtime.key
 import dev.garminfit.pending
 import dev.garminfit.restUp
 import dev.garminfit.summaryAge
@@ -132,7 +135,6 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
             ) {
                 val latest = today.latest
                 val done = today.doneToday()
-                val activityToday = mainActivity(done, today.plan)
                 val verdict = latest?.takeIf { it.readiness != null }?.let { readinessVerdict(it.readinessLevel, it.readiness, it.recoveryMin) }
                 val session = today.plan?.daySessions?.firstOrNull()
                 val startWorkout = onStartWorkout.takeIf { today.role == "owner" }
@@ -140,12 +142,12 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 StaleNote(loader)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 // the focus: one block on the background, chosen by where the day stands
-                val readinessLeads = activityToday == null && session == null
+                val readinessLeads = done.isEmpty() && session == null
                 Column(Modifier.padding(top = 12.dp)) {
                     when {
-                        activityToday != null -> DoneFocus(activityToday, done - activityToday, today, verdict, onOpenActivity, onOpenPlan, startWorkout)
+                        done.isNotEmpty() -> DoneFocus(done, today, verdict, onOpenActivity, onOpenPlan, startWorkout)
                         session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, startWorkout)
-                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, restDay = today.plan?.session != null, onOpenPlan)
+                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, today, restDay = today.plan?.session != null, onOpenPlan)
                     }
                 }
                 if (latest == null) {
@@ -158,7 +160,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                     )
                 } else {
                     BodySection(latest, today, verdict.takeUnless { readinessLeads })
-                    Recovery(latest, verdict?.status ?: Status.GOOD)
+                    Recovery(latest)
                     WeekSection(today, lastActivity = today.lastActivity.takeIf { done.isEmpty() }, onOpenActivity)
                     today.summary?.let { SummaryCard(it) }
                 }
@@ -213,52 +215,63 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
 }
 
 /**
- * After a session: the result is the message. The route (mapcn's lesson: the line is the only bright thing
- * on a quiet ground) sits under a big distance, then one "what's next" line ties it to the plan and recovery.
- * On a double day [a] is the main session and the [others] follow the picture as plain list rows, never a second hero.
+ * After a session: what was done is the message. Every activity of the day gets the same card (Garmin Connect's
+ * "Today's activity": the numbers left, the session's picture right), newest first, so a double day reads as two
+ * equal results instead of a hero and a footnote. "What's next" ties them to the plan and recovery.
  */
 @Composable
 private fun DoneFocus(
-    a: Activity, others: List<Activity>, t: Today, verdict: Verdict?,
+    done: List<Activity>, t: Today, verdict: Verdict?,
     onOpen: (Long) -> Unit, onOpenPlan: () -> Unit, onStartWorkout: ((String) -> Unit)?,
 ) {
+    val acts = done.sortedByDescending { it.startTime }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Label(
+            if (acts.size > 1) tr("Done today · ${acts.size} sessions", "Selesai hari ini · ${acts.size} sesi")
+            else tr("Done today · ${time(acts[0].startTime)}", "Selesai hari ini · ${time(acts[0].startTime)}"),
+            K.good, Modifier.padding(horizontal = 4.dp),
+        )
+        acts.forEach { a -> key(a.id) { DoneCard(a) { onOpen(a.id) } } }
+        Box(Modifier.padding(top = 4.dp)) { WhatsNext(t, verdict, onOpenPlan, onStartWorkout) }
+    }
+}
+
+/** The number a session is judged by: distance when it covered ground, else its duration. */
+private fun mainNumber(a: Activity): Pair<String, String> =
+    if ((a.distanceM ?: 0.0) > 0) km(a.distanceM) to "km" else duration(a.durationS) to ""
+
+/** One muted line under the number: time and pace for distance work, sets and kcal for strength, HR otherwise. */
+internal fun doneSecondary(a: Activity, sets: Int?): String {
+    val hasDistance = (a.distanceM ?: 0.0) > 0
+    return when {
+        hasDistance -> listOfNotNull(duration(a.durationS), a.avgSpeed?.let { speedText(a.type, it).let { (v, u) -> "$v $u" } }).joinToString(" · ")
+        a.type == "strength_training" -> listOfNotNull(sets?.let { tr("$it sets", "$it set") }, a.calories?.let { "${it.int()} kcal" }).joinToString(" · ")
+        else -> listOfNotNull(a.avgHr?.let { "HR ${it.int()}" }, a.calories?.let { "${it.int()} kcal" }).joinToString(" · ")
+    }
+}
+
+@Composable
+private fun DoneCard(a: Activity, onOpen: () -> Unit) {
     val ctx = LocalContext.current
     // same disk cache as the activity detail, so opening it after this is instant
     val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
     val full = (detail.state as? Load.Ok)?.data
-    val hasDistance = (a.distanceM ?: 0.0) > 0
-    val stats = listOfNotNull(
-        if (hasDistance) duration(a.durationS) to tr("time", "waktu") else null,
-        a.avgSpeed?.takeIf { hasDistance }?.let { pace(it) to "/km" },
-        a.avgHr?.let { it.int() to "bpm" },
-        full?.strength?.totalSets?.let { it.toString() to tr("sets", "set") },
-        a.aerobicTe?.takeIf { !hasDistance }?.let { it.one() to tr("aerobic TE", "TE aerobik") },
-    ).take(3)
-    val open = Modifier.clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) }
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Column(Modifier.clip(RoundedCornerShape(16.dp)).then(open).padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val n = others.size + 1
-            Label(
-                if (n > 1) tr("Done today · $n sessions", "Selesai hari ini · $n sesi")
-                else tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"),
-                K.good,
-            )
-            Text(a.name ?: activityType(a.type), style = head(18.sp, -0.02f), color = K.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (hasDistance) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp, FontWeight.SemiBold), gap = 6.dp, roll = true)
-            else RollingText(duration(a.durationS), num(64.sp, italic = true, lh = 0.9f), K.ink)
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                stats.forEach { (v, l) -> Stat(v, l, num(24.sp, FontWeight.Bold), Modifier.weight(1f), captionStyle = body(12.sp, lh = 1.2f)) }
-                repeat(3 - stats.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
-            }
+    val sets = full?.workout?.totalSets ?: full?.strength?.totalSets
+    val (value, unit) = mainNumber(a)
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(K.surface).border(1.dp, K.line, shape)
+            .clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas"), onClick = onOpen)
+            .padding(start = 18.dp, top = 16.dp, bottom = 16.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(a.name ?: activityType(a.type), style = T.cardTitle, color = K.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Value(value, unit, num(40.sp, FontWeight.ExtraBold, italic = true, lh = 1f), unitStyle = body(15.sp, FontWeight.SemiBold), roll = true, modifier = Modifier.padding(top = 2.dp))
+            doneSecondary(a, sets).takeIf { it.isNotEmpty() }?.let { Text(it, style = T.bodyS, color = K.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        ActivityPicture(a, full, Modifier.fillMaxWidth().height(196.dp).clip(RoundedCornerShape(20.dp)).then(open))
-        if (others.isNotEmpty()) Column {
-            others.forEach { o ->
-                ActivityRow(o, hPad = 4.dp) { onOpen(o.id) }
-                HorizontalDivider(Modifier.padding(horizontal = 4.dp), color = K.track)
-            }
-        }
-        WhatsNext(t, verdict, onOpenPlan, onStartWorkout)
+        ActivityThumb(a, full, Modifier.size(108.dp))
     }
 }
 
@@ -306,7 +319,7 @@ private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit, onSta
 
 /** No session today (or a rest day): Garmin's readiness verdict is the message. */
 @Composable
-private fun ReadinessFocus(d: Daily, v: Verdict, restDay: Boolean, onOpenPlan: () -> Unit) {
+private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, restDay: Boolean, onOpenPlan: () -> Unit) {
     val c = v.status.color()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Label(if (restDay) tr("Rest day in your plan", "Hari istirahat di plan") else tr("No session planned today", "Tidak ada sesi hari ini"), modifier = Modifier.padding(horizontal = 4.dp))
@@ -318,6 +331,7 @@ private fun ReadinessFocus(d: Daily, v: Verdict, restDay: Boolean, onOpenPlan: (
                 readinessStatus(d.readinessLevel)?.let { Text(tr("Garmin level: ${it.first}", "Level Garmin: ${it.first}"), style = T.bodyS, color = K.muted) }
             }
         }
+        ReasonLine(d, t, v)
         Text(v.advice, Modifier.padding(horizontal = 4.dp), style = T.body, color = K.ink)
         Box(Modifier.padding(horizontal = 4.dp)) { ChipRow(v.chips) }
         if (restDay) Text(
@@ -326,6 +340,20 @@ private fun ReadinessFocus(d: Daily, v: Verdict, restDay: Boolean, onOpenPlan: (
             style = body(14.sp, FontWeight.SemiBold), color = K.ink,
         )
     }
+}
+
+/** What drives a readiness that is not good, under the verdict; nothing when readiness is good. */
+@Composable
+private fun ReasonLine(d: Daily, t: Today, v: Verdict) {
+    readinessReason(d, t.baseline.rhr?.mean, t.baseline.load?.ratio, v.status == Status.GOOD)?.let {
+        Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.body3)
+    }
+}
+
+private fun batteryStatus(peak: Double) = when {
+    peak >= 76 -> Status.GOOD
+    peak >= 51 -> Status.FAIR
+    else -> Status.LOW
 }
 
 private class Factor(
@@ -380,6 +408,7 @@ private fun BodySection(d: Daily, t: Today, verdict: Verdict?) {
                 )
             }
         }
+        ReasonLine(d, t, verdict)
     }
     Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         list.forEach { f ->
@@ -415,7 +444,7 @@ private fun FlagBox(text: String, status: Status) {
 
 /** Body Battery, steps and sleep as one strip: three readings of the same night and day, not three cards. */
 @Composable
-private fun Recovery(d: Daily, readiness: Status) {
+private fun Recovery(d: Daily) {
     val bb = d.bbNow ?: d.bbHigh
     val hasSteps = d.steps != null
     if (bb == null && !hasSteps && d.sleepS == null) return
@@ -429,7 +458,8 @@ private fun Recovery(d: Daily, readiness: Status) {
                     val low = d.bbLow
                     val high = d.bbHigh
                     if (low != null && high != null) {
-                        SpanBar((low / 100).toFloat(), (high / 100).toFloat(), readiness.color(), height = 6.dp)
+                        // its own level, Garmin's bands: a full recharge is good even on a day readiness is low
+                        SpanBar((low / 100).toFloat(), (high / 100).toFloat(), batteryStatus(high).color(), height = 6.dp)
                         Text(tr("Low ${low.int()} · high ${high.int()}", "Terendah ${low.int()} · tertinggi ${high.int()}"), style = T.caption, color = K.muted)
                     }
                 }
@@ -538,7 +568,7 @@ private fun WeekSection(t: Today, lastActivity: Activity?, onOpenActivity: (Long
                 }
             }
             Text(
-                if (picked != null) "${weekday(picked.date)} · load ${picked.load.int()}"
+                if (picked != null) loadBreakdown(picked)
                 else tr("Bar height = training load per day · total ${days.sumOf { it.load }.int()}", "Tinggi batang = training load per hari · total ${days.sumOf { it.load }.int()}"),
                 Modifier.padding(horizontal = 4.dp), style = T.caption, color = if (picked != null) K.ink else K.muted,
             )
@@ -553,24 +583,20 @@ private fun WeekSection(t: Today, lastActivity: Activity?, onOpenActivity: (Long
     }
 }
 
-/** Route for GPS sessions, body map for strength, otherwise the type icon; the icon also stands in while the detail loads. */
+/** Route for GPS sessions, worked muscles for strength, otherwise the type icon; the icon also stands in while the detail loads. */
 @Composable
-private fun ActivityPicture(a: Activity, full: Activity?, modifier: Modifier) {
+private fun ActivityThumb(a: Activity, full: Activity?, modifier: Modifier) {
     val route = full?.route?.takeIf { it.size > 1 }
-    val muscles = full?.strength?.muscles?.takeIf { it.isNotEmpty() }
-    Box(modifier.background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+    val muscles = (full?.workout?.muscles ?: full?.strength?.muscles)?.takeIf { it.isNotEmpty() }
+    Box(modifier.clip(RoundedCornerShape(16.dp)).background(K.base), contentAlignment = Alignment.Center) {
         when {
-            route != null -> Canvas(Modifier.fillMaxSize().padding(20.dp)) {
-                drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, 4.dp.toPx()) }
+            route != null -> Canvas(Modifier.fillMaxSize().padding(12.dp)) {
+                drawIntoCanvas { drawRoute(it.nativeCanvas, 0f, 0f, size.width, size.height, route, 3.dp.toPx()) }
             }
-            muscles != null -> Canvas(Modifier.fillMaxSize().padding(12.dp)) {
+            muscles != null -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
                 drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, muscles, K.good, K.track) }
             }
-            else -> Glyph(activityIcon(a.type), K.muted, 48.dp)
-        }
-        // the one control on the picture, in a corner like a map's own buttons
-        Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(32.dp).clip(CircleShape).background(K.base.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
-            Glyph(R.drawable.ic_chevron_right, K.ink, 20.dp)
+            else -> Glyph(activityIcon(a.type), K.muted, 36.dp)
         }
     }
 }

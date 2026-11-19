@@ -22,3 +22,15 @@ def test_weekly_dynamics_weights_by_duration_and_keeps_empty_weeks():
     assert [r["week"] for r in w] == ["2026-09-28", "2026-10-05"]
     assert w[0]["cadence"] == 172.5 and w[0]["runs"] == 2
     assert w[1]["cadence"] is None and w[1]["runs"] == 0
+
+
+def test_daily_load_splits_a_double_day_by_sport():
+    from core import daily_load
+    acts = [
+        {"date": "2026-11-19", "start_time": "2026-11-19 15:54:00", "type": "strength_training", "training_load": 12.4},
+        {"date": "2026-11-19", "start_time": "2026-11-19 05:30:00", "type": "running", "training_load": 44.2},
+        {"date": "2026-11-18", "start_time": "2026-11-18 05:30:00", "type": "walking", "training_load": None},
+    ]
+    rows = daily_load(acts, ["2026-11-18", "2026-11-19"])
+    assert rows[0] == {"date": "2026-11-18", "load": 0, "parts": []}
+    assert rows[1]["load"] == 56 and rows[1]["parts"] == [{"kind": "run", "load": 44}, {"kind": "strength", "load": 12}]

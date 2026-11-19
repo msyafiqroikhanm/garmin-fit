@@ -69,6 +69,52 @@ fun pace(speedMs: Double?): String {
     return "%d:%02d".format(secPerKm / 60, secPerKm % 60)
 }
 
+/** How a sport reads its speed: pace per km on foot, km/h on a bike, pace per 100 m in the water. Value and unit. */
+fun speedText(type: String?, speedMs: Double?): Pair<String, String> {
+    val t = type.orEmpty()
+    return when {
+        "cycling" in t || "biking" in t -> (speedMs?.takeIf { it > 0 }?.let { String.format(loc, "%.1f", it * 3.6) } ?: "–") to "km/h"
+        "swimming" in t -> (speedMs?.takeIf { it > 0 }?.let { paceSec(100 / it) } ?: "–") to "/100 m"
+        else -> pace(speedMs) to "/km"
+    }
+}
+
+fun kindLabel(kind: String) = when (kind) {
+    "run" -> tr("run", "lari")
+    "strength" -> "strength"
+    else -> tr("other", "lainnya")
+}
+
+/** "Thu · 56 · run 44 + strength 12"; one sport (or an older server without parts) is just "Thu · load 56". */
+fun loadBreakdown(d: DayLoad): String {
+    val head = "${weekday(d.date)} · "
+    if (d.parts.size < 2) return head + tr("load ${d.load.int()}", "load ${d.load.int()}")
+    return head + d.load.int() + " · " + d.parts.joinToString(" + ") { "${kindLabel(it.kind)} ${it.load.int()}" }
+}
+
+/**
+ * Why Garmin's readiness is not good, from the readings already on screen: short sleep, HRV under its normal,
+ * RHR over its average, a load spike. When HRV and RHR both sit in their normal range it says so, because this
+ * user's split sleep is undercounted and the body markers are the better read. Null when readiness is good.
+ */
+fun readinessReason(d: Daily, rhrMean: Double?, loadRatio: Double?, good: Boolean): String? {
+    if (good) return null
+    val hrvOk = d.hrv != null && d.hrvLow != null && d.hrv >= d.hrvLow
+    val hrvLow = d.hrv != null && d.hrvLow != null && d.hrv < d.hrvLow
+    val rhrOk = d.rhr != null && rhrMean != null && d.rhr <= rhrMean + 4
+    val rhrHigh = d.rhr != null && rhrMean != null && d.rhr > rhrMean + 4
+    val drivers = listOfNotNull(
+        d.sleepScore?.takeIf { it < 70 }?.let { tr("short sleep (${sleep(d.sleepS)})", "tidur pendek (${sleep(d.sleepS)})") },
+        tr("HRV under your normal", "HRV di bawah normal").takeIf { hrvLow },
+        tr("resting HR above usual", "RHR di atas biasanya").takeIf { rhrHigh },
+        tr("a jump in training load", "lonjakan beban latihan").takeIf { (loadRatio ?: 0.0) > 1.3 },
+    )
+    val markers = if (hrvOk && rhrOk) tr("HRV and resting HR are in your normal range.", "HRV dan RHR masih di rentang normal.") else null
+    if (drivers.isEmpty()) return markers?.let { tr("$it Garmin's score also weighs recovery time and recent load.", "$it Skor Garmin juga menimbang waktu pulih dan beban terakhir.") }
+    val list = drivers.joinToString(tr(" and ", " dan "))
+    return listOfNotNull(tr("Driven by $list.", "Penyebabnya $list."), markers).joinToString(" ")
+}
+
 fun dayLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(dayMonth) }.getOrDefault(iso)
 fun shortLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(shortDay) }.getOrDefault(iso)
 fun dateLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(fullDate) }.getOrDefault(iso)

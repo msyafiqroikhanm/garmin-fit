@@ -304,9 +304,6 @@ def today_view(user: dict = Depends(auth)):
     last_act = week_acts[0] if week_acts else core.db().activities.find_one({"user_id": uid}, NO_RAW, sort=[("start_time", -1)])
     summary = core.db().summaries.find_one({"user_id": uid, "period": "weekly"}, {"_id": 0}, sort=[("generated_at", -1)])
     last7 = days[-7:]
-    load_by_date = {}
-    for a in week_acts:
-        load_by_date[a["date"]] = load_by_date.get(a["date"], 0) + (a.get("training_load") or 0)
     week_dates = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
     return {
         "role": user["role"],
@@ -321,7 +318,7 @@ def today_view(user: dict = Depends(auth)):
             "load": sum(a.get("training_load") or 0 for a in week_acts),
             "active_days": len({a["date"] for a in week_acts}),
             "dates": sorted({a["date"] for a in week_acts}),
-            "daily_load": [{"date": d, "load": round(load_by_date.get(d, 0))} for d in week_dates],
+            "daily_load": core.daily_load(week_acts, week_dates),
         },
         "last_activity": last_act,
         "today_activities": [a for a in week_acts if a["date"] == core.today().isoformat()],

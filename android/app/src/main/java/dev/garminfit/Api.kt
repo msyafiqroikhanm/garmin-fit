@@ -281,7 +281,11 @@ data class Week(
 )
 
 @Serializable
-data class DayLoad(val date: String, val load: Double = 0.0)
+data class DayLoad(val date: String, val load: Double = 0.0, val parts: List<LoadPart> = emptyList())
+
+/** One activity's share of a day's load; [kind]: run | strength | other. Older servers send no parts. */
+@Serializable
+data class LoadPart(val kind: String, val load: Double = 0.0)
 
 @Serializable
 data class Section(val title: String, val body: String)
