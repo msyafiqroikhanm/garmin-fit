@@ -273,6 +273,8 @@ def activity(activity_id: int, user: dict = Depends(auth)):
             core.persist_if_refreshed(g, uid, token)
         except Exception:
             pass  # route is optional, the rest of the detail still renders
+    # Garmin did not answer: the app says the route and charts are still to come instead of showing nothing
+    doc["details_pending"] = doc.get("details_v") != core.DETAILS_V
     if doc.get("type") == "strength_training":
         doc["strength"] = core.strength_summary(doc.get("raw") or {}, core.muscle_catalog())
         log = core.db().workout_logs.find_one({"user_id": uid, "activity_id": activity_id})
@@ -285,9 +287,9 @@ def activity(activity_id: int, user: dict = Depends(auth)):
         since = (date.fromisoformat(doc["date"]) - timedelta(days=120)).isoformat()
         prev = core.db().activities.find(
             {"user_id": uid, "type": doc["type"], "start_time": {"$lt": doc["start_time"]}, "date": {"$gte": since}},
-            {"distance_m": 1, "avg_speed": 1, "avg_hr": 1},
+            {"date": 1, "start_time": 1, "name": 1, "type": 1, "distance_m": 1, "duration_s": 1, "avg_speed": 1, "avg_hr": 1},
         ).sort("start_time", -1)
-        doc["similar"] = core.similar_runs(doc, list(prev))
+        doc["similar"] = core.similar_runs(doc, list(prev), core.plan_run_types(uid))
     doc.pop("raw", None)
     return doc
 

@@ -449,12 +449,17 @@ SIMILAR_RUNS = 5
 SIMILAR_MIN = 3
 
 
-def similar_runs(doc: dict, previous: list[dict]) -> dict | None:
-    """Compare a run with the latest earlier runs of the same type and similar distance (+-25%)."""
+def similar_runs(doc: dict, previous: list[dict], types: dict | None = None) -> dict | None:
+    """Compare a run with the latest earlier runs of similar distance (+-25%). types maps a date to the plan session
+    type run that day; when this run fulfilled one (an easy run, a tempo), runs of the same session type are
+    preferred so an easy run is not judged against tempos."""
     dist, speed, hr = doc.get("distance_m") or 0, doc.get("avg_speed"), doc.get("avg_hr")
     if not dist or not speed:
         return None
-    match = [p for p in previous if p.get("avg_speed") and abs((p.get("distance_m") or 0) - dist) <= dist * 0.25][:SIMILAR_RUNS]
+    near = [p for p in previous if p.get("avg_speed") and abs((p.get("distance_m") or 0) - dist) <= dist * 0.25]
+    kind = (types or {}).get(doc.get("date"))
+    same = [p for p in near if kind and (types or {}).get(p.get("date")) == kind]
+    match = (same if len(same) >= SIMILAR_MIN else near)[:SIMILAR_RUNS]
     if len(match) < SIMILAR_MIN:
         return None
     avg_speed = statistics.fmean(p["avg_speed"] for p in match)
@@ -468,7 +473,20 @@ def similar_runs(doc: dict, previous: list[dict]) -> dict | None:
         # meters per minute per heartbeat: higher means the same effort moves you further
         "efficiency": statistics.fmean(effs) if effs else None,
         "this_efficiency": speed * 60 / hr if hr else None,
+        "plan_type": kind if len(same) >= SIMILAR_MIN else None,
+        "runs": [{k: p.get(k) for k in ("_id", "date", "start_time", "name", "type", "distance_m", "duration_s", "avg_speed", "avg_hr")}
+                 for p in match],
     }
+
+
+def plan_run_types(user_id: str) -> dict:
+    """date -> the type of the run planned that day, across every saved block (the newest revision wins)."""
+    out = {}
+    for p in db().plans.find({"user_id": user_id}, {"sessions.date": 1, "sessions.kind": 1, "sessions.type": 1}).sort("created_at", 1):
+        for s in p["sessions"]:
+            if s["kind"] == "run":
+                out[s["date"]] = s["type"]
+    return out
 
 
 def period_range(period: str, key: str) -> tuple[date, date]:
