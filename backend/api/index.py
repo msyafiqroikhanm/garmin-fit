@@ -324,6 +324,7 @@ def today_view(user: dict = Depends(auth)):
             "daily_load": [{"date": d, "load": round(load_by_date.get(d, 0))} for d in week_dates],
         },
         "last_activity": last_act,
+        "today_activities": [a for a in week_acts if a["date"] == core.today().isoformat()],
         "summary": summary,
         "plan": core.plan_today(core.plan_view(uid), days),
     }

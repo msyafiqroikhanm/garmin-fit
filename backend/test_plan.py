@@ -117,3 +117,16 @@ def test_adjust_by_session_type():
     assert plan_adjust(tired, _session("tempo", date_="2026-11-21")) is None  # data isn't from today
     week = plan_adjust(_days(tired_last=4), _session("easy", target={"duration_s": 2700}))
     assert week["key"] == "easy_week" and week["target"] == {"duration_s": 1860} and week["streak"] == 3
+
+
+def test_plan_today_lists_every_session_of_the_day(monkeypatch):
+    import core
+    day = "2026-10-15"
+    doc = plan_doc({**PLAN, "sessions": PLAN["sessions"] + [
+        {"date": day, "kind": "run", "type": "easy", "title": T, "target": {"distance_m": 5000}}]})
+    monkeypatch.setattr(core, "today", lambda: date(2026, 10, 15))
+    view = plan_progress(doc, [{**run(1, day, 5), "start_time": "2026-10-15T05:00:00"}], date(2026, 10, 15))
+    out = core.plan_today({"plan": {"name": doc["name"]}, **view})
+    assert [s["kind"] for s in out["sessions"]] == ["strength", "run"]
+    assert out["session"]["kind"] == "run" and out["session"]["status"] == "done"
+    assert next(s for s in out["sessions"] if s["kind"] == "strength")["status"] == "today"

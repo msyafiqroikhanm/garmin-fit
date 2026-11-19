@@ -1014,11 +1014,13 @@ def plan_today(view: dict, days: list[dict] | None = None) -> dict | None:
         return None
     t = today().isoformat()
     week = week_start(today()).isoformat()
-    session = next((s for s in view["sessions"] if s["date"] == t and s["kind"] == "run"), None) \
-        or next((s for s in view["sessions"] if s["date"] == t), None)
+    sessions = [s for s in view["sessions"] if s["date"] == t]
+    # "session" stays the run first for old app builds and plan_adjust; "sessions" carries the whole day
+    session = next((s for s in sessions if s["kind"] == "run"), None) or next(iter(sessions), None)
     return {
         "name": view["plan"]["name"],
         "session": session,
+        "sessions": sessions,
         "week": next((w for w in view["weeks"] if w["start"] == week), None),
         "overall": view["overall"],
         "adjust": plan_adjust(days or [], session),
