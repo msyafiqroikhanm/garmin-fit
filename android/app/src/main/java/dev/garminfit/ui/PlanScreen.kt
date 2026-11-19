@@ -191,20 +191,7 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
         // only what changes the session: the adjustment's reason, or why low readiness leaves it as is
         val why = if (p.adjust != null && s == p.session && verdict != null) todayAdvice(verdict, p)?.first else verdict?.let { planStandsNote(it) }
         why?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.body, color = K.body3) }
-        s.notes?.let { n ->
-            var steps by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
-            Column(Modifier.padding(horizontal = 4.dp)) {
-                SessionNotes(n.text, full = steps)
-                if (n.text.lines().any { isNoteMarkup(it) }) {
-                    Text(
-                        if (steps) tr("Hide steps", "Tutup langkah") else tr("Show steps", "Lihat langkah"),
-                        Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { steps = !steps }
-                            .sizeIn(minHeight = 44.dp).wrapContentHeight(),
-                        style = body(14.sp, FontWeight.SemiBold), color = K.ink,
-                    )
-                }
-            }
-        }
+        NotesWithSteps(s)
         StartWorkoutButton(s, onStartWorkout)
         // the rest of the day stays one compact line each, so the session above remains the only headline
         day.filter { it != s }.forEach { o ->
@@ -236,12 +223,40 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
     }
 }
 
-/** Ink "Start workout" for a strength session with a Strength 28 day that is not done yet; nothing for viewers. */
+/** The Workout tab's key for this session: its Strength 28 day, or the plan's own routine ("plan:<date>"). */
+val PlanSession.workoutKey: String?
+    get() = workout?.let { w ->
+        when {
+            w.program == "strength28" && w.day != null -> "strength28:${w.day}"
+            !w.items.isNullOrEmpty() -> "plan:$date"
+            else -> null
+        }
+    }
+
+/** Ink "See workout" for a strength session the Workout tab can play and that is not done yet; nothing for viewers. */
 @Composable
 fun StartWorkoutButton(s: PlanSession, onStartWorkout: ((String) -> Unit)?) {
-    val w = s.workout ?: return
+    val key = s.workoutKey ?: return
     if (s.kind != "strength" || s.status !in setOf("today", "upcoming", "missed") || onStartWorkout == null) return
-    AccentButton(tr("Start workout", "Mulai workout"), { onStartWorkout("strength28:${w.day}") }, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
+    AccentButton(tr("See workout", "Lihat workout"), { onStartWorkout(key) }, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
+}
+
+/** The session's aim from its notes, with Show steps to unfold the rest. */
+@Composable
+fun NotesWithSteps(s: PlanSession) {
+    val n = s.notes ?: return
+    var steps by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
+    Column(Modifier.padding(horizontal = 4.dp)) {
+        SessionNotes(n.text, full = steps)
+        if (n.text.lines().any { isNoteMarkup(it) }) {
+            Text(
+                if (steps) tr("Hide steps", "Tutup langkah") else tr("Show steps", "Lihat langkah"),
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { steps = !steps }
+                    .sizeIn(minHeight = 44.dp).wrapContentHeight(),
+                style = body(14.sp, FontWeight.SemiBold), color = K.ink,
+            )
+        }
+    }
 }
 
 /**
@@ -334,7 +349,7 @@ class PlanActions(
 @Composable
 fun PlanScreen(
     picked: String?, onPick: (String?) -> Unit, onBack: () -> Unit,
-    onOpenActivity: (Long) -> Unit, onOpenLog: (String) -> Unit, onOpenToday: () -> Unit,
+    onOpenActivity: (Long) -> Unit, onOpenLog: (String) -> Unit, onStartWorkout: (String) -> Unit, onOpenToday: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -378,7 +393,7 @@ fun PlanScreen(
             }
             val sel = picked?.let { k -> v.sessions.firstOrNull { it.key == k } }
             if (sel != null) {
-                PlanSessionScreen(sel, weekNo(plan, weekOf(sel.date)), v, actions, { onPick(null) }, onOpenActivity, onOpenLog) { loader.reload() }
+                PlanSessionScreen(sel, weekNo(plan, weekOf(sel.date)), v, actions, { onPick(null) }, onOpenActivity, onOpenLog, onStartWorkout.takeIf { role == "owner" }) { loader.reload() }
                 return@LoadView
             }
             if (LocalDate.now() > LocalDate.parse(plan.end) && !lookBack) FinishedPlan(body, v, plan, { lookBack = true }, onOpenActivity, blocks) { archive = it }
@@ -731,7 +746,7 @@ private fun SessionRow(s: PlanSession, onOpen: () -> Unit) {
             Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = if (rest || s.status == "skipped") K.muted else K.ink)
             if (meta.isNotEmpty()) Text(meta, style = T.caption, color = K.muted)
             adjustedText(s)?.let { Text(it, style = T.caption, color = K.fair) }
-            s.workout?.let { Text(tr("Strength 28 · Day ${it.day}", "Strength 28 · Hari ${it.day}"), style = T.caption, color = K.muted) }
+            s.workout?.day?.let { Text(tr("Strength 28 · Day $it", "Strength 28 · Hari $it"), style = T.caption, color = K.muted) }
         }
         s.pct?.let { Text(pctText(it), style = num(18.sp, FontWeight.Bold), color = if (s.status == "partial") K.fair else K.body2) }
         PlanStatusMark(s, 22.dp)

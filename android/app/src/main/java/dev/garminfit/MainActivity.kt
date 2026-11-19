@@ -246,6 +246,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                 onLogClosed = { workoutLog = null; logFrom?.let { tab = it }; logFrom = null },
                                 onPlaying = { playing = it },
                                 onOpenActivity = ::openActivity,
+                                onOpenPlanSession = { openPlan(it) },
                             )
                             Tab.TRENDS -> TrendsScreen()
                             Tab.ACTIVITIES -> ActivitiesScreen(
@@ -269,6 +270,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                     if (k == null) planFrom = null
                                 },
                                 onOpenLog = { workoutLog = it; logFrom = Tab.TRAINING; tab = Tab.WORKOUT },
+                                onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
                                 onOpenToday = { planOpen = false; tab = Tab.TODAY },
                             )
                         }

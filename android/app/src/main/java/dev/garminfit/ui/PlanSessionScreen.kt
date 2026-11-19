@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -103,7 +104,8 @@ private fun targets(text: String) = buildAnnotatedString {
 @Composable
 fun PlanSessionScreen(
     s: PlanSession, weekNo: Int, v: PlanView, actions: PlanActions?,
-    onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenLog: (String) -> Unit, onSynced: (() -> Unit)? = null,
+    onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenLog: (String) -> Unit,
+    onStartWorkout: ((String) -> Unit)? = null, onSynced: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val sections = parseNotes(s.notes?.text.orEmpty())
@@ -134,6 +136,7 @@ fun PlanSessionScreen(
             }
 
             if (s.kind != "rest") TargetCard(s, owner = actions != null, onOpenActivity, onOpenLog)
+            Box(Modifier.padding(horizontal = 4.dp)) { StartWorkoutButton(s, onStartWorkout) }
             if (s.kind != "rest" && actions != null) ChangeCard(s, v, actions)
 
             if (facts.isNotEmpty() || next != null) {

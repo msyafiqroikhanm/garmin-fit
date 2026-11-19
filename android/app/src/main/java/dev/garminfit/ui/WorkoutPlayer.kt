@@ -95,21 +95,30 @@ private class PlayerState(val def: WorkoutDef, draft: WorkoutDraft?) {
     var reps by mutableIntStateOf(0)
     var kg by mutableDoubleStateOf(0.0)
     var restTotal = 0L
+    // a bodyweight exercise done with extra weight (a backpack for rows)
+    var weighted by mutableStateOf(false)
 
     val item: WorkoutItem get() = def.items[index]
     val last: Boolean get() = index == def.items.size - 1
     val leftMs: Long get() = (if (paused) pausedLeft else endsAt - now).coerceAtLeast(0)
 
-    fun draft() = WorkoutDraft(def, index, sets.toList(), startTime, activeMs, logId)
+    // during a rest the finished exercise is behind; a resume after a kill starts at the next one
+    fun draft() = WorkoutDraft(def, if (phase == Phase.REST) index + 1 else index, sets.toList(), startTime, activeMs, logId)
 
     fun pause() { if (!paused) { pausedLeft = endsAt - SystemClock.elapsedRealtime(); paused = true } }
     fun resume() { if (paused) { endsAt = SystemClock.elapsedRealtime() + pausedLeft; paused = false } }
 
-    fun log(completed: Boolean): LogIn = LogIn(
-        id = logId, key = def.key, program = def.program, day = def.day,
-        title = def.day?.let { d -> Bi("Day $d · ${def.title.id}", "Day $d · ${def.title.en ?: def.title.id}") } ?: def.title,
-        startTime = startTime, endTime = LocalDateTime.now().format(STAMP), durationS = (activeMs / 1000).toInt(), completed = completed,
-        sets = def.items.mapIndexed { i, it -> sets[i] ?: SetLog(it.ex, it.block, it.round, SetTarget(it.reps, it.seconds), skipped = true) },
+    fun log(completed: Boolean): LogIn = draftLog(WorkoutDraft(def, index, sets.toList(), startTime, activeMs, logId), completed)
+}
+
+/** A workout (finished, quit or left unfinished) as the log the server stores; sets never reached count as skipped. */
+fun draftLog(d: WorkoutDraft, completed: Boolean): LogIn {
+    val def = d.workout
+    return LogIn(
+        id = d.logId, key = def.key, program = def.program, day = def.day,
+        title = def.day?.let { n -> Bi("Hari $n · ${def.title.id}", "Day $n · ${def.title.en ?: def.title.id}") } ?: def.title,
+        startTime = d.startTime, endTime = LocalDateTime.now().format(STAMP), durationS = (d.activeMs / 1000).toInt().coerceAtMost(14400), completed = completed,
+        sets = def.items.mapIndexed { i, it -> d.sets.getOrNull(i) ?: SetLog(it.ex, it.block, it.round, SetTarget(it.reps, it.seconds), skipped = true) },
     )
 }
 
@@ -122,11 +131,19 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
     var info by remember { mutableStateOf(false) }
     var quit by remember { mutableStateOf(false) }
     var uploaded by remember { mutableStateOf<Boolean?>(null) }
+    var refused by remember { mutableStateOf(false) }
 
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        // portrait while playing: a rotation would rebuild the player mid-set
+        val act = ctx as? android.app.Activity
+        val before = act?.requestedOrientation
+        act?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            view.keepScreenOn = false
+            if (act != null && before != null) act.requestedOrientation = before
+        }
     }
     var voiceOn by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { voiceOn = Repo.voice(ctx) }
@@ -145,6 +162,9 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
     fun say(text: String) { if (voiceOn && ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "workout") }
 
     fun name(i: WorkoutItem) = home.exercises[i.ex]?.name?.text ?: i.ex
+    // the weight used last for this exercise: earlier sets today, else the plan's kg, else the last session's
+    fun lastKg(st: PlayerState, i: WorkoutItem) = st.sets.filterNotNull().lastOrNull { it.ex == i.ex && (it.kg ?: 0.0) > 0 }?.kg
+        ?: i.kg ?: home.weights[i.ex]?.suggest
     fun spoken(i: WorkoutItem) = name(i) + ", " + (i.reps?.let { tr("$it reps", "$it kali") } ?: tr("${i.seconds} seconds", "${i.seconds} detik"))
     fun dumbbell(i: WorkoutItem) = home.exercises[i.ex]?.equipment == "dumbbell"
 
@@ -152,7 +172,8 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
         val i = st.item
         st.phase = Phase.WORK
         st.reps = i.reps ?: 0
-        st.kg = st.sets.filterNotNull().lastOrNull { it.ex == i.ex && (it.kg ?: 0.0) > 0 }?.kg ?: home.weights[i.ex]?.suggest ?: 0.0
+        st.kg = lastKg(st, i) ?: 0.0
+        st.weighted = !dumbbell(i) && st.kg > 0
         st.workStart = SystemClock.elapsedRealtime()
         st.endsAt = st.workStart + (i.seconds ?: 0) * 1000L
         st.paused = false
@@ -171,6 +192,7 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
             Repo.queueLog(ctx, log)
             Repo.saveDraft(ctx, null)
             uploaded = runCatching { Repo.flushWorkoutLogs(ctx) == 0 }.getOrDefault(false)
+            refused = log.title.text in Repo.rejected
         }
         say(tr("Workout done. Nice work.", "Workout beres. Mantap."))
     }
@@ -187,15 +209,17 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
     }
     fun record(skipped: Boolean = false) {
         val i = st.item
+        // a hold ended early with Done logs the seconds actually held
         val elapsed = ((SystemClock.elapsedRealtime() - st.workStart) / 1000).toInt().coerceIn(0, i.seconds ?: 0)
         st.sets[st.index] = SetLog(
             i.ex, i.block, i.round, SetTarget(i.reps, i.seconds),
             reps = i.reps?.let { if (skipped) null else st.reps },
-            seconds = i.seconds?.let { if (skipped) elapsed else it },
-            kg = st.kg.takeIf { dumbbell(i) && it > 0 && !skipped },
+            seconds = i.seconds?.let { elapsed },
+            kg = st.kg.takeIf { it > 0 && !skipped && (dumbbell(i) || st.weighted) },
             skipped = skipped,
         )
-        next()
+        // a skipped exercise needs no rest after it
+        if (skipped) { if (st.last) finish() else { st.index++; startReady() } } else next()
     }
     fun afterRest() { st.index++; startWork() }
 
@@ -231,7 +255,7 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
     BackHandler { if (st.phase == Phase.FINISH) onExit() else st.pause() }
 
     Box(Modifier.fillMaxSize().background(K.base)) {
-        if (st.phase == Phase.FINISH) FinishView(st, home, uploaded, onExit)
+        if (st.phase == Phase.FINISH) FinishView(st, home, uploaded, refused, onExit)
         else Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Progress(st)
             Column(
@@ -250,19 +274,18 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
                     Phase.REST -> {
                         val nxt = def.items[st.index + 1]
                         val newRound = nxt.block == st.item.block && nxt.round == st.item.round + 1
-                        Label(if (newRound) tr("Round ${nxt.round} next", "Ronde ${nxt.round} berikutnya") else tr("Rest", "Istirahat"))
+                        Label(if (newRound) tr("Set ${nxt.round} of ${nxt.rounds} next", "Set ${nxt.round} dari ${nxt.rounds} berikutnya") else tr("Rest", "Istirahat"))
                         Ring(st.leftMs / st.restTotal.toFloat().coerceAtLeast(1f), "${ceil(st.leftMs / 1000.0).toInt()}")
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton({ st.endsAt += 20_000; st.restTotal += 20_000 }) { Text("+20s", style = body(15.sp, FontWeight.Bold), color = K.ink) }
                             AccentButton(tr("Skip rest", "Lewati istirahat"), ::afterRest)
                         }
-                        Panel(Modifier.fillMaxWidth(), padding = 14.dp, radius = 20.dp) {
-                            Label(tr("Next · ${st.index + 2} / ${def.items.size}", "Berikutnya · ${st.index + 2} / ${def.items.size}"))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(name(nxt), Modifier.weight(1f), style = T.cardTitle, color = K.ink)
-                                Text(workTarget(nxt.reps, nxt.seconds), style = num(24.sp, FontWeight.Bold), color = K.ink)
-                            }
-                            home.exercises[nxt.ex]?.let { BodyFigure(exMuscles(it), 120.dp, tr("Muscles it works", "Otot yang dilatih")) }
+                        // readable from the floor: what comes next, how much, and the weight to pick up
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Label(tr("Next", "Berikutnya"))
+                            Text(name(nxt), style = T.headline, color = K.ink)
+                            Text(workTarget(nxt.reps, nxt.seconds), style = num(36.sp), color = K.ink)
+                            lastKg(st, nxt)?.takeIf { it > 0 && dumbbell(nxt) }?.let { Text(tr("Grab ${kgText(it)}", "Ambil ${kgText(it)}"), style = body(17.sp, FontWeight.SemiBold), color = K.body2) }
                         }
                     }
                     Phase.FINISH -> Unit
@@ -277,12 +300,13 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
             )
         }
         if (st.paused && !info && !quit) PausedOverlay(
+            resting = st.phase == Phase.REST,
             onResume = { st.resume() },
             onRestart = { if (st.phase == Phase.REST) afterRest() else startWork() },
             onQuit = { quit = true },
         )
     }
-    if (info) ExerciseSheet(listOf(st.item.ex), 0, home.exercises) { info = false; st.resume() }
+    if (info) ExerciseSheet(listOf(st.item.ex), 0, home.exercises, home.history) { info = false; st.resume() }
     if (quit) AlertDialog(
         onDismissRequest = { quit = false },
         containerColor = K.surface,
@@ -296,7 +320,12 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
                     Repo.queueLog(ctx, log)
                     Repo.saveDraft(ctx, null)
                     val left = runCatching { Repo.flushWorkoutLogs(ctx) }.getOrDefault(1)
-                    Toast.makeText(ctx, if (left == 0) tr("Saved", "Tersimpan") else tr("Saved on this phone, uploads when you're online", "Tersimpan di HP, diunggah saat online"), Toast.LENGTH_SHORT).show()
+                    val msg = when {
+                        log.title.text in Repo.rejected -> tr("The server refused this workout, so it wasn't saved.", "Server menolak workout ini, jadi tidak tersimpan.")
+                        left == 0 -> tr("Saved", "Tersimpan")
+                        else -> tr("Saved on this phone, uploads when you're online", "Tersimpan di HP, diunggah saat online")
+                    }
+                    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
                     onExit()
                 }
             }) { Text(tr("Save", "Simpan"), color = K.good) }
@@ -325,10 +354,12 @@ private fun Progress(st: PlayerState) {
                 Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(c))
             }
         }
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${st.index + 1} / $n", Modifier.weight(1f), style = num(18.sp, FontWeight.Bold), color = K.ink)
-            if (i.block == "main") Text(tr("Round ${i.round} of ${i.rounds}", "Ronde ${i.round} dari ${i.rounds}"), style = T.label, color = K.muted)
-            else Text(st.def.heading(), style = T.label, color = K.muted)
+            if (i.block == "main" && i.rounds > 1) {
+                Text(if (st.def.program == "plan") tr("Set ", "Set ") else tr("Round ", "Ronde "), style = T.label, color = K.muted)
+                Text("${i.round} / ${i.rounds}", style = num(18.sp, FontWeight.Bold), color = K.ink)
+            } else Text(st.def.heading(), style = T.label, color = K.muted)
         }
     }
 }
@@ -337,20 +368,22 @@ private fun Progress(st: PlayerState) {
 private fun WorkView(st: PlayerState, home: WorkoutsHome, name: (WorkoutItem) -> String, dumbbell: (WorkoutItem) -> Boolean, onDone: () -> Unit) {
     val i = st.item
     Text(name(i), style = T.sheetTitle, color = K.ink)
-    home.exercises[i.ex]?.let { BodyFigure(exMuscles(it), 160.dp, tr("Muscles it works", "Otot yang dilatih")) }
+    // small figure, so the count and Done stay high on the screen
+    home.exercises[i.ex]?.let { BodyFigure(exMuscles(it), 96.dp, tr("Muscles it works", "Otot yang dilatih")) }
     if (i.seconds != null) {
         Ring(st.leftMs / (i.seconds * 1000f), workTarget(null, ceil(st.leftMs / 1000.0).toInt()))
+        SecondaryButton(tr("Done early", "Selesai lebih awal"), onDone, Modifier.fillMaxWidth())
     } else {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Stepper("x${st.reps}", onMinus = { st.reps = (st.reps - 1).coerceAtLeast(0) }, onPlus = { st.reps++ }, minusEnabled = st.reps > 0, valueStyle = T.hero)
+            Stepper("x${st.reps}", onMinus = { st.reps = (st.reps - 1).coerceAtLeast(0) }, onPlus = { st.reps = (st.reps + 1).coerceAtMost(500) }, minusEnabled = st.reps > 0, plusEnabled = st.reps < 500, valueStyle = T.hero)
         }
         if (i.reps != st.reps) Text(tr("Target x${i.reps}", "Target x${i.reps}"), style = T.caption, color = K.muted)
-        if (dumbbell(i)) {
+        if (dumbbell(i) || st.weighted) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label(tr("Per dumbbell", "Per dumbbell"))
-                Stepper(kgText(st.kg), onMinus = { st.kg = (st.kg - 0.5).coerceAtLeast(0.0) }, onPlus = { st.kg += 0.5 }, minusEnabled = st.kg > 0)
+                Label(if (dumbbell(i)) tr("Per dumbbell", "Per dumbbell") else tr("Extra weight", "Beban tambahan"))
+                Stepper(kgText(st.kg), onMinus = { st.kg = (st.kg - 0.5).coerceAtLeast(0.0) }, onPlus = { st.kg = (st.kg + 0.5).coerceAtMost(200.0) }, minusEnabled = st.kg > 0)
             }
-        }
+        } else TextButton({ st.weighted = true; st.kg = 5.0 }) { Text(tr("Add weight", "Tambah beban"), style = body(14.sp, FontWeight.SemiBold), color = K.ink) }
         AccentButton(tr("Done", "Selesai"), onDone, Modifier.fillMaxWidth())
     }
 }
@@ -391,7 +424,7 @@ private fun ControlButton(icon: Int, description: String, enabled: Boolean, onCl
 }
 
 @Composable
-private fun PausedOverlay(onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit) {
+private fun PausedOverlay(resting: Boolean, onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(K.base.copy(alpha = 0.96f)).clickable(enabled = false) {}.padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
@@ -399,13 +432,15 @@ private fun PausedOverlay(onResume: () -> Unit, onRestart: () -> Unit, onQuit: (
     ) {
         Text(tr("Paused", "Dijeda"), style = T.screenTitle, color = K.ink)
         AccentButton(tr("Resume", "Lanjut"), onResume, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
-        TextButton(onRestart) { Text(tr("Restart exercise", "Ulang latihan ini"), style = body(15.sp, FontWeight.SemiBold), color = K.ink) }
+        TextButton(onRestart) {
+            Text(if (resting) tr("Start the next exercise", "Mulai latihan berikutnya") else tr("Restart exercise", "Ulang latihan ini"), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+        }
         TextButton(onQuit) { Text(tr("Quit", "Keluar"), style = body(15.sp, FontWeight.SemiBold), color = K.low) }
     }
 }
 
 @Composable
-private fun FinishView(st: PlayerState, home: WorkoutsHome, uploaded: Boolean?, onExit: () -> Unit) {
+private fun FinishView(st: PlayerState, home: WorkoutsHome, uploaded: Boolean?, refused: Boolean, onExit: () -> Unit) {
     val done = st.sets.filterNotNull().filter { !it.skipped }
     val reps = done.sumOf { it.reps ?: 0 }
     val volume = done.sumOf { (it.reps ?: 0) * (it.kg ?: 0.0) }
@@ -415,7 +450,7 @@ private fun FinishView(st: PlayerState, home: WorkoutsHome, uploaded: Boolean?, 
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(tr("DONE!", "BERES!"), style = T.statusWord, color = K.good)
-        Text(st.def.heading() + " · " + st.def.title.text, style = T.cardTitle, color = K.body2)
+        Text(listOf(st.def.heading(), st.def.title.text).distinct().joinToString(" · "), style = T.cardTitle, color = K.body2)
         Panel(Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Stat(duration(st.activeMs / 1000.0), tr("time", "waktu"), num(26.sp), Modifier.weight(1f))
@@ -426,12 +461,13 @@ private fun FinishView(st: PlayerState, home: WorkoutsHome, uploaded: Boolean?, 
             BodyFigure(worked, 220.dp, tr("Muscles you worked", "Otot yang kamu latih"))
         }
         Text(
-            when (uploaded) {
-                null -> tr("Saving…", "Menyimpan…")
-                true -> tr("Saved", "Tersimpan")
-                false -> tr("Saved on this phone, uploads when you're online", "Tersimpan di HP, diunggah saat online")
+            when {
+                refused -> tr("The server refused this workout, so it wasn't saved.", "Server menolak workout ini, jadi tidak tersimpan.")
+                uploaded == null -> tr("Saving…", "Menyimpan…")
+                uploaded == true -> tr("Saved", "Tersimpan")
+                else -> tr("Saved on this phone, uploads when you're online", "Tersimpan di HP, diunggah saat online")
             },
-            style = T.bodyS, color = if (uploaded == false) K.fair else K.body2,
+            style = T.bodyS, color = if (uploaded == false || refused) K.fair else K.body2,
         )
         Text(tr("Your watch activity links after the next sync.", "Aktivitas jam tersambung setelah sync berikutnya."), style = T.bodyS, color = K.muted)
         Spacer(Modifier.height(8.dp))

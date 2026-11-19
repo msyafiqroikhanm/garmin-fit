@@ -377,8 +377,12 @@ data class PlanSession(
     val skipped: String? = null,
 )
 
+/** Strength 28 day ([program] + [day]) or the plan's own routine ([items]). */
 @Serializable
-data class PlanWorkout(val program: String, val day: Int)
+data class PlanWorkout(val program: String? = null, val day: Int? = null, val items: List<PlanItem>? = null)
+
+@Serializable
+data class PlanItem(val ex: String, val sets: Int, val reps: Int? = null, val seconds: Int? = null, val kg: Double? = null)
 
 @Serializable
 data class PlanWeek(
@@ -502,7 +506,7 @@ data class ExerciseDef(val name: Bi, val kind: String, val equipment: String, va
 
 /** One exercise slot in a workout; [block]: warmup | main | finisher | cooldown. */
 @Serializable
-data class WorkoutItem(val ex: String, val reps: Int? = null, val seconds: Int? = null, val block: String, val round: Int = 1, val rounds: Int = 1)
+data class WorkoutItem(val ex: String, val reps: Int? = null, val seconds: Int? = null, val block: String, val round: Int = 1, val rounds: Int = 1, val kg: Double? = null)
 
 @Serializable
 data class WorkoutDef(
@@ -523,6 +527,7 @@ data class ProgramInfo(
     val days: Int = 28,
     @SerialName("next_day") val nextDay: Int = 1,
     @SerialName("done_days") val doneDays: List<Int> = emptyList(),
+    @SerialName("partial_days") val partialDays: List<Int> = emptyList(),
     @SerialName("runs_completed") val runsCompleted: Int = 0,
     val difficulty: Int = 0,
 )
@@ -531,7 +536,20 @@ data class ProgramInfo(
 data class WorkoutPrefs(val difficulty: Int = 0, @SerialName("rest_s") val restS: Int = 20)
 
 @Serializable
-data class WorkoutWeek(val sessions: Int = 0, val minutes: Int = 0, val reps: Int = 0, val dates: List<String> = emptyList())
+data class WorkoutWeek(val sessions: Int = 0, val minutes: Int = 0, val reps: Int = 0, val dates: List<String> = emptyList(), val watch: Int = 0)
+
+/** One earlier session of an exercise: reps or seconds per set done, heaviest kg. */
+@Serializable
+data class ExerciseVisit(val date: String, val reps: List<Int> = emptyList(), val seconds: List<Int> = emptyList(), val kg: Double? = null)
+
+@Serializable
+data class RoutineItem(val ex: String, val reps: Int? = null, val seconds: Int? = null)
+
+@Serializable
+data class Routine(val id: String? = null, val title: String, val rounds: Int, val items: List<RoutineItem>)
+
+@Serializable
+data class LinkIn(@SerialName("activity_id") val activityId: Long?)
 
 @Serializable
 data class LogSummary(
@@ -565,6 +583,8 @@ data class WorkoutsHome(
     val weights: Map<String, WeightHint> = emptyMap(),
     /** owner | viewer; older servers leave it out, see [Repo.role]. */
     val role: String? = null,
+    val history: Map<String, List<ExerciseVisit>> = emptyMap(),
+    val routines: List<Routine> = emptyList(),
 )
 
 @Serializable
@@ -635,7 +655,7 @@ interface ApiService {
     @DELETE("account/invites/{id}") suspend fun revokeInvite(@Path("id") id: String)
     @GET("today") suspend fun today(): Today
     @GET("daily") suspend fun daily(@Query("from") from: String, @Query("to") to: String? = null): List<Daily>
-    @GET("activities") suspend fun activities(@Query("from") from: String): List<Activity>
+    @GET("activities") suspend fun activities(@Query("from") from: String, @Query("to") to: String? = null): List<Activity>
     @GET("activities/{id}") suspend fun activity(@Path("id") id: Long): Activity
     @POST("sync") suspend fun sync(): SyncResult
     @GET("records") suspend fun records(): List<Record>
@@ -655,6 +675,9 @@ interface ApiService {
     @POST("workouts/logs") suspend fun saveWorkoutLog(@Body body: LogIn): LogSummary
     @DELETE("workouts/logs/{id}") suspend fun deleteWorkoutLog(@Path("id") id: String)
     @PUT("workouts/prefs") suspend fun saveWorkoutPrefs(@Body body: WorkoutPrefs): WorkoutPrefs
+    @PUT("workouts/logs/{id}/activity") suspend fun linkWorkoutLog(@Path("id") id: String, @Body body: LinkIn): LogView
+    @POST("workouts/routines") suspend fun saveRoutine(@Body body: Routine): Routine
+    @DELETE("workouts/routines/{id}") suspend fun deleteRoutine(@Path("id") id: String)
 }
 
 // encodeDefaults: the server validates workout logs and prefs strictly, so a false or 0 must not be left out
@@ -709,10 +732,17 @@ object Repo {
         ctx.store.edit { if (token == null) it.remove(LEGACY_TOKEN) else it[LEGACY_TOKEN] = token }
     }
 
-    /** Signs out on the server (best effort) and forgets the session and everything cached for it. */
-    suspend fun signOut(ctx: Context) {
+    /**
+     * Signs out on the server (best effort) and forgets the session and everything cached for it. Finished workouts
+     * still waiting to upload (and an unfinished one) stay: an expired session is not the owner choosing to drop a
+     * workout, and they upload after signing back in. Only the owner can post them, so another account cannot.
+     */
+    suspend fun signOut(ctx: Context, keepWorkouts: Boolean = true) {
         token(ctx)?.let { t -> runCatching { api(t).logout() } }
-        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(PLAN_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING); it.remove(ROLE) }
+        ctx.store.edit {
+            it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(PLAN_CACHE); it.remove(ROLE)
+            if (!keepWorkouts) { it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING) }
+        }
         me = null
     }
 
@@ -769,7 +799,7 @@ object Repo {
     suspend fun draft(ctx: Context): WorkoutDraft? =
         ctx.store.data.first()[WORKOUT_DRAFT]?.let { runCatching { json.decodeFromString(WorkoutDraft.serializer(), it) }.getOrNull() }
 
-    private suspend fun pending(ctx: Context): List<LogIn> =
+    suspend fun pending(ctx: Context): List<LogIn> =
         ctx.store.data.first()[WORKOUT_PENDING]?.let { runCatching { json.decodeFromString(pendingSer, it) }.getOrNull() } ?: emptyList()
 
     suspend fun queueLog(ctx: Context, l: LogIn) {
@@ -779,18 +809,26 @@ object Repo {
         }
     }
 
-    /** Uploads queued workouts; returns how many are still waiting. A log the server rejects is dropped, a network or server error keeps it. */
+    /** Titles of workouts the server refused on the last upload; shown once, then cleared. */
+    @Volatile var rejected: List<String> = emptyList()
+
+    /**
+     * Uploads queued workouts; returns how many are still waiting. A log the server rejects is dropped and its title
+     * kept in [rejected] so the screen can say so; a network or server error keeps it queued.
+     */
     suspend fun flushWorkoutLogs(ctx: Context): Int {
         val sent = mutableSetOf<String>()
+        val refused = mutableListOf<String>()
         for (l in pending(ctx)) {
             try {
                 api(ctx).saveWorkoutLog(l)
                 sent += l.id
             } catch (e: HttpException) {
-                if (e.code() in setOf(400, 403, 422)) sent += l.id
+                if (e.code() in setOf(400, 403, 422)) { sent += l.id; refused += l.title.text }
             } catch (_: IOException) {
             }
         }
+        if (refused.isNotEmpty()) rejected = rejected + refused
         var left = 0
         ctx.store.edit { p ->
             val list = p[WORKOUT_PENDING]?.let { runCatching { json.decodeFromString(pendingSer, it) }.getOrNull() }.orEmpty().filter { it.id !in sent }

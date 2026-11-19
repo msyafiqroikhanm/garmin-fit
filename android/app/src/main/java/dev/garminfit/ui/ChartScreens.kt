@@ -286,7 +286,7 @@ private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
 @Composable
 fun TrainingScreen(
     onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit,
-    planSession: String?, onPlanSession: (String?) -> Unit, onOpenLog: (String) -> Unit, onOpenToday: () -> Unit,
+    planSession: String?, onPlanSession: (String?) -> Unit, onOpenLog: (String) -> Unit, onStartWorkout: (String) -> Unit, onOpenToday: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("training") {
@@ -302,7 +302,7 @@ fun TrainingScreen(
     var recap by rememberSaveable { mutableStateOf(false) }
     val role by androidx.compose.runtime.produceState<String?>(null) { value = Repo.role(ctx) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
-    if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenLog = onOpenLog, onOpenToday = onOpenToday)
+    if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenLog = onOpenLog, onStartWorkout = onStartWorkout, onOpenToday = onOpenToday)
     LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
@@ -371,13 +371,13 @@ private fun PredictionsCard(rows: List<Prediction>) {
 @Composable
 private fun WeekMusclesCard(w: WeekMuscles) {
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
-        CardTitle(tr("Muscles, last 7 days", "Otot 7 hari terakhir"), icon = R.drawable.ic_fitness_center)
+        CardTitle(tr("Muscles this week", "Otot minggu ini"), icon = R.drawable.ic_fitness_center)
         if (w.sessions == 0) {
             Text(tr("No strength sessions this week yet.", "Belum ada sesi strength minggu ini."), style = T.body, color = K.muted)
             return@Panel
         }
         Text(tr("${w.sessions} strength sessions · ${w.sets} sets", "${w.sessions} sesi strength · ${w.sets} set"), style = T.bodyS, color = K.muted)
-        Canvas(Modifier.fillMaxWidth().height(240.dp).semantics { contentDescription = tr("Body map of muscles worked in the last 7 days", "Body map otot yang dilatih 7 hari terakhir") }) {
+        Canvas(Modifier.fillMaxWidth().height(240.dp).semantics { contentDescription = tr("Body map of muscles worked this week", "Body map otot yang dilatih minggu ini") }) {
             drawIntoCanvas { drawBody(it.nativeCanvas, 0f, 0f, size.width, size.height, w.muscles, K.good, K.track) }
         }
         if (w.untrained.isNotEmpty()) {
