@@ -38,6 +38,15 @@ fun trimEnds(pts: List<RoutePoint>, meters: Double = 200.0): List<RoutePoint> {
     return if (start < end - 1) pts.subList(start, end) else emptyList()
 }
 
+/** Width over height of the route as [project] draws it. */
+fun routeAspect(pts: List<RoutePoint>): Float {
+    if (pts.size < 2) return 1f
+    val k = cos(pts.sumOf { it[0] } / pts.size * PI / 180)
+    val spanX = (pts.maxOf { it[1] } - pts.minOf { it[1] }) * k
+    val spanY = pts.maxOf { it[0] } - pts.minOf { it[0] }
+    return (spanX / spanY.coerceAtLeast(1e-9)).toFloat().coerceIn(0.2f, 5f)
+}
+
 /** Equirectangular projection fitted into w×h, aspect kept, centered. Good enough at city scale. */
 fun project(pts: List<RoutePoint>, w: Float, h: Float): List<Pair<Float, Float>> {
     if (pts.isEmpty()) return emptyList()
@@ -66,7 +75,7 @@ fun paceColor(speed: Double, lo: Double, hi: Double): Color {
  * Draws the route into the rect on a native canvas, used by the detail card and the share image.
  * [color] null means pace gradient; otherwise a single color.
  */
-fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<RoutePoint>, stroke: Float, color: Color? = null) {
+fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<RoutePoint>, stroke: Float, color: Color? = null, shadow: Int = 0) {
     if (pts.size < 2) return
     val pad = stroke * 2
     val xy = project(pts, w - pad * 2, h - pad * 2).map { (x, y) -> left + pad + x to top + pad + y }
@@ -78,6 +87,7 @@ fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<
         strokeWidth = stroke
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+        if (shadow != 0) setShadowLayer(stroke * 1.5f, 0f, stroke * 0.3f, shadow)
     }
     if (color != null) {
         p.color = color.toArgb()
@@ -92,7 +102,10 @@ fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<
             c.drawLine(xy[i - 1].first, xy[i - 1].second, xy[i].first, xy[i].second, p)
         }
     }
-    val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        if (shadow != 0) setShadowLayer(stroke * 1.5f, 0f, stroke * 0.3f, shadow)
+    }
     dot.color = (color ?: K.ink).toArgb()
     c.drawCircle(xy.first().first, xy.first().second, stroke * 1.3f, dot)
     dot.color = (color ?: K.good).toArgb()

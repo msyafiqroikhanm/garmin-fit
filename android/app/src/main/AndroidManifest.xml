@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Share offers "Open Instagram" after copying a sticker, only when it is installed -->
+    <queries>
+        <package android:name="com.instagram.android" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

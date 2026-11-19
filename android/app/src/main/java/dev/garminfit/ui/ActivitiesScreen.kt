@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -147,7 +148,9 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
         val share = sharing
         val route = map
         if (share != null && current != null && share.id == current.id) {
-            ShareScreen(share.shareContent(), onBack = { sharing = null })
+            // the cached plan, for the pace band of a run that fulfilled a plan session
+            val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
+            ShareScreen(share.shareContent(plan), onBack = { sharing = null })
         } else if (route != null && current != null) {
             MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend() }
         } else if (current != null) {
