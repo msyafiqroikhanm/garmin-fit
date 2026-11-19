@@ -129,8 +129,8 @@ private fun musclesText(m: Map<String, MuscleLoad>) =
 fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean) -> Unit, onOpenActivity: (Long) -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("workouts") { Repo.api(ctx).workouts() }
-    val me by produceState<Me?>(null) { value = runCatching { Repo.me(ctx) }.getOrNull() }
-    val owner = me?.role == "owner"
+    // the role rides along with /workouts (disk cached); older servers fall back to the saved /me or /today role
+    val savedRole by produceState<String?>(null) { value = Repo.role(ctx) }
     var draft by remember { mutableStateOf<WorkoutDraft?>(null) }
     var draftChecked by remember { mutableStateOf(0) }
     LaunchedEffect(draftChecked) { draft = Repo.draft(ctx) }
@@ -150,6 +150,8 @@ fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean
         onPlaying(playing)
     }
     LoadView(loader, loadingText = tr("Loading workouts", "Memuat workout")) { home ->
+        val role = home.role ?: savedRole
+        val owner = role == "owner"
         val def = playDef
         when {
             playing && def != null -> WorkoutPlayer(def, home, resume) {
@@ -166,7 +168,7 @@ fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean
                 else WorkoutPreview(w, home, owner, onBack = { preview = null }) { edited -> resume = null; playDef = edited; playing = true }
             }
             else -> WorkoutHome(
-                home, owner, draft, reload = loader.reload,
+                home, owner, viewer = role != null && !owner, stale = loader, draft = draft, reload = loader.reload,
                 onPreview = { preview = it },
                 onResume = { d -> resume = d; playDef = d.workout; playing = true },
                 onDraftCleared = { draftChecked++ },
@@ -182,6 +184,8 @@ fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean
 private fun WorkoutHome(
     home: WorkoutsHome,
     owner: Boolean,
+    viewer: Boolean,
+    stale: Loader<*>,
     draft: WorkoutDraft?,
     reload: () -> Unit,
     onPreview: (String) -> Unit,
@@ -199,7 +203,8 @@ private fun WorkoutHome(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenTitle("Workout")
-        if (!owner) Text(tr("Only the owner logs workouts.", "Hanya pemilik yang mencatat workout."), Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.muted)
+        StaleNote(stale)
+        if (viewer) Text(tr("Only the owner logs workouts.", "Hanya pemilik yang mencatat workout."), Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.muted)
         if (owner && draft != null) ResumeCard(draft, onResume = { onResume(draft) }) {
             scope.launch { Repo.saveDraft(ctx, null); onDraftCleared() }
         }

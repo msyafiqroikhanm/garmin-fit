@@ -80,6 +80,7 @@ import dev.garminfit.activityType
 import dev.garminfit.activityIcon
 import dev.garminfit.dayLabel
 import dev.garminfit.dayMonth
+import dev.garminfit.dayMonthYear
 import dev.garminfit.duration
 import dev.garminfit.int
 import dev.garminfit.km
@@ -112,7 +113,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 
 @Composable
-fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
+fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit, onOpenPlanSession: (String) -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("activities") {
         coroutineScope {
@@ -128,15 +129,14 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
     LoadView(
         loader,
         loadingText = tr("Loading the past year of activities", "Memuat aktivitas setahun terakhir"),
-        isEmpty = { it.first.isEmpty() },
+        isEmpty = { it.first.isEmpty() && selected == null },
         emptyText = tr("No activities in the past year. Activities from your Garmin watch show up here after a sync.", "Belum ada aktivitas dalam setahun terakhir. Aktivitas dari jam Garmin muncul di sini setelah sync."),
     ) { (list, profile) ->
-        val open = list.firstOrNull { it.id == selected }?.id
         // list scroll lives out here, so coming back from a detail lands where you left the list
         val listState = rememberLazyListState()
         val reduce = LocalReduceMotion.current
         AnimatedContent(
-            open,
+            selected,
             transitionSpec = {
                 if (reduce) EnterTransition.None togetherWith ExitTransition.None
                 else if (targetState != null) (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 }) togetherWith fadeOut(tween(120))
@@ -144,39 +144,67 @@ fun ActivitiesScreen(initialId: Long?, onClosed: () -> Unit) {
             },
             label = "detail",
         ) { id ->
-        val current = list.firstOrNull { it.id == id }
-        val share = sharing
-        val route = map
-        if (share != null && current != null && share.id == current.id) {
-            // the cached plan, for the pace band of a run that fulfilled a plan session
-            val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
-            ShareScreen(share.shareContent(plan), onBack = { sharing = null })
-        } else if (route != null && current != null) {
-            MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend() }
-        } else if (current != null) {
+            if (id == null) {
+                ActivityList(list, query, { query = it }, listState, loader) { selected = it }
+                return@AnimatedContent
+            }
             // clearing the caller's id too lets the same activity be opened again from another tab
             val close = { selected = null; onClosed() }
-            BackHandler(onBack = close)
-            ActivityDetail(current, list, profile, onBack = close, onShare = { sharing = it }, onMap = { map = it })
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), state = listState) {
-                item { Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) { ScreenTitle(tr("Activities", "Aktivitas")) } }
-                item { SearchField(query) { query = it } }
-                val shown = list.filter { it.matches(query) }
-                if (shown.isEmpty() && query.isNotBlank()) item {
-                    Text(
-                        tr("Nothing matches \"${query.trim()}\" in the past year. Try a name like \"easy\" or a type like \"strength\".", "Tidak ada yang cocok dengan \"${query.trim()}\" dalam setahun terakhir. Coba nama seperti \"easy\" atau jenis seperti \"strength\"."),
-                        Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                        style = T.body,
-                        color = K.muted,
+            // an id outside the loaded year (a record, an older recap, a just-synced run) loads on its own
+            ActivityById(id, list, close) { current ->
+                val share = sharing
+                val route = map
+                if (share != null && share.id == current.id) {
+                    // the cached plan, for the pace band of a run that fulfilled a plan session
+                    val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
+                    ShareScreen(share.shareContent(plan), onBack = { sharing = null })
+                } else if (route != null) {
+                    MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend() }
+                } else {
+                    BackHandler(onBack = close)
+                    ActivityDetail(
+                        current, list, profile, backLabel ?: tr("All activities", "Semua aktivitas"),
+                        onBack = close, onShare = { sharing = it }, onMap = { map = it }, onOpenPlanSession = onOpenPlanSession,
                     )
-                }
-                items(shown, key = { it.id }) { a ->
-                    ActivityRow(a) { selected = a.id }
-                    HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ActivityById(id: Long, list: List<Activity>, onBack: () -> Unit, content: @Composable (Activity) -> Unit) {
+    list.firstOrNull { it.id == id }?.let { return content(it) }
+    val ctx = LocalContext.current
+    val detail = rememberCachedLoad("activity", id) { Repo.api(ctx).activity(id) }
+    Column(Modifier.fillMaxSize()) {
+        if (detail.state !is Load.Ok) Box(Modifier.padding(start = 16.dp, top = 4.dp)) { BackLink(tr("Back", "Kembali"), onBack) }
+        LoadView(detail, loadingText = tr("Loading activity", "Memuat aktivitas")) { content(it) }
+    }
+}
+
+@Composable
+private fun ActivityList(list: List<Activity>, query: String, onQuery: (String) -> Unit, listState: androidx.compose.foundation.lazy.LazyListState, stale: Loader<*>, onOpen: (Long) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        item {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
+                ScreenTitle(tr("Activities", "Aktivitas"))
+                StaleNote(stale)
+            }
+        }
+        item { SearchField(query) { onQuery(it) } }
+        val shown = list.filter { it.matches(query) }
+        if (shown.isEmpty() && query.isNotBlank()) item {
+            Text(
+                tr("Nothing matches \"${query.trim()}\" in the past year. Try a name like \"easy\" or a type like \"strength\".", "Tidak ada yang cocok dengan \"${query.trim()}\" dalam setahun terakhir. Coba nama seperti \"easy\" atau jenis seperti \"strength\"."),
+                Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                style = T.body,
+                color = K.muted,
+            )
+        }
+        items(shown, key = { it.id }) { a ->
+            ActivityRow(a) { onOpen(a.id) }
+            HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
         }
     }
 }
@@ -258,7 +286,10 @@ fun ActivityRow(a: Activity, hPad: androidx.compose.ui.unit.Dp = 20.dp, onClick:
 }
 
 @Composable
-private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, onBack: () -> Unit, onShare: (Activity) -> Unit, onMap: (List<List<Double>>) -> Unit) {
+private fun ActivityDetail(
+    a: Activity, all: List<Activity>, profile: Profile?, backLabel: String,
+    onBack: () -> Unit, onShare: (Activity) -> Unit, onMap: (List<List<Double>>) -> Unit, onOpenPlanSession: (String) -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -266,12 +297,12 @@ private fun ActivityDetail(a: Activity, all: List<Activity>, profile: Profile?, 
         val ctx = LocalContext.current
         val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { BackLink(tr("All activities", "Semua aktivitas"), onBack) }
+            Box(Modifier.weight(1f)) { BackLink(backLabel, onBack) }
             // waits for the detail so the share image can include the route or body map
             AccentButton(tr("Share", "Bagikan"), icon = R.drawable.ic_share, onClick = { onShare((detail.state as? Load.Ok)?.data ?: a) }, enabled = detail.state !is Load.Loading)
         }
         Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonth(a.date)}, ${time(a.startTime)}")
+            Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonthYear(a.date)}, ${time(a.startTime)}")
             Text(a.name ?: activityType(a.type), style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
         }
         val strength = a.type == "strength_training"

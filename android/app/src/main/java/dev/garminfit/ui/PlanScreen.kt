@@ -286,15 +286,15 @@ fun PlanWeekCard(v: PlanView, onOpen: () -> Unit) {
 
 /** The plan: this week first with a strip to move between weeks; an empty and a finished screen around it. */
 @Composable
-fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenToday: () -> Unit) {
+fun PlanScreen(picked: String?, onPick: (String?) -> Unit, onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenToday: () -> Unit) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
-    var picked by rememberSaveable { mutableStateOf<String?>(null) }
     var lookBack by rememberSaveable { mutableStateOf(false) }
     val back = { if (lookBack) lookBack = false else onBack() }
     BackHandler(onBack = back)
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
         if (picked == null) BackLink(tr("Training", "Latihan"), back)
+        StaleNote(loader)
         LoadView(loader, loadingText = tr("Loading your plan", "Memuat plan")) { v ->
             val plan = v.plan
             val body = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)
@@ -304,18 +304,19 @@ fun PlanScreen(onBack: () -> Unit, onOpenActivity: (Long) -> Unit, onOpenToday: 
             }
             val sel = picked?.let { k -> v.sessions.firstOrNull { it.key == k } }
             if (sel != null) {
-                PlanSessionScreen(sel, weekNo(plan, weekOf(sel.date)), { picked = null }, onOpenActivity)
+                PlanSessionScreen(sel, weekNo(plan, weekOf(sel.date)), { onPick(null) }, onOpenActivity)
                 return@LoadView
             }
             val planned = v.sessions.count { it.kind != "rest" }
             val done = v.sessions.count { it.status == "done" }
             if (LocalDate.now() > LocalDate.parse(plan.end) && !lookBack) FinishedPlan(body, v, plan, done, planned, { lookBack = true }, onOpenActivity)
-            else WeekView(body, v, plan, done, planned, { picked = it.key }, onOpenActivity)
+            else WeekView(body, v, plan, done, planned, { onPick(it.key) }, onOpenActivity)
         }
     }
 }
 
-private val PlanSession.key get() = "$date/$kind"
+/** Stable id of a session inside its plan; Home holds it so other tabs can open one. */
+val PlanSession.key get() = "$date/$kind"
 
 private fun weekOf(date: String) = LocalDate.parse(date).let { it.minusDays(it.dayOfWeek.value - 1L) }.toString()
 

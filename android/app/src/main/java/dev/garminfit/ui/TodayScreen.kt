@@ -137,6 +137,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 val session = today.plan?.daySessions?.firstOrNull()
                 val startWorkout = onStartWorkout.takeIf { today.role == "owner" }
                 Header(today, onSync = ::refresh, onOpenAccount = onOpenAccount)
+                StaleNote(loader)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 // the focus: one block on the background, chosen by where the day stands
                 val readinessLeads = activityToday == null && session == null

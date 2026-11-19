@@ -522,6 +522,8 @@ data class WorkoutsHome(
     val week: WorkoutWeek = WorkoutWeek(),
     val recent: List<LogSummary> = emptyList(),
     val weights: Map<String, WeightHint> = emptyMap(),
+    /** owner | viewer; older servers leave it out, see [Repo.role]. */
+    val role: String? = null,
 )
 
 @Serializable
@@ -625,6 +627,8 @@ private val WORKOUT_DRAFT = stringPreferencesKey("workout_draft")
 // finished workouts not yet on the server; queued before upload so a crash or no signal never loses one
 private val WORKOUT_PENDING = stringPreferencesKey("workout_pending")
 private val WORKOUT_VOICE = booleanPreferencesKey("workout_voice")
+// the last role /me answered, so an offline cold start still knows the owner (Start, Resume, Edit at a gym with no signal)
+private val ROLE = stringPreferencesKey("role")
 private val pendingSer = ListSerializer(LogIn.serializer())
 
 object Repo {
@@ -663,7 +667,7 @@ object Repo {
     /** Signs out on the server (best effort) and forgets the session and everything cached for it. */
     suspend fun signOut(ctx: Context) {
         token(ctx)?.let { t -> runCatching { api(t).logout() } }
-        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(PLAN_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING) }
+        ctx.store.edit { it.remove(TOKEN); it.remove(TODAY_CACHE); it.remove(PLAN_CACHE); it.remove(WORKOUT_DRAFT); it.remove(WORKOUT_PENDING); it.remove(ROLE) }
         me = null
     }
 
@@ -675,8 +679,15 @@ object Repo {
     suspend fun me(ctx: Context, fresh: Boolean = false): Me {
         val t = token(ctx) ?: error(tr("No token yet", "Belum ada token"))
         if (!fresh) me?.let { (k, m) -> if (k == t) return m }
-        return api(t).me().also { me = t to it }
+        return api(t).me().also { m ->
+            me = t to m
+            if (m.role != null && ctx.store.data.first()[ROLE] != m.role) ctx.store.edit { it[ROLE] = m.role }
+        }
     }
+
+    /** owner | viewer | null: /me from memory, else the role saved on the last answer, else the cached /today's. Works offline. */
+    suspend fun role(ctx: Context): String? =
+        me?.second?.role ?: ctx.store.data.first()[ROLE] ?: cachedToday(ctx)?.role
 
     suspend fun fetchToday(ctx: Context): Today {
         val today = api(ctx).today()

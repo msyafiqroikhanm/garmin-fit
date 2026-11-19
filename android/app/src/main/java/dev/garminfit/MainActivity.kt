@@ -49,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -102,7 +103,8 @@ class MainActivity : ComponentActivity() {
         // Dark-only app: force light system bar icons regardless of the phone's theme.
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         RefreshWorker.schedule(this)
-        launch = intent
+        // after a recreation the widget extras were already handled; only a fresh launch carries them
+        launch = if (savedInstanceState == null) intent else null
         setContent { AppTheme { Root(launch) } }
     }
 
@@ -175,7 +177,11 @@ private fun Root(launch: Intent?) {
 private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
     var activityId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // the tab an activity or plan session was opened from; closing it goes back there with that tab's state
+    var activityFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
     var planOpen by rememberSaveable { mutableStateOf(false) }
+    var planSession by rememberSaveable { mutableStateOf<String?>(null) }
+    var planFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
     // a workout Today asked to open; the Workout tab shows its preview once and clears it
     var workoutKey by rememberSaveable { mutableStateOf<String?>(null) }
     var playing by rememberSaveable { mutableStateOf(false) }
@@ -183,14 +189,28 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     LaunchedEffect(Unit) { runCatching { Repo.flushWorkoutLogs(ctx) } }
     LaunchedEffect(launch) {
         launch?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name }?.let { tab = it } }
-        launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it }
+        launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it; activityFrom = null; tab = Tab.ACTIVITIES }
         if (launch?.getBooleanExtra(EXTRA_PLAN, false) == true) { tab = Tab.TRAINING; planOpen = true }
+        // handled once: a rotation or language change must not reopen the widget's target
+        launch?.run { removeExtra(EXTRA_TAB); removeExtra(EXTRA_ACTIVITY); removeExtra(EXTRA_PLAN) }
     }
+    fun openActivity(id: Long) {
+        activityFrom = tab.takeIf { it != Tab.ACTIVITIES }
+        activityId = id
+        tab = Tab.ACTIVITIES
+    }
+    fun openPlan(session: String? = null) {
+        planFrom = if (session != null) tab.takeIf { it != Tab.TRAINING } else null
+        planOpen = true
+        planSession = session
+        tab = Tab.TRAINING
+    }
+    val holder = rememberSaveableStateHolder()
     // the player handles back itself (it pauses)
     BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; planOpen = false; if (t != Tab.ACTIVITIES) activityId = null } },
+        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             val reduce = LocalReduceMotion.current
@@ -207,22 +227,45 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                     },
                     label = "tab",
                 ) { t ->
-                    when (t) {
-                        Tab.TODAY -> TodayScreen(
-                            onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES },
-                            onOpenPlan = { planOpen = true; tab = Tab.TRAINING },
-                            onOpenAccount = onOpenAccount,
-                            onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
-                        )
-                        Tab.WORKOUT -> WorkoutScreen(
-                            openKey = workoutKey,
-                            onKeyOpened = { workoutKey = null },
-                            onPlaying = { playing = it },
-                            onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES },
-                        )
-                        Tab.TRENDS -> TrendsScreen()
-                        Tab.ACTIVITIES -> ActivitiesScreen(activityId, onClosed = { activityId = null })
-                        Tab.TRAINING -> TrainingScreen(onOpenActivity = { activityId = it; tab = Tab.ACTIVITIES }, planOpen = planOpen, onPlanOpen = { planOpen = it }, onOpenToday = { planOpen = false; tab = Tab.TODAY })
+                    // each tab keeps its saveable state (scroll, open recap, search) while another tab shows
+                    holder.SaveableStateProvider(t.name) {
+                        when (t) {
+                            Tab.TODAY -> TodayScreen(
+                                onOpenActivity = ::openActivity,
+                                onOpenPlan = { openPlan() },
+                                onOpenAccount = onOpenAccount,
+                                onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
+                            )
+                            Tab.WORKOUT -> WorkoutScreen(
+                                openKey = workoutKey,
+                                onKeyOpened = { workoutKey = null },
+                                onPlaying = { playing = it },
+                                onOpenActivity = ::openActivity,
+                            )
+                            Tab.TRENDS -> TrendsScreen()
+                            Tab.ACTIVITIES -> ActivitiesScreen(
+                                activityId,
+                                backLabel = activityFrom?.label,
+                                onClosed = {
+                                    activityId = null
+                                    activityFrom?.let { tab = it }
+                                    activityFrom = null
+                                },
+                                onOpenPlanSession = { openPlan(it) },
+                            )
+                            Tab.TRAINING -> TrainingScreen(
+                                onOpenActivity = ::openActivity,
+                                planOpen = planOpen,
+                                onPlanOpen = { planOpen = it; if (!it) planSession = null },
+                                planSession = planSession,
+                                onPlanSession = { k ->
+                                    planSession = k
+                                    if (k == null) planFrom?.let { tab = it; planOpen = false }
+                                    if (k == null) planFrom = null
+                                },
+                                onOpenToday = { planOpen = false; tab = Tab.TODAY },
+                            )
+                        }
                     }
                 }
             }

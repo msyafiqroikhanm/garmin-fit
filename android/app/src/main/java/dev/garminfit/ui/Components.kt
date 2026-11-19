@@ -123,9 +123,12 @@ sealed interface Load<out T> {
     data class Err(val message: String, val auth: Boolean = false) : Load<Nothing>
 }
 
-class Loader<T>(val state: Load<T>, val reload: () -> Unit)
+/** [staleSince]: when the shown data was fetched, set only after a refresh failed and older data stayed on screen. */
+class Loader<T>(val state: Load<T>, val reload: () -> Unit, val staleSince: Long? = null, val offline: Boolean = false)
 
 private val loadMemo = mutableMapOf<String, Any?>()
+// when each memo entry was fetched, so a failed refresh can say how old the data on screen is
+private val loadMemoAt = mutableMapOf<String, Long>()
 
 /** Last good result per cached loader, so a cold start paints real data before the network answers. */
 private object DiskCache {
@@ -135,6 +138,7 @@ private object DiskCache {
     private const val MAX_FILES = 80
     fun <T> read(ctx: Context, key: String, ser: KSerializer<T>): T? =
         runCatching { json.decodeFromString(ser, file(ctx, key).readText()) }.getOrNull()
+    fun writtenAt(ctx: Context, key: String): Long? = file(ctx, key).lastModified().takeIf { it > 0 }
     fun <T> write(ctx: Context, key: String, ser: KSerializer<T>, value: T) {
         runCatching {
             dir(ctx).mkdirs()
@@ -149,6 +153,7 @@ private object DiskCache {
 /** Drops every remembered result, so a new token never shows the previous account's data. */
 fun clearLoadMemo(ctx: Context) {
     loadMemo.clear()
+    loadMemoAt.clear()
     DiskCache.clear(ctx)
 }
 
@@ -165,24 +170,53 @@ fun <T> rememberLoad(vararg keys: Any?, cache: Pair<String, KSerializer<T>>? = n
     @Suppress("UNCHECKED_CAST")
     var state by remember(*keys) { mutableStateOf<Load<T>>(if (memoKey in loadMemo) Load.Ok(loadMemo[memoKey] as T) else Load.Loading) }
     var attempt by remember(*keys) { mutableIntStateOf(0) }
+    var fetchedAt by remember(*keys) { mutableStateOf(loadMemoAt[memoKey]) }
+    var failed by remember(*keys) { mutableStateOf<Throwable?>(null) }
     LaunchedEffect(attempt, *keys) {
         if (state !is Load.Ok) {
             val disk = cache?.let { (_, ser) -> withContext(Dispatchers.IO) { DiskCache.read(ctx, diskKey!!, ser) } }
+            if (disk != null) fetchedAt = withContext(Dispatchers.IO) { DiskCache.writtenAt(ctx, diskKey!!) }
             state = if (disk != null) Load.Ok(disk) else Load.Loading
         }
         state = runCatching { block() }.fold(
             { value ->
                 loadMemo[memoKey] = value
+                val now = System.currentTimeMillis()
+                loadMemoAt[memoKey] = now
+                fetchedAt = now
+                failed = null
                 cache?.let { (_, ser) -> withContext(Dispatchers.IO) { DiskCache.write(ctx, diskKey!!, ser, value) } }
                 Load.Ok(value)
             },
             {
                 val auth = it is HttpException && it.code() == 401
-                if (cache != null && state is Load.Ok && !auth) state else Load.Err(it.friendly(), auth)
+                if (cache != null && state is Load.Ok && !auth) { failed = it; state } else Load.Err(it.friendly(), auth)
             },
         )
     }
-    return Loader(state) { attempt++ }
+    val stale = failed?.let { fetchedAt }.takeIf { state is Load.Ok }
+    return Loader(state, { attempt++ }, stale, failed is java.io.IOException)
+}
+
+/**
+ * One muted line under a screen title when a refresh failed and older data is still shown, so cached numbers
+ * never read as current. Nothing while the data is fresh.
+ */
+@Composable
+fun StaleNote(vararg loaders: Loader<*>, modifier: Modifier = Modifier.padding(horizontal = 4.dp)) {
+    val l = loaders.filter { it.staleSince != null }.minByOrNull { it.staleSince!! } ?: return
+    val at = staleLabel(l.staleSince!!)
+    Text(
+        if (l.offline) tr("Offline · showing data from $at", "Offline · data dari $at")
+        else tr("Couldn't refresh · showing data from $at", "Gagal memperbarui · data dari $at"),
+        modifier, style = T.caption, color = K.muted,
+    )
+}
+
+private fun staleLabel(ms: Long): String {
+    val t = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
+    val hm = "%02d:%02d".format(t.hour, t.minute)
+    return if (t.toLocalDate() == java.time.LocalDate.now()) hm else "${dev.garminfit.dayMonth(t.toLocalDate().toString())} $hm"
 }
 
 /** [rememberLoad] with a disk copy under [name]; T must be @Serializable. */

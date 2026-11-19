@@ -76,6 +76,9 @@ fun time(start: String): String = start.drop(11).take(5)
 fun weekday(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(weekdayFmt) }.getOrDefault(iso)
 fun weekdayShort(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(weekdayShortFmt) }.getOrDefault(iso)
 fun dayMonth(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(dayMonthFmt) }.getOrDefault(iso)
+/** "12 Nov", or "12 Nov 2025" outside the current year so an old date never reads as recent. */
+fun dayMonthYear(iso: String, today: LocalDate = LocalDate.now()): String =
+    runCatching { LocalDate.parse(iso.take(10)).let { if (it.year == today.year) it.format(dayMonthFmt) else it.format(fullDate) } }.getOrDefault(iso)
 
 fun greeting(hour: Int = LocalTime.now().hour): String = when {
     hour < 11 -> tr("Morning", "Pagi")

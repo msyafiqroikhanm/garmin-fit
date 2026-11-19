@@ -98,6 +98,7 @@ fun TrendsScreen() {
     val dynamics = rememberCachedLoad("dynamics", range) { Repo.api(ctx).runningTrends(mapOf(7 to 4, 30 to 8, 90 to 13)[range] ?: 8) }
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenTitle(tr("Trends", "Tren"))
+        StaleNote(loader, dynamics)
         Segmented(listOf(7, 30, 90), range, { tr("$it days", "$it hari") }) { range = it }
         LoadView(
             loader,
@@ -283,7 +284,10 @@ private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit, onOpenToday: () -> Unit) {
+fun TrainingScreen(
+    onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit,
+    planSession: String?, onPlanSession: (String?) -> Unit, onOpenToday: () -> Unit,
+) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("training") {
         coroutineScope {
@@ -297,13 +301,14 @@ fun TrainingScreen(onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen
     val plan = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
     var recap by rememberSaveable { mutableStateOf(false) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
-    if (planOpen) return PlanScreen(onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenToday = onOpenToday)
+    if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenToday = onOpenToday)
     LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenTitle(tr("Training", "Latihan"))
+            StaleNote(loader, plan, predictions)
             CardLoad(plan) { PlanWeekCard(it) { onPlanOpen(true) } }
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             RecapEntry { recap = true }

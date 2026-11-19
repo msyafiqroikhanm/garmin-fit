@@ -1237,7 +1237,7 @@ def log_view(log: dict) -> dict:
             "exercises": list(rows.values()), "sets": log.get("sets") or []}
 
 
-def workouts_home(user_id: str) -> dict:
+def workouts_home(user_id: str, role: str | None = None) -> dict:
     d, t = db(), today()
     prefs = workout_prefs(user_id)
     args = (prefs["difficulty"], prefs["rest_s"])
@@ -1254,4 +1254,6 @@ def workouts_home(user_id: str) -> dict:
                  "reps": sum(log_summary(l)["reps"] for l in week), "dates": sorted({l["date"] for l in week})},
         "recent": [log_summary(l) for l in logs[:20]],
         "weights": weight_hints([l for l in logs if l["date"] >= since_kg]),
+        # cached with the payload on the phone, so an offline gym visit still knows who may log
+        "role": role,
     }

@@ -337,7 +337,7 @@ def plan(user: dict = Depends(auth)):
 
 @app.get("/workouts")
 def workouts(user: dict = Depends(auth)):
-    return core.workouts_home(user["data_user_id"])
+    return core.workouts_home(user["data_user_id"], user["role"])
 
 
 @app.get("/workouts/logs")
