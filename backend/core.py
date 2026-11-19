@@ -40,6 +40,8 @@ def ensure_indexes() -> None:
     d.activities.create_index([("user_id", 1), ("type", 1), ("start_time", 1)])
     d.summaries.create_index([("user_id", 1), ("period", 1), ("generated_at", -1)])
     d.plans.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    d.plan_overrides.create_index([("user_id", 1), ("date", 1)])
+    d.plan_adjustments.create_index([("user_id", 1), ("date", 1)])
     d.users.create_index("google_sub", unique=True)
     d.users.create_index("access_id")
     d.sessions.create_index("user_id")
@@ -894,78 +896,228 @@ def _mean(xs):
     return round(statistics.fmean(xs), 3) if xs else None
 
 
-def plan_progress(plan: dict, acts: list[dict], today_: date, logs=()) -> dict:
-    """Score each planned session against the activities of its day and kind.
-    pct = done / target on distance, else duration, capped at 1; no target means any activity counts fully.
-    Rest days and future sessions are not scored; neither is today's until something is done.
-    A strength day with no watch activity is scored from the app's workout log of that day instead."""
+SKIP_REASONS = ("sick", "travel", "rest", "other")
+MOVE_DAYS = 1  # a session done a day early or late still counts
+MOVE_MIN = 0.5  # ...when the moved activity covers at least half the target
+
+
+def _sid(s: dict) -> tuple:
+    return s["date"], s["kind"], s.get("n", 0)
+
+
+def _score(target: dict | None, dist: float, dur: float) -> float:
+    tgt = target or {}
+    if tgt.get("distance_m"):
+        return min(1.0, dist / tgt["distance_m"])
+    if tgt.get("duration_s"):
+        return min(1.0, dur / tgt["duration_s"])
+    return 1.0
+
+
+def plan_progress(plan: dict, acts: list[dict], today_: date, logs=(), overrides=(), adjusts=()) -> dict:
+    """Score each planned session against the activities that fulfilled it.
+    pct = done / target on distance, else duration, capped at 1; no target means any activity counts fully. A recovery
+    adjustment stored for the session replaces its target. Rest days and future sessions are not scored; neither is
+    today's until something is done.
+    Matching, in order: the owner's overrides (linked activities, or skipped with a reason, which leaves the scores);
+    activities of the same day and kind (two sessions of one kind on a day take one activity each, in start order; a
+    race takes its longest); then a past session with nothing gets an unused same-kind activity from a day before or
+    after (done_on says when). A strength day with no watch activity is scored from the app's workout log of that day."""
     logs_by_day = {}
     for l in logs:
         logs_by_day.setdefault(l["date"], []).append(l)
-    by_day = {}
-    for a in acts:
-        by_day.setdefault((a["date"], _kind(a.get("type"))), []).append(a)
+    ovr = {(o["date"], o["kind"], o.get("n", 0)): o for o in overrides}
+    adj = {(a["date"], a["kind"]): a for a in adjusts}
     t = today_.isoformat()
-    used, sessions = set(), []
+    by_id = {a["_id"]: a for a in acts}
+    seen: dict[tuple, int] = {}
+    rows = []
     for s in plan["sessions"]:
-        row = {**s, "status": "rest", "pct": None, "activity_ids": [], "done": None}
-        if s["kind"] != "rest":
-            match = by_day.get((s["date"], s["kind"]), [])
-            if match:
-                dist = sum(a.get("distance_m") or 0 for a in match)
-                dur = sum(a.get("duration_s") or 0 for a in match)
-                tgt = s.get("target") or {}
-                if tgt.get("distance_m"):
-                    pct = min(1.0, dist / tgt["distance_m"])
-                elif tgt.get("duration_s"):
-                    pct = min(1.0, dur / tgt["duration_s"])
-                else:
-                    pct = 1.0
-                row.update(status="done" if pct >= DONE_AT else "partial", pct=round(pct, 3),
-                           activity_ids=[a["_id"] for a in match], done={"distance_m": dist, "duration_s": dur})
-                used.update(a["_id"] for a in match)
-            elif s["kind"] == "strength" and logs_by_day.get(s["date"]):
-                log = max(logs_by_day[s["date"]], key=lambda l: len(_done_sets(l)))
-                pct = 1.0 if log["completed"] else round(len(_done_sets(log)) / len(log["sets"]), 3)
-                row.update(status="done" if log["completed"] else "partial", pct=pct)
-            elif s["date"] > t:
-                row["status"] = "upcoming"
-            elif s["date"] == t:
-                row["status"] = "today"
-            else:
-                row.update(status="missed", pct=0.0)
-        sessions.append(row)
+        k = (s["date"], s["kind"])
+        n = seen.get(k, 0)
+        seen[k] = n + 1
+        rows.append({**s, "n": n, "status": "rest", "pct": None, "activity_ids": [], "done": None})
+    used: set = set()
+    picked: dict[int, list[dict]] = {}
+
+    for i, r in enumerate(rows):
+        o = ovr.get(_sid(r))
+        if r["kind"] == "rest" or not o:
+            continue
+        r["override"] = True  # the app offers undo only on sessions the owner changed
+        if o.get("skipped"):
+            r.update(status="skipped", skipped=o["skipped"])
+            continue
+        mine = [by_id[x] for x in o.get("activity_ids") or [] if x in by_id and x not in used]
+        if mine:
+            picked[i] = mine
+            used.update(a["_id"] for a in mine)
+
+    free = lambda a, kind: a["_id"] not in used and _kind(a.get("type")) == kind
+    groups: dict[tuple, list[int]] = {}
+    for i, r in enumerate(rows):
+        if r["kind"] != "rest" and r["status"] != "skipped" and i not in picked:
+            groups.setdefault((r["date"], r["kind"]), []).append(i)
+    for (d, kind), idx in groups.items():
+        day = sorted((a for a in acts if a["date"] == d and free(a, kind)), key=lambda a: a.get("start_time") or "")
+        if not day:
+            continue
+        if len(idx) == 1:
+            r = rows[idx[0]]
+            mine = [max(day, key=lambda a: a.get("distance_m") or 0)] if r["type"] == "race" else day
+            picked[idx[0]] = mine
+        else:
+            for j, a in zip(idx, day):
+                picked[j] = [a]
+        used.update(a["_id"] for i in idx for a in picked.get(i, []))
+
+    # a past session left empty borrows an unplanned activity of its kind from the day before or after
+    for i, r in enumerate(rows):
+        if r["kind"] == "rest" or r["status"] == "skipped" or i in picked or r["date"] >= t:
+            continue
+        if r["kind"] == "strength" and logs_by_day.get(r["date"]):
+            continue
+        d0 = date.fromisoformat(r["date"])
+        target = ((adj.get((r["date"], r["kind"])) or {}).get("target")) or r.get("target")
+        # a stray short jog is not the session moved; the owner can still link it by hand
+        near = [a for a in acts if free(a, r["kind"]) and 0 < abs((date.fromisoformat(a["date"]) - d0).days) <= MOVE_DAYS
+                and _score(target, a.get("distance_m") or 0, a.get("duration_s") or 0) >= MOVE_MIN]
+        if near:
+            a = min(near, key=lambda a: (abs((date.fromisoformat(a["date"]) - d0).days), a["date"] < r["date"]))
+            picked[i] = [a]
+            used.add(a["_id"])
+            r["done_on"] = a["date"]
+
+    for i, r in enumerate(rows):
+        if r["kind"] == "rest" or r["status"] == "skipped":
+            continue
+        a_ = adj.get((r["date"], r["kind"])) if r.get("n", 0) == 0 else None
+        if a_:
+            r["adjust"] = {k: v for k, v in a_.items() if k not in ("_id", "user_id", "date", "kind", "created_at")}
+        target = (a_ or {}).get("target") or r.get("target")
+        match = picked.get(i)
+        if match:
+            dist = sum(a.get("distance_m") or 0 for a in match)
+            dur = sum(a.get("duration_s") or 0 for a in match)
+            pct = _score(target, dist, dur)
+            r.update(status="done" if pct >= DONE_AT else "partial", pct=round(pct, 3),
+                     activity_ids=[a["_id"] for a in match], done={"distance_m": dist, "duration_s": dur})
+        elif r["kind"] == "strength" and logs_by_day.get(r["date"]):
+            log = max(logs_by_day[r["date"]], key=lambda l: len(_done_sets(l)))
+            sets = len(_done_sets(log))
+            pct = 1.0 if log["completed"] else round(sets / len(log["sets"]), 3)
+            r.update(status="done" if log["completed"] else "partial", pct=pct, log_id=log.get("_id"),
+                     done={"sets": sets, "of": len(log["sets"]), "duration_s": log.get("duration_s")})
+        elif r["date"] > t:
+            r["status"] = "upcoming"
+        elif r["date"] == t:
+            r["status"] = "today"
+        else:
+            r.update(status="missed", pct=0.0)
+
     weeks = {}
-    for r in sessions:
-        w = weeks.setdefault(week_start(date.fromisoformat(r["date"])).isoformat(), {"start": None, "planned": 0, "done": 0, "scores": []})
+    for r in rows:
+        w = weeks.setdefault(week_start(date.fromisoformat(r["date"])).isoformat(),
+                             {"planned": 0, "done": 0, "partial": 0, "missed": 0, "skipped": 0, "scores": []})
         if r["kind"] != "rest":
-            w["planned"] += 1
+            if r["status"] == "skipped":
+                w["skipped"] += 1
+            else:
+                w["planned"] += 1
             w["done"] += r["status"] == "done"
+            w["partial"] += r["status"] == "partial"
+            w["missed"] += r["status"] == "missed"
         if r["pct"] is not None:
             w["scores"].append(r["pct"])
     goals = {w["start"]: w["goal"] for w in plan.get("weeks", [])}
-    week_rows = [{"start": k, "planned": v["planned"], "done": v["done"], "pct": _mean(v["scores"]), "goal": goals.get(k)}
+    week_rows = [{"start": k, "planned": v["planned"], "done": v["done"], "partial": v["partial"], "missed": v["missed"],
+                  "skipped": v["skipped"], "pct": _mean(v["scores"]), "goal": goals.get(k)}
                  for k, v in sorted(weeks.items())]
-    extras = [{"_id": a["_id"], "date": a["date"], "type": a.get("type"), "name": a.get("name"), "distance_m": a.get("distance_m")}
+    extras = [{"_id": a["_id"], "date": a["date"], "type": a.get("type"), "name": a.get("name"), "distance_m": a.get("distance_m"),
+               "duration_s": a.get("duration_s"), "kind": _kind(a.get("type"))}
               for a in acts if a["_id"] not in used and plan["start"] <= a["date"] <= min(plan["end"], t)]
-    return {"sessions": sessions, "weeks": week_rows, "overall": _mean([r["pct"] for r in sessions if r["pct"] is not None]),
+    return {"sessions": rows, "weeks": week_rows, "overall": _mean([r["pct"] for r in rows if r["pct"] is not None]),
             "extras": extras}
 
 
 def active_plan(user_id: str) -> dict | None:
-    return db().plans.find_one({"user_id": user_id, "status": "active"}, {"_id": 0, "user_id": 0}, sort=[("created_at", -1)])
+    return db().plans.find_one({"user_id": user_id, "status": "active"}, {"user_id": 0}, sort=[("created_at", -1)])
 
 
-def plan_view(user_id: str) -> dict:
-    plan = active_plan(user_id)
+def plan_meta(plan: dict) -> dict:
+    return {**{k: plan[k] for k in ("name", "goal", "start", "end", "race_date", "created_at") if k in plan},
+            "id": str(plan["_id"]) if "_id" in plan else None}
+
+
+def plan_view(user_id: str, plan: dict | None = None) -> dict:
+    plan = plan or active_plan(user_id)
     if not plan:
         return {"plan": None, "sessions": [], "weeks": [], "overall": None, "extras": []}
-    proj = {"date": 1, "type": 1, "name": 1, "distance_m": 1, "duration_s": 1}
-    acts = list(db().activities.find({"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}}, proj))
-    logs = list(db().workout_logs.find({"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}},
-                                       {"date": 1, "completed": 1, "sets.skipped": 1}))
-    meta = {k: plan[k] for k in ("name", "goal", "start", "end", "race_date", "created_at") if k in plan}
-    return {"plan": meta, **plan_progress(plan, acts, today(), logs)}
+    d = db()
+    # a day either side, so a session moved off the plan's first or last day still finds its run
+    lo = (date.fromisoformat(plan["start"]) - timedelta(days=MOVE_DAYS)).isoformat()
+    hi = (date.fromisoformat(plan["end"]) + timedelta(days=MOVE_DAYS)).isoformat()
+    proj = {"date": 1, "type": 1, "name": 1, "distance_m": 1, "duration_s": 1, "start_time": 1}
+    acts = list(d.activities.find({"user_id": user_id, "date": {"$gte": lo, "$lte": hi}}, proj))
+    rng = {"user_id": user_id, "date": {"$gte": plan["start"], "$lte": plan["end"]}}
+    logs = list(d.workout_logs.find(rng, {"date": 1, "completed": 1, "sets.skipped": 1, "duration_s": 1}))
+    overrides = list(d.plan_overrides.find(rng))
+    adjusts = list(d.plan_adjustments.find(rng))
+    return {"plan": plan_meta(plan), **plan_progress(plan, acts, today(), logs, overrides, adjusts)}
+
+
+def save_adjustment(user_id: str, session: dict, adjust: dict) -> bool:
+    """Keep the first recovery adjustment computed for a session, so later scoring and the agenda use the target the
+    user was told to run. Idempotent: returns True only when this call stored it."""
+    r = db().plan_adjustments.update_one(
+        {"_id": f"{user_id}:{session['date']}:{session['kind']}"},
+        {"$setOnInsert": {"user_id": user_id, "date": session["date"], "kind": session["kind"], **adjust,
+                          "created_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return r.upserted_id is not None
+
+
+def override_doc(body: dict, plan: dict, acts: dict) -> dict | str:
+    """Validate an owner's link or skip for one planned session. acts: the user's activities by id among those named.
+    Returns the stored shape, or the reason it was refused."""
+    b = body if isinstance(body, dict) else {}
+    n = b.get("n", 0)
+    if not (_iso(b.get("date")) and b.get("kind") in PLAN_KINDS and b["kind"] != "rest" and _int(n, 0, 9)):
+        return "need date, kind (run, strength or other) and n"
+    same = [s for s in plan["sessions"] if s["date"] == b["date"] and s["kind"] == b["kind"]]
+    if n >= len(same):
+        return "no such session in the active plan"
+    ids, skip = b.get("activity_ids"), b.get("skipped")
+    if (ids is None) == (skip is None):
+        return "give activity_ids or skipped, not both"
+    out = {"date": b["date"], "kind": b["kind"], "n": n}
+    if skip is not None:
+        if skip not in SKIP_REASONS:
+            return f"skipped must be one of {', '.join(SKIP_REASONS)}"
+        return {**out, "skipped": skip}
+    if not (isinstance(ids, list) and 1 <= len(ids) <= 5 and all(_int(x, 1, 10**13) for x in ids)):
+        return "activity_ids must be 1 to 5 activity ids"
+    for x in ids:
+        a = acts.get(x)
+        if not a:
+            return f"activity {x} not found"
+        if _kind(a.get("type")) != b["kind"]:
+            return f"activity {x} is not a {b['kind']} activity"
+    return {**out, "activity_ids": list(dict.fromkeys(ids))}
+
+
+def plan_list(user_id: str) -> list[dict]:
+    """Every saved plan, newest first, with its session counts, so earlier blocks stay readable after a new one."""
+    out, seen = [], set()
+    for p in db().plans.find({"user_id": user_id}, {"user_id": 0}).sort("created_at", -1):
+        # every revision of a block is saved as a new plan; the newest one per date range stands for the block
+        if (p["start"], p["end"]) in seen:
+            continue
+        seen.add((p["start"], p["end"]))
+        planned = sum(s["kind"] != "rest" for s in p["sessions"])
+        out.append({**plan_meta(p), "status": p.get("status"), "planned": planned})
+    return out
 
 
 CUT = 0.7  # a long run or an easy-week session keeps 70% of its target
@@ -1034,7 +1186,8 @@ def plan_today(view: dict, days: list[dict] | None = None) -> dict | None:
         "sessions": sessions,
         "week": next((w for w in view["weeks"] if w["start"] == week), None),
         "overall": view["overall"],
-        "adjust": plan_adjust(days or [], session),
+        # the stored adjustment wins, so a recovery change told in the morning still stands at night
+        "adjust": (session or {}).get("adjust") or plan_adjust(days or [], session),
     }
 
 

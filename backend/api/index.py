@@ -323,13 +323,68 @@ def today_view(user: dict = Depends(auth)):
         "last_activity": last_act,
         "today_activities": [a for a in week_acts if a["date"] == core.today().isoformat()],
         "summary": summary,
-        "plan": core.plan_today(core.plan_view(uid), days),
+        "plan": _plan_today(uid, days),
     }
+
+
+def _plan_today(uid: str, days: list[dict]) -> dict | None:
+    pt = core.plan_today(core.plan_view(uid), days)
+    # the first adjustment of the day is stored, then scoring and the agenda read it from the plan view
+    if pt and pt["adjust"] and pt["session"] and not pt["session"].get("adjust") \
+            and core.save_adjustment(uid, pt["session"], pt["adjust"]):
+        pt = core.plan_today(core.plan_view(uid), days)
+    return pt
 
 
 @app.get("/plan")
 def plan(user: dict = Depends(auth)):
     return core.plan_view(user["data_user_id"])
+
+
+@app.post("/plan/override")
+def plan_override(body: dict, user: dict = Depends(owner_only)):
+    uid = user["data_user_id"]
+    plan = core.active_plan(uid)
+    if not plan:
+        raise HTTPException(404, "no active plan")
+    ids = [x for x in body.get("activity_ids") or [] if isinstance(x, int)] if isinstance(body, dict) else []
+    acts = {a["_id"]: a for a in core.db().activities.find({"user_id": uid, "_id": {"$in": ids}}, {"type": 1, "date": 1})}
+    doc = core.override_doc(body, plan, acts)
+    if isinstance(doc, str):
+        raise HTTPException(400, doc)
+    others = core.db().plan_overrides.find({"user_id": uid, "activity_ids": {"$in": doc.get("activity_ids") or []}})
+    key = f"{uid}:{doc['date']}:{doc['kind']}:{doc['n']}"
+    if any(o["_id"] != key for o in others):
+        raise HTTPException(409, "that activity already counts for another session")
+    core.db().plan_overrides.replace_one({"_id": key}, {**doc, "user_id": uid, "at": datetime.now(timezone.utc)}, upsert=True)
+    return core.plan_view(uid, plan)
+
+
+@app.delete("/plan/override")
+def plan_override_delete(d: date = Query(..., alias="date"), kind: str = Query(...), n: int = Query(0, ge=0, le=9),
+                         user: dict = Depends(owner_only)):
+    uid = user["data_user_id"]
+    core.db().plan_overrides.delete_one({"_id": f"{uid}:{d.isoformat()}:{kind}:{n}"})
+    return core.plan_view(uid)
+
+
+@app.get("/plans")
+def plans(user: dict = Depends(auth)):
+    return core.plan_list(user["data_user_id"])
+
+
+@app.get("/plans/{plan_id}")
+def plan_by_id(plan_id: str, user: dict = Depends(auth)):
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    try:
+        oid = ObjectId(plan_id)
+    except InvalidId:
+        raise HTTPException(404, "not found")
+    plan = core.db().plans.find_one({"_id": oid, "user_id": user["data_user_id"]}, {"user_id": 0})
+    if not plan:
+        raise HTTPException(404, "not found")
+    return core.plan_view(user["data_user_id"], plan)
 
 
 @app.get("/workouts")

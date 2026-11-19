@@ -59,7 +59,8 @@ def test_progress_scores_each_session():
     assert s["2026-10-18"]["status"] == "upcoming"
     assert [e["_id"] for e in view["extras"]] == [4]
     assert view["overall"] == round((0.983 + 0.75 + 1.0) / 3, 3)
-    assert view["weeks"] == [{"start": "2026-10-12", "planned": 5, "done": 2, "pct": view["overall"], "goal": None}]
+    assert view["weeks"] == [{"start": "2026-10-12", "planned": 5, "done": 2, "partial": 1, "missed": 0, "skipped": 0,
+                             "pct": view["overall"], "goal": None}]
 
 
 def test_double_run_counts_together_and_missed_scores_zero():
