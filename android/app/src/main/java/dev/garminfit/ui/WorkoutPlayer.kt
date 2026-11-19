@@ -328,7 +328,7 @@ fun WorkoutPlayer(def: WorkoutDef, home: WorkoutsHome, draft: WorkoutDraft?, onE
                     Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
                     onExit()
                 }
-            }) { Text(tr("Save", "Simpan"), color = K.good) }
+            }) { Text(tr("Save", "Simpan"), color = K.ink) }
         },
         dismissButton = {
             Row {

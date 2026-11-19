@@ -162,6 +162,16 @@ fun ShareScreen(content: ShareContent, onBack: () -> Unit, backLabel: String = t
                     }
                     if (content.pace != null) Toggle(tr("plan pace", "pace plan"), spec.pace) { spec = spec.copy(pace = it) }
                     Toggle(tr("KINETIK logo", "Logo KINETIK"), spec.wordmark) { spec = spec.copy(wordmark = it) }
+                    content.name?.takeIf { it.isNotBlank() && it != content.title }?.let {
+                        Toggle(tr("Activity name as title", "Nama aktivitas jadi judul"), spec.useName) { on -> spec = spec.copy(useName = on) }
+                    }
+                }
+            }
+            val chosen = available.filter { it.key in spec.stats }
+            if (chosen.size > 1 && spec.layout == Layout.BOLD) Option(tr("Main number", "Angka utama")) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val lead = spec.main?.takeIf { k -> chosen.any { it.key == k } } ?: chosen.first().key
+                    chosen.forEach { s -> Toggle(s.label, s.key == lead) { spec = spec.copy(main = s.key) } }
                 }
             }
         }

@@ -21,6 +21,7 @@ import dev.garminfit.int
 import dev.garminfit.km
 import dev.garminfit.PlanView
 import dev.garminfit.pace
+import dev.garminfit.speedText
 import dev.garminfit.paceSec
 import dev.garminfit.splitShort
 import kotlin.math.ceil
@@ -56,6 +57,10 @@ data class ShareSpec(
     val wordmark: Boolean = true,
     /** The plan pace band, when the activity has a plan pace to compare with. */
     val pace: Boolean = true,
+    /** The stat that leads (the hero in Bold); null keeps the first selected one. */
+    val main: String? = null,
+    /** Title from the activity's own name ("Jakarta Marathon") instead of its type and date. */
+    val useName: Boolean = false,
     // overlay position as a fraction of the canvas, and its zoom; set by drag and pinch
     val dx: Float = 0f,
     val dy: Float = 0f,
@@ -78,24 +83,28 @@ data class ShareContent(
     val graphic: ShareGraphic?,
     val defaultStats: Int = 4,
     val pace: SharePace? = null,
+    /** The activity's own name, offered as the title. */
+    val name: String? = null,
 )
 
 /** [plan] is the cached plan view; a run that fulfilled a plan session with a pace target gets the pace band. */
 fun Activity.shareContent(plan: PlanView? = null): ShareContent {
     val pr = prs.takeIf { it.isNotEmpty() }?.let { " · PR " + it.joinToString(" ") { d -> splitShort(d) } }.orEmpty()
+    // the app's workout log knows the real exercises; the watch's guesses are the fallback, as on the detail screen
+    val muscles = workout?.muscles?.takeIf { it.isNotEmpty() } ?: strength?.muscles
     val graphic = route?.let { trimEnds(it) }?.takeIf { it.size > 1 }?.let { ShareGraphic.Route(it) }
-        ?: strength?.muscles?.takeIf { m -> m.values.any { it.primary > 0 } }?.let { ShareGraphic.Body(it) }
+        ?: muscles?.takeIf { m -> m.values.any { it.primary > 0 } }?.let { ShareGraphic.Body(it) }
     val target = plan?.sessions?.firstOrNull { it.kind == "run" && id in it.activityIds }?.pace
     val pace = target?.let { t -> avgSpeed?.takeIf { it > 0 }?.let { SharePace(t.minSKm, t.maxSKm, 1000 / it) } }
-    return ShareContent("${activityType(type)} · ${dayMonth(date)}$pr", shareStats(this), graphic, pace = pace)
+    return ShareContent("${activityType(type)} · ${dayMonth(date)}$pr", shareStats(this), graphic, pace = pace, name = name)
 }
 
 fun shareStats(a: Activity): List<ShareStat> = listOfNotNull(
     a.distanceM?.takeIf { it > 0 }?.let { ShareStat("dist", km(it), "km", tr("distance", "jarak")) },
-    a.avgSpeed?.takeIf { (a.distanceM ?: 0.0) > 0 }?.let { ShareStat("pace", pace(it), "/km", "pace") },
+    a.avgSpeed?.takeIf { (a.distanceM ?: 0.0) > 0 }?.let { speedText(a.type, it).let { (v, u) -> ShareStat("pace", v, u, if (u == "km/h") tr("speed", "kecepatan") else "pace") } },
     ShareStat("time", duration(a.durationS), "", tr("time", "waktu")),
-    a.strength?.totalSets?.let { ShareStat("sets", "$it", "set", tr("sets", "set")) },
-    a.strength?.totalReps?.let { ShareStat("reps", "$it", "rep", tr("reps", "rep")) },
+    (a.workout?.totalSets?.takeIf { it > 0 } ?: a.strength?.totalSets)?.let { ShareStat("sets", "$it", "set", tr("sets", "set")) },
+    (a.workout?.reps?.takeIf { it > 0 } ?: a.strength?.totalReps)?.let { ShareStat("reps", "$it", "rep", tr("reps", "rep")) },
     a.avgHr?.let { ShareStat("hr", it.int(), "bpm", tr("avg HR", "HR rata-rata")) },
     a.calories?.let { ShareStat("kcal", it.int(), tr("kcal", "kkal"), tr("calories", "kalori")) },
     a.elevationGain?.takeIf { it > 0 }?.let { ShareStat("elev", it.int(), "m", tr("elevation", "elevasi")) },
@@ -148,7 +157,10 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, content: ShareCo
         if (shadow != 0) setShadowLayer(16 * u, 0f, 3 * u, shadow)
     }
     val all = content.stats
-    val stats = all.filter { it.key in spec.stats }.ifEmpty { all.take(1) }
+    val picked = all.filter { it.key in spec.stats }.ifEmpty { all.take(1) }
+    // the chosen main number leads; the rest keep their order
+    val stats = picked.sortedBy { if (it.key == spec.main) 0 else 1 }
+    val heading = content.name?.takeIf { spec.useName && it.isNotBlank() } ?: content.title
     val pace = content.pace?.takeIf { spec.pace }
 
     c.save()
@@ -190,7 +202,7 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, content: ShareCo
                 right = x + text.measureText(hero.unit)
             }
             box.union(m, y - heroSize * 0.75f, right, y + heroSize * 0.08f)
-            y = title(c, text, fonts, u, content.title, m, y - heroSize * 0.75f - 48 * u, box)
+            y = title(c, text, fonts, u, heading, m, y - heroSize * 0.75f - 48 * u, box)
             if (g != null) {
                 // the picture sits right on the title, about 70% of the frame wide; a story keeps its top fifth clear
                 val ceiling = (if (spec.ratio == Ratio.STORY) h * 0.2f else m) + mark
@@ -204,7 +216,7 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, content: ShareCo
         }
         Layout.MINIMAL -> {
             y = statRow(c, text, fonts, u, m, y, full, stats.take(3), 96f, box) - 56 * u
-            y = title(c, text, fonts, u, content.title, m, y, box)
+            y = title(c, text, fonts, u, heading, m, y, box)
         }
         Layout.GRID -> {
             val cells = stats.take(4)
@@ -215,11 +227,11 @@ fun renderShare(c: Canvas, w: Float, h: Float, spec: ShareSpec, content: ShareCo
                 val by = y - (rows - 1 - i / 2) * 240 * u
                 top = minOf(top, statCell(c, text, fonts, u, m + (i % 2) * cw, by, s, 120f, box))
             }
-            y = title(c, text, fonts, u, content.title, m, top - 56 * u, box)
+            y = title(c, text, fonts, u, heading, m, top - 56 * u, box)
         }
         Layout.ROUTE -> {
             y = statRow(c, text, fonts, u, m, y, full, stats.take(3), 84f, box) - 56 * u
-            y = title(c, text, fonts, u, content.title, m, y, box)
+            y = title(c, text, fonts, u, heading, m, y, box)
             if (g != null) {
                 val ceiling = (if (spec.ratio == Ratio.STORY) h * 0.12f else m) + mark
                 val bottom = y - 64 * u

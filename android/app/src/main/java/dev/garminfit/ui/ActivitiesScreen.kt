@@ -333,7 +333,7 @@ fun SearchField(value: String, hint: String = tr("Search name or type", "Cari na
             onChange,
             Modifier.weight(1f).padding(vertical = 14.dp),
             textStyle = body(16.sp).copy(color = K.ink),
-            cursorBrush = SolidColor(K.good),
+            cursorBrush = SolidColor(K.ink),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
@@ -483,7 +483,7 @@ private fun <T : Any> DetailCard(
             state is Load.Err -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("Couldn't load", "Gagal dimuat"), style = T.body, color = K.muted, modifier = Modifier.weight(1f))
                 Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = detail.reload).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
-                    Text(tr("Try again", "Coba lagi"), style = body(14.sp, FontWeight.SemiBold), color = K.good)
+                    Text(tr("Try again", "Coba lagi"), style = body(14.sp, FontWeight.SemiBold), color = K.ink)
                 }
             }
             else -> Shimmer(Modifier.fillMaxWidth().height(240.dp), 16.dp)
