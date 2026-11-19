@@ -186,20 +186,7 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
                 Text(listOfNotNull(greeting(), name).joinToString(", "), style = T.greeting, color = K.ink)
             }
             val label = if (t.role == "owner") "Sync" else tr("Reload", "Muat ulang")
-            Box(
-                Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onSync),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    Modifier.clip(CircleShape).background(K.surface).border(1.dp, K.line, CircleShape)
-                        .padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Glyph(R.drawable.ic_refresh, K.ink, 16.dp)
-                    Text(listOfNotNull("Sync", syncTime(t.latest?.syncedAt)).joinToString(" "), style = body(13.sp, FontWeight.SemiBold, 1.2f), color = K.ink)
-                }
-            }
+            SyncPill(listOfNotNull(label, syncTime(t.latest?.syncedAt)).joinToString(" "), label, onSync)
             Avatar(t.name, onOpenAccount, size = 40)
         }
         val latest = t.latest

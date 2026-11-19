@@ -286,7 +286,7 @@ private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
 @Composable
 fun TrainingScreen(
     onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit,
-    planSession: String?, onPlanSession: (String?) -> Unit, onOpenToday: () -> Unit,
+    planSession: String?, onPlanSession: (String?) -> Unit, onOpenLog: (String) -> Unit, onOpenToday: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("training") {
@@ -300,16 +300,20 @@ fun TrainingScreen(
     val muscles = rememberCachedLoad("muscles") { Repo.api(ctx).weekMuscles() }
     val plan = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
     var recap by rememberSaveable { mutableStateOf(false) }
+    val role by androidx.compose.runtime.produceState<String?>(null) { value = Repo.role(ctx) }
     if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
-    if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenToday = onOpenToday)
+    if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenLog = onOpenLog, onOpenToday = onOpenToday)
     LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ScreenTitle(tr("Training", "Latihan"))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { ScreenTitle(tr("Training", "Latihan")) }
+                SyncButton { loader.reload(); plan.reload(); muscles.reload(); predictions.reload() }
+            }
             StaleNote(loader, plan, predictions)
-            CardLoad(plan) { PlanWeekCard(it) { onPlanOpen(true) } }
+            CardLoad(plan) { PlanWeekCard(it, owner = role == "owner") { onPlanOpen(true) } }
             days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
             RecapEntry { recap = true }
             CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }

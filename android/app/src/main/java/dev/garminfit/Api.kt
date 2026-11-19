@@ -329,7 +329,13 @@ data class Bi(val id: String, val en: String? = null) {
 }
 
 @Serializable
-data class PlanTarget(@SerialName("distance_m") val distanceM: Double? = null, @SerialName("duration_s") val durationS: Double? = null)
+data class PlanTarget(
+    @SerialName("distance_m") val distanceM: Double? = null,
+    @SerialName("duration_s") val durationS: Double? = null,
+    /** Strength scored from the app's log: sets done out of [of]. */
+    val sets: Int? = null,
+    val of: Int? = null,
+)
 
 @Serializable
 data class PlanPace(@SerialName("min_s_km") val minSKm: Double, @SerialName("max_s_km") val maxSKm: Double)
@@ -344,26 +350,51 @@ data class PlanSession(
     val pace: PlanPace? = null,
     @SerialName("hr_zone") val hrZone: Int? = null,
     val notes: Bi? = null,
-    /** done | partial | missed | today | upcoming | rest */
+    /** done | partial | missed | skipped | today | upcoming | rest */
     val status: String = "upcoming",
+    /** Index among sessions of the same date and kind; older servers leave it out. */
+    val n: Int = 0,
     val pct: Double? = null,
     @SerialName("activity_ids") val activityIds: List<Long> = emptyList(),
     val done: PlanTarget? = null,
     /** A Strength 28 day placed on this strength session. */
     val workout: PlanWorkout? = null,
+    /** The activity was done on another day than planned (a day early or late). */
+    @SerialName("done_on") val doneOn: String? = null,
+    /** The recovery adjustment stored for this session; its target is the one scored. */
+    val adjust: PlanAdjust? = null,
+    /** The app's workout log that scored a strength day with no watch activity. */
+    @SerialName("log_id") val logId: String? = null,
+    /** The owner linked activities to it or skipped it. */
+    val override: Boolean = false,
+    /** sick | travel | rest | other, when skipped. */
+    val skipped: String? = null,
 )
 
 @Serializable
 data class PlanWorkout(val program: String, val day: Int)
 
 @Serializable
-data class PlanWeek(val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null, val goal: Bi? = null)
+data class PlanWeek(
+    val start: String, val planned: Int = 0, val done: Int = 0, val pct: Double? = null, val goal: Bi? = null,
+    /** Null from older servers, which only count done of planned. */
+    val partial: Int? = null, val missed: Int? = null, val skipped: Int? = null,
+)
 
 @Serializable
-data class PlanMeta(val name: String, val goal: Bi, val start: String, val end: String, @SerialName("race_date") val raceDate: String? = null)
+data class PlanListItem(val id: String, val name: String, val start: String, val end: String, val status: String? = null, val planned: Int = 0)
 
 @Serializable
-data class PlanExtra(@SerialName("_id") val id: Long, val date: String, val type: String? = null, val name: String? = null, @SerialName("distance_m") val distanceM: Double? = null)
+data class OverrideIn(val date: String, val kind: String, val n: Int = 0, @SerialName("activity_ids") val activityIds: List<Long>? = null, val skipped: String? = null)
+
+@Serializable
+data class PlanMeta(val name: String, val goal: Bi, val start: String, val end: String, @SerialName("race_date") val raceDate: String? = null, val id: String? = null)
+
+@Serializable
+data class PlanExtra(
+    @SerialName("_id") val id: Long, val date: String, val type: String? = null, val name: String? = null,
+    @SerialName("distance_m") val distanceM: Double? = null, @SerialName("duration_s") val durationS: Double? = null,
+)
 
 @Serializable
 data class PlanView(
@@ -607,6 +638,10 @@ interface ApiService {
     @GET("trends/running") suspend fun runningTrends(@Query("weeks") weeks: Int): List<DynamicsWeek>
     @GET("recap") suspend fun recap(@Query("period") period: String, @Query("key") key: String): Recap
     @GET("plan") suspend fun plan(): PlanView
+    @POST("plan/override") suspend fun planOverride(@Body body: OverrideIn): PlanView
+    @DELETE("plan/override") suspend fun deletePlanOverride(@Query("date") date: String, @Query("kind") kind: String, @Query("n") n: Int): PlanView
+    @GET("plans") suspend fun plans(): List<PlanListItem>
+    @GET("plans/{id}") suspend fun planById(@Path("id") id: String): PlanView
     @GET("routes") suspend fun routes(@Query("from") from: String, @Query("to") to: String): List<List<List<Double>>>
     @GET("workouts") suspend fun workouts(): WorkoutsHome
     @GET("workouts/logs") suspend fun workoutLogs(@Query("from") from: String): List<LogSummary>

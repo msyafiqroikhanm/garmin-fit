@@ -185,6 +185,45 @@ fun restUp(): String = tr("Rest up and eat well.", "Sisanya istirahat dan makan 
 
 val PlanSession.finished: Boolean get() = status == "done" || status == "partial"
 
+/** run | strength | other, the way the backend's _kind sorts Garmin activity types. */
+fun kindOf(type: String?): String = when {
+    type == null -> "other"
+    "running" in type -> "run"
+    type == "strength_training" -> "strength"
+    else -> "other"
+}
+
+data class PlanCounts(val done: Int, val short: Int, val missed: Int, val skipped: Int, val toGo: Int)
+
+fun planCounts(sessions: List<PlanSession>): PlanCounts {
+    val work = sessions.filter { it.kind != "rest" }
+    return PlanCounts(
+        work.count { it.status == "done" }, work.count { it.status == "partial" }, work.count { it.status == "missed" },
+        work.count { it.status == "skipped" }, work.count { it.status == "today" || it.status == "upcoming" },
+    )
+}
+
+/** "15 done · 1 short · 0 missed · 5 to go": every session lands in exactly one bucket, so nothing needs arithmetic. */
+fun progressLine(c: PlanCounts): String = listOfNotNull(
+    tr("${c.done} done", "${c.done} selesai"),
+    tr("${c.short} short", "${c.short} kurang").takeIf { c.short > 0 },
+    tr("${c.missed} missed", "${c.missed} terlewat"),
+    tr("${c.skipped} skipped", "${c.skipped} dilewati").takeIf { c.skipped > 0 },
+    tr("${c.toGo} to go", "${c.toGo} lagi").takeIf { c.toGo > 0 },
+).joinToString(" · ")
+
+/** "% of distance target" or "% of time target": the share is distance or duration only, never pace. */
+fun targetShare(s: PlanSession, pct: Double): String {
+    val p = "${(pct * 100).roundToInt()}%"
+    val t = s.adjust?.target ?: s.target
+    return when {
+        s.done?.sets != null -> tr("$p of sets", "$p set")
+        t?.distanceM != null -> tr("$p of distance target", "$p target jarak")
+        t?.durationS != null -> tr("$p of time target", "$p target waktu")
+        else -> tr("done", "selesai")
+    }
+}
+
 /** Today's non-rest sessions, run first. Falls back to the single [PlanToday.session] older servers send. */
 val PlanToday.daySessions: List<PlanSession>
     get() = sessions.ifEmpty { listOfNotNull(session) }.filter { it.kind != "rest" }.sortedBy { it.kind != "run" }

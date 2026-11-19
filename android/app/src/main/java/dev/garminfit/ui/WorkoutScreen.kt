@@ -126,7 +126,10 @@ private fun musclesText(m: Map<String, MuscleLoad>) =
     m.entries.filter { it.value.primary > 0 }.sortedByDescending { it.value.primary }.joinToString(", ") { muscleLabel(it.key) }
 
 @Composable
-fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean) -> Unit, onOpenActivity: (Long) -> Unit) {
+fun WorkoutScreen(
+    openKey: String?, onKeyOpened: () -> Unit, openLog: String?, onLogClosed: () -> Unit,
+    onPlaying: (Boolean) -> Unit, onOpenActivity: (Long) -> Unit,
+) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("workouts") { Repo.api(ctx).workouts() }
     // the role rides along with /workouts (disk cached); older servers fall back to the saved /me or /today role
@@ -144,6 +147,7 @@ fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean
     LaunchedEffect(openKey) {
         if (openKey != null) { preview = openKey; onKeyOpened() }
     }
+    LaunchedEffect(openLog) { if (openLog != null) logId = openLog }
     // after the process was killed mid-workout, playing comes back from saved state; the draft has the rest
     LaunchedEffect(playing) {
         if (playing && playDef == null) Repo.draft(ctx)?.let { resume = it; playDef = it.workout } ?: run { playing = false }
@@ -159,7 +163,11 @@ fun WorkoutScreen(openKey: String?, onKeyOpened: () -> Unit, onPlaying: (Boolean
                 draftChecked++
                 loader.reload()
             }
-            logId != null -> LogDetail(logId!!, owner, back = if (history) tr("History", "Riwayat") else "Workout", onBack = { logId = null }, onOpenActivity = onOpenActivity)
+            logId != null -> LogDetail(
+                logId!!, owner,
+                back = if (openLog != null) tr("Training plan", "Training plan") else if (history) tr("History", "Riwayat") else "Workout",
+                onBack = { logId = null; if (openLog != null) onLogClosed() }, onOpenActivity = onOpenActivity,
+            )
             history -> HistoryScreen(onBack = { history = false }, onOpen = { logId = it })
             library -> LibraryScreen(home, onBack = { library = false })
             preview != null -> {

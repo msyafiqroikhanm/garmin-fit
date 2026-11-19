@@ -109,9 +109,55 @@ import dev.garminfit.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
 import java.io.File
+
+/**
+ * Owner-only "Sync 10:02" pill: pulls Garmin now, then [onSynced] reloads what the screen shows. The time is the
+ * cached /today's last sync. Nothing for viewers, who cannot start a sync.
+ */
+@Composable
+fun SyncButton(onSynced: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val role by androidx.compose.runtime.produceState<String?>(null) { value = dev.garminfit.Repo.role(ctx) }
+    val today by remember { dev.garminfit.Repo.todayFlow(ctx) }.collectAsState(null)
+    var syncing by remember { mutableStateOf(false) }
+    if (role != "owner") return
+    SyncPill(if (syncing) tr("Syncing", "Sinkron") else listOfNotNull("Sync", dev.garminfit.syncTime(today?.latest?.syncedAt)).joinToString(" "), "Sync") {
+        if (syncing) return@SyncPill
+        scope.launch {
+            syncing = true
+            runCatching { dev.garminfit.Repo.api(ctx).sync() }
+                .onFailure { android.widget.Toast.makeText(ctx, it.friendly(), android.widget.Toast.LENGTH_LONG).show() }
+            runCatching { dev.garminfit.Repo.fetchToday(ctx) }
+            syncing = false
+            onSynced()
+        }
+    }
+}
+
+/** The neutral pill used for Sync and Reload: hairline, ink, a 48dp target around a smaller shape. */
+@Composable
+fun SyncPill(text: String, clickLabel: String, onClick: () -> Unit) {
+    Box(
+        Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClickLabel = clickLabel, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier.clip(CircleShape).background(K.surface).border(1.dp, K.line, CircleShape)
+                .padding(start = 10.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Glyph(R.drawable.ic_refresh, K.ink, 16.dp)
+            Text(text, style = body(13.sp, FontWeight.SemiBold, 1.2f), color = K.ink)
+        }
+    }
+}
 
 /** Signs out and returns to the sign-in screen; provided by Home. */
 val LocalLogout = staticCompositionLocalOf<(() -> Unit)?> { null }

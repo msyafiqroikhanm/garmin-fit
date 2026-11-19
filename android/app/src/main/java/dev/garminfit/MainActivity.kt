@@ -184,6 +184,9 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     var planFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
     // a workout Today asked to open; the Workout tab shows its preview once and clears it
     var workoutKey by rememberSaveable { mutableStateOf<String?>(null) }
+    // a workout log another tab asked to open; closing it goes back to [logFrom]
+    var workoutLog by rememberSaveable { mutableStateOf<String?>(null) }
+    var logFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
     var playing by rememberSaveable { mutableStateOf(false) }
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { runCatching { Repo.flushWorkoutLogs(ctx) } }
@@ -210,7 +213,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null } },
+        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null; logFrom = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             val reduce = LocalReduceMotion.current
@@ -239,6 +242,8 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                             Tab.WORKOUT -> WorkoutScreen(
                                 openKey = workoutKey,
                                 onKeyOpened = { workoutKey = null },
+                                openLog = workoutLog,
+                                onLogClosed = { workoutLog = null; logFrom?.let { tab = it }; logFrom = null },
                                 onPlaying = { playing = it },
                                 onOpenActivity = ::openActivity,
                             )
@@ -263,6 +268,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                     if (k == null) planFrom?.let { tab = it; planOpen = false }
                                     if (k == null) planFrom = null
                                 },
+                                onOpenLog = { workoutLog = it; logFrom = Tab.TRAINING; tab = Tab.WORKOUT },
                                 onOpenToday = { planOpen = false; tab = Tab.TODAY },
                             )
                         }
