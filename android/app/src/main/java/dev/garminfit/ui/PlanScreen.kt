@@ -66,6 +66,8 @@ import dev.garminfit.PlanWeek
 import dev.garminfit.Verdict
 import dev.garminfit.planStandsNote
 import dev.garminfit.todayAdvice
+import dev.garminfit.daySessions
+import dev.garminfit.pending
 import dev.garminfit.targetText
 import dev.garminfit.R
 import dev.garminfit.Repo
@@ -150,7 +152,8 @@ internal fun sessionProgress(s: PlanSession): String = listOfNotNull(
  */
 @Composable
 fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartWorkout: ((String) -> Unit)? = null) {
-    val s = p.session ?: return
+    val day = p.daySessions
+    val s = p.pending() ?: day.firstOrNull() ?: return
     val finished = s.status == "done" || s.status == "partial"
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -160,14 +163,14 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
             }
             Text(s.title.text, style = T.headline, color = K.ink)
             planTarget(s).takeIf { it.isNotEmpty() }?.let { Text(it, style = body(16.sp, FontWeight.SemiBold, 1.35f), color = K.body2) }
-            p.adjust?.let { a -> targetText(a.target)?.let { Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = body(14.sp, FontWeight.SemiBold), color = K.fair) } }
+            p.adjust?.takeIf { s == p.session }?.let { a -> targetText(a.target)?.let { Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = body(14.sp, FontWeight.SemiBold), color = K.fair) } }
             s.pct?.let {
                 Text(tr("${pctText(it)} of target done", "${pctText(it)} dari target tercapai"), Modifier.padding(top = 4.dp), style = body(13.sp, FontWeight.SemiBold), color = statusColor(s.status))
                 SpanBar(0f, it.toFloat(), statusColor(s.status), height = 6.dp)
             }
         }
         // only what changes the session: the adjustment's reason, or why low readiness leaves it as is
-        val why = if (p.adjust != null && verdict != null) todayAdvice(verdict, p).first else verdict?.let { planStandsNote(it) }
+        val why = if (p.adjust != null && s == p.session && verdict != null) todayAdvice(verdict, p)?.first else verdict?.let { planStandsNote(it) }
         why?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.body, color = K.body3) }
         s.notes?.let { n ->
             var steps by rememberSaveable(s.date, s.kind) { mutableStateOf(false) }
@@ -183,9 +186,19 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
                 }
             }
         }
-        val w = s.workout
-        if (w != null && s.kind == "strength" && s.status in setOf("today", "upcoming", "missed") && onStartWorkout != null) {
-            AccentButton(tr("Start workout", "Mulai workout"), { onStartWorkout("strength28:${w.day}") }, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
+        StartWorkoutButton(s, onStartWorkout)
+        // the rest of the day stays one compact line each, so the session above remains the only headline
+        day.filter { it != s }.forEach { o ->
+            Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PlanStatusMark(o, 20.dp)
+                    Text(
+                        listOfNotNull(tr("Also today: ${o.title.text}", "Juga hari ini: ${o.title.text}"), planTarget(o).ifEmpty { null }).joinToString(" · "),
+                        style = body(14.sp, FontWeight.SemiBold, 1.35f), color = K.body2,
+                    )
+                }
+                StartWorkoutButton(o, onStartWorkout)
+            }
         }
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp))
@@ -202,6 +215,14 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
             Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
         }
     }
+}
+
+/** Ink "Start workout" for a strength session with a Strength 28 day that is not done yet; nothing for viewers. */
+@Composable
+fun StartWorkoutButton(s: PlanSession, onStartWorkout: ((String) -> Unit)?) {
+    val w = s.workout ?: return
+    if (s.kind != "strength" || s.status !in setOf("today", "upcoming", "missed") || onStartWorkout == null) return
+    AccentButton(tr("Start workout", "Mulai workout"), { onStartWorkout("strength28:${w.day}") }, Modifier.fillMaxWidth(), icon = R.drawable.ic_play_arrow)
 }
 
 /**

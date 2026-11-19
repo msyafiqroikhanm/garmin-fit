@@ -85,6 +85,9 @@ import dev.garminfit.km
 import dev.garminfit.pace
 import dev.garminfit.readinessVerdict
 import dev.garminfit.todayAdvice
+import dev.garminfit.daySessions
+import dev.garminfit.finished
+import dev.garminfit.pending
 import dev.garminfit.sleep
 import dev.garminfit.syncTime
 import dev.garminfit.tr
@@ -206,9 +209,18 @@ private fun Steps(d: Daily) {
 
 /** Today's planned session in one line, with its score once something is done; tapping it opens the plan. */
 @Composable
-private fun PlanLine(ctx: Context, p: PlanSession) {
+private fun PlanLine(ctx: Context, plan: PlanToday) {
+    // the first session still to do; once every one is done the line says so instead of naming the last
+    val day = plan.daySessions
+    val p = plan.pending() ?: plan.session.takeIf { day.isEmpty() }
     Row(GlanceModifier.fillMaxWidth().clickable(open(ctx, Tab.TRAINING, plan = true)), verticalAlignment = Alignment.Bottom) {
         Caps("Plan ")
+        if (p == null) {
+            // the mark leads, like a ticked list row; at the text's own height so the 2×2 card keeps its fit
+            Image(ImageProvider(R.drawable.ic_check_circle), contentDescription = null, colorFilter = ColorFilter.tint(Accent), modifier = GlanceModifier.size(12.dp).padding(end = 2.dp))
+            Text(tr(" Done today", " Selesai hari ini"), style = value(13, Accent), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            return@Row
+        }
         Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
         p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, c(statusColor(p.status)))) }
     }
@@ -260,7 +272,7 @@ class RecoveryWidget : TodayWidget() {
                     }
                     HrvBand(d, hrv, status?.second)
                 }
-                t.plan?.session?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, it) }
+                t.plan?.takeIf { it.session != null }?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, it) }
             }
             Spacer(GlanceModifier.defaultWeight())
         }
@@ -294,7 +306,7 @@ class MorningWidget : TodayWidget() {
             }
             Spacer(GlanceModifier.defaultWeight())
             // grouped: Glance caps a Column at 10 children and the tallest size reaches that
-            t.plan?.session?.takeIf { h >= 150.dp }?.let { Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) { PlanLine(ctx, it) } }
+            t.plan?.takeIf { it.session != null && h >= 150.dp }?.let { Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) { PlanLine(ctx, it) } }
             Steps(d)
             if (h >= 220.dp) {
                 val flag = t.flags.firstOrNull()
@@ -303,7 +315,7 @@ class MorningWidget : TodayWidget() {
                     val s = if (flag.level == "good") Status.GOOD else Status.FAIR
                     Text(flagText(flag, t), style = label(s.provider()), maxLines = 2)
                 } else if (verdict != null) {
-                    Text(todayAdvice(verdict, t.plan).first, style = body, maxLines = 2)
+                    todayAdvice(verdict, t.plan)?.let { Text(it.first, style = body, maxLines = 2) }
                 }
             }
         }
@@ -329,7 +341,7 @@ class WeekWidget : TodayWidget() {
             Header(tr("This week", "Minggu ini"), null, right = tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"))
             Spacer(GlanceModifier.height(6.dp))
             Row(GlanceModifier.fillMaxWidth()) {
-                Stat(tr("Sessions", "Sesi"), w.count.toString(), null, GlanceModifier.defaultWeight())
+                Stat(tr("Activities", "Aktivitas"), w.count.toString(), null, GlanceModifier.defaultWeight())
                 if (w.distanceM > 0) Stat(tr("Distance", "Jarak"), "${km(w.distanceM)} km", null, GlanceModifier.defaultWeight())
                 else Stat("Load", w.load.int(), null, GlanceModifier.defaultWeight())
                 Stat(tr("Time", "Durasi"), duration(w.durationS), null, GlanceModifier.defaultWeight())
@@ -489,7 +501,8 @@ class LastActivityWidget : TodayWidget() {
             if (a == null) return@Card Placeholder(t)
             val hasDistance = (a.distanceM ?: 0.0) > 0
             // date first, so a long race name is what gets cut
-            val title = "${dayMonth(a.date)} · ${a.name ?: activityType(a.type)}"
+            val more = (t.todayActivities.size - 1).takeIf { a.date.take(10) == LocalDate.now().toString() && it > 0 }
+            val title = "${dayMonth(a.date)}${more?.let { tr(" +$it today", " +$it hari ini") } ?: ""} · ${a.name ?: activityType(a.type)}"
             if (LocalSize.current.height < 100.dp) {
                 Row(GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                     TypeIcon(a.type, 40.dp)
@@ -580,11 +593,15 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
     val header = h >= 170.dp
     val full = h >= 200.dp
     val p = t.plan
-    val s = p?.session
+    val day = p?.daySessions.orEmpty()
+    // the session in focus: the first still to do, else the last one done; a rest day keeps its rest row
+    val s = p?.pending() ?: day.lastOrNull() ?: p?.session
+    val allDone = day.size > 1 && p?.pending() == null
     val color = s?.let { c(statusColor(it.status)) } ?: Muted
     val (title, sub) = when {
         p == null -> tr("No plan yet", "Belum ada plan") to tr("Tap to open Training", "Ketuk untuk buka Latihan")
         s == null -> tr("Nothing planned", "Tidak ada sesi") to tr("Rest or move easy", "Istirahat atau gerak santai")
+        compact && allDone -> tr("${day.size} sessions done", "${day.size} sesi selesai") to null
         else -> s.title.text to planTarget(s).ifEmpty { null }
     }
     val days = p?.let { weekDays(it, v) }
@@ -596,7 +613,16 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
             }
             Spacer(GlanceModifier.defaultWeight())
         }
-        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (!compact && day.size > 1) {
+            // a double day lists its sessions as equal rows, at most two, so neither reads as the only one
+            Column(GlanceModifier.fillMaxWidth()) {
+                day.take(2).forEachIndexed { i, r ->
+                    if (i > 0) Spacer(GlanceModifier.height(6.dp))
+                    SessionRow(r, sync = if (i == 0 && !header) ({ SyncControl(t.latest, syncing, showTime = false) }) else null)
+                }
+                if (day.size > 2) Text(tr("+${day.size - 2} more", "+${day.size - 2} lagi"), style = body, maxLines = 1, modifier = GlanceModifier.padding(top = 2.dp))
+            }
+        } else Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Image(
                 ImageProvider(s?.let { statusIcon(it.status) } ?: if (p == null) R.drawable.ic_event_available else R.drawable.ic_bedtime),
                 contentDescription = null,
@@ -613,7 +639,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
         }
         if (compact) return@Column
         // adjust line and session bar each sit in one child, so the column stays under Glance's 10
-        p?.adjust?.let { a -> targetText(a.target) }?.let {
+        p?.adjust?.takeIf { s != null && s == p.session && !s.finished }?.let { a -> targetText(a.target) }?.let {
             Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = label(Status.FAIR.provider()), maxLines = 1, modifier = GlanceModifier.padding(top = 4.dp))
         }
         if (full) s?.pct?.let {
@@ -636,6 +662,25 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
             Spacer(GlanceModifier.height(4.dp))
             Bar(w.done.toFloat() / w.planned, Accent)
         }
+    }
+}
+
+/** One of a double day's sessions: status mark, title, then % once scored or the target before. */
+@Composable
+private fun SessionRow(s: PlanSession, sync: (@Composable () -> Unit)?) {
+    Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            ImageProvider(statusIcon(s.status)),
+            contentDescription = dev.garminfit.ui.statusLabel(s),
+            colorFilter = ColorFilter.tint(c(statusColor(s.status))),
+            modifier = GlanceModifier.size(22.dp),
+        )
+        Spacer(GlanceModifier.width(10.dp))
+        Text(s.title.text, style = value(18), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+        val pct = s.pct
+        if (pct != null) Text(" ${(pct * 100).roundToInt()}%", style = value(18, c(statusColor(s.status))))
+        else planTarget(s).ifEmpty { null }?.let { Text(" $it", style = body, maxLines = 1) }
+        sync?.invoke()
     }
 }
 

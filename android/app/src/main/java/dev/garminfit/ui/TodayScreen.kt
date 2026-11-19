@@ -72,7 +72,12 @@ import dev.garminfit.one
 import dev.garminfit.pace
 import dev.garminfit.readinessStatus
 import dev.garminfit.readinessVerdict
+import dev.garminfit.daySessions
+import dev.garminfit.doneToday
+import dev.garminfit.mainActivity
+import dev.garminfit.pending
 import dev.garminfit.restUp
+import dev.garminfit.summaryAge
 import dev.garminfit.todayAdvice
 import dev.garminfit.rhrFactor
 import dev.garminfit.sleep
@@ -126,17 +131,19 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val latest = today.latest
-                val activityToday = today.lastActivity?.takeIf { it.date.take(10) == LocalDate.now().toString() }
+                val done = today.doneToday()
+                val activityToday = mainActivity(done, today.plan)
                 val verdict = latest?.takeIf { it.readiness != null }?.let { readinessVerdict(it.readinessLevel, it.readiness, it.recoveryMin) }
-                val session = today.plan?.session?.takeIf { it.kind != "rest" }
+                val session = today.plan?.daySessions?.firstOrNull()
+                val startWorkout = onStartWorkout.takeIf { today.role == "owner" }
                 Header(today, onSync = ::refresh, onOpenAccount = onOpenAccount)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 // the focus: one block on the background, chosen by where the day stands
                 val readinessLeads = activityToday == null && session == null
                 Column(Modifier.padding(top = 12.dp)) {
                     when {
-                        activityToday != null -> DoneFocus(activityToday, today, verdict, onOpenActivity, onOpenPlan)
-                        session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, onStartWorkout.takeIf { today.role == "owner" })
+                        activityToday != null -> DoneFocus(activityToday, done - activityToday, today, verdict, onOpenActivity, onOpenPlan, startWorkout)
+                        session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, startWorkout)
                         verdict != null && latest != null -> ReadinessFocus(latest, verdict, restDay = today.plan?.session != null, onOpenPlan)
                     }
                 }
@@ -151,7 +158,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 } else {
                     BodySection(latest, today, verdict.takeUnless { readinessLeads })
                     Recovery(latest, verdict?.status ?: Status.GOOD)
-                    WeekSection(today, lastActivity = today.lastActivity.takeIf { activityToday == null }, onOpenActivity)
+                    WeekSection(today, lastActivity = today.lastActivity.takeIf { done.isEmpty() }, onOpenActivity)
                     today.summary?.let { SummaryCard(it) }
                 }
             }
@@ -207,9 +214,13 @@ private fun Header(t: Today, onSync: () -> Unit, onOpenAccount: () -> Unit) {
 /**
  * After a session: the result is the message. The route (mapcn's lesson: the line is the only bright thing
  * on a quiet ground) sits under a big distance, then one "what's next" line ties it to the plan and recovery.
+ * On a double day [a] is the main session and the [others] follow the picture as plain list rows, never a second hero.
  */
 @Composable
-private fun DoneFocus(a: Activity, t: Today, verdict: Verdict?, onOpen: (Long) -> Unit, onOpenPlan: () -> Unit) {
+private fun DoneFocus(
+    a: Activity, others: List<Activity>, t: Today, verdict: Verdict?,
+    onOpen: (Long) -> Unit, onOpenPlan: () -> Unit, onStartWorkout: ((String) -> Unit)?,
+) {
     val ctx = LocalContext.current
     // same disk cache as the activity detail, so opening it after this is instant
     val detail = rememberCachedLoad("activity", a.id) { Repo.api(ctx).activity(a.id) }
@@ -225,7 +236,12 @@ private fun DoneFocus(a: Activity, t: Today, verdict: Verdict?, onOpen: (Long) -
     val open = Modifier.clickable(role = Role.Button, onClickLabel = tr("Open activity details", "Buka detail aktivitas")) { onOpen(a.id) }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(Modifier.clip(RoundedCornerShape(16.dp)).then(open).padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Label(tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"), K.good)
+            val n = others.size + 1
+            Label(
+                if (n > 1) tr("Done today · $n sessions", "Selesai hari ini · $n sesi")
+                else tr("Done today · ${time(a.startTime)}", "Selesai hari ini · ${time(a.startTime)}"),
+                K.good,
+            )
             Text(a.name ?: activityType(a.type), style = head(18.sp, -0.02f), color = K.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (hasDistance) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp, FontWeight.SemiBold), gap = 6.dp, roll = true)
             else RollingText(duration(a.durationS), num(64.sp, italic = true, lh = 0.9f), K.ink)
@@ -235,24 +251,31 @@ private fun DoneFocus(a: Activity, t: Today, verdict: Verdict?, onOpen: (Long) -
             }
         }
         ActivityPicture(a, full, Modifier.fillMaxWidth().height(196.dp).clip(RoundedCornerShape(20.dp)).then(open))
-        WhatsNext(t, verdict, onOpenPlan)
+        if (others.isNotEmpty()) Column {
+            others.forEach { o ->
+                ActivityRow(o, hPad = 4.dp) { onOpen(o.id) }
+                HorizontalDivider(Modifier.padding(horizontal = 4.dp), color = K.track)
+            }
+        }
+        WhatsNext(t, verdict, onOpenPlan, onStartWorkout)
     }
 }
 
-/** The line after a result: the plan session's state if there is one, then the advice. */
+/**
+ * After a result: one row per plan session today, then the advice. Rest is advised only once every session is
+ * done or partial; a session still to do is named, and a pending Strength 28 day gets its Start button.
+ */
 @Composable
-private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit) {
-    val s = t.plan?.session?.takeIf { it.kind != "rest" }
-    val advice = when {
-        s?.status == "done" -> restUp()
-        verdict != null -> todayAdvice(verdict, t.plan).first
-        else -> null
-    }
-    if (s == null && advice == null) return
+private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit, onStartWorkout: ((String) -> Unit)?) {
+    val day = t.plan?.daySessions.orEmpty()
+    val next = t.plan?.pending()
+    val advice = if (day.isNotEmpty() && next == null) restUp() else todayAdvice(verdict, t.plan)?.first
+    if (day.isEmpty() && advice == null) return
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp)),
     ) {
-        if (s != null) {
+        day.forEachIndexed { i, s ->
+            if (i > 0) HorizontalDivider(color = K.line)
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = tr("Open plan", "Buka plan"), onClick = onOpenPlan)
                     .sizeIn(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -268,10 +291,13 @@ private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit) {
             }
         }
         if (advice != null) {
-            if (s != null) HorizontalDivider(color = K.line)
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label(tr("What's next", "Selanjutnya"))
-                Text(advice, style = T.body, color = K.ink)
+            if (day.isNotEmpty()) HorizontalDivider(color = K.line)
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Label(tr("What's next", "Selanjutnya"))
+                    Text(advice, style = T.body, color = K.ink)
+                }
+                next?.let { StartWorkoutButton(it, onStartWorkout) }
             }
         }
     }
@@ -465,7 +491,7 @@ private fun WeekSection(t: Today, lastActivity: Activity?, onOpenActivity: (Long
         Text(tr("No activities this week yet.", "Belum ada aktivitas minggu ini."), Modifier.padding(horizontal = 4.dp), style = T.body, color = K.muted)
     } else {
         Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stat(w.count.toString(), tr("sessions", "sesi"), num(30.sp), Modifier.weight(1f))
+            Stat(w.count.toString(), tr(if (w.count == 1) "activity" else "activities", "aktivitas"), num(30.sp), Modifier.weight(1f))
             Stat((w.distanceM / 1000).one(), "km", num(30.sp), Modifier.weight(1f))
             Stat(duration(w.durationS), tr("duration", "durasi"), num(30.sp), Modifier.weight(1f))
         }
@@ -562,13 +588,16 @@ private fun SummaryCard(s: Summary) {
     val text = s.en?.takeUnless { isId() }
     val headline = text?.headline ?: s.headline
     val sections = text?.sections ?: s.sections
-    SectionHeader(tr("Weekly summary", "Ringkasan minggu"), rangeLabel(s.range.from, s.range.to))
+    // a summary from weeks back says its age and steps down to card-title size, so it never reads as today's news
+    val age = summaryAge(s.range.to)
+    SectionHeader(tr("Weekly summary", "Ringkasan minggu"), age ?: rangeLabel(s.range.from, s.range.to))
     Panel(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).animateContentSize()
             .clickable(role = Role.Button, onClickLabel = if (open) tr("Close summary", "Tutup ringkasan") else tr("Open summary", "Buka ringkasan")) { open = !open },
         gap = 10.dp,
     ) {
-        Text(headline, style = head(21.sp, -0.03f), color = K.ink)
+        if (age != null) Text(rangeLabel(s.range.from, s.range.to), style = T.caption, color = K.muted)
+        Text(headline, style = if (age != null) T.cardTitle else head(21.sp, -0.03f), color = K.ink)
         if (open) {
             Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 sections.forEach { sec ->

@@ -131,22 +131,47 @@ fun planStandsNote(v: Verdict): String? = if (v.status == Status.GOOD) null else
     "Readiness rendah, tapi HRV dan RHR masih normal, jadi plan tetap jalan. Kalau kaki terasa berat, bawa santai aja.",
 )
 
-/** What's left after the day's session is done. */
+/** What's left after the day's sessions are done. */
 fun restUp(): String = tr("Rest up and eat well.", "Sisanya istirahat dan makan yang cukup.")
 
+val PlanSession.finished: Boolean get() = status == "done" || status == "partial"
+
+/** Today's non-rest sessions, run first. Falls back to the single [PlanToday.session] older servers send. */
+val PlanToday.daySessions: List<PlanSession>
+    get() = sessions.ifEmpty { listOfNotNull(session) }.filter { it.kind != "rest" }.sortedBy { it.kind != "run" }
+
+/** The first of today's sessions still to do, run first; null when every one is done or partial. */
+fun PlanToday.pending(): PlanSession? = daySessions.firstOrNull { !it.finished }
+
+/** Activities dated today. Older servers only send the newest activity, so that one stands in when it is today's. */
+fun Today.doneToday(today: String = LocalDate.now().toString()): List<Activity> =
+    todayActivities.ifEmpty { listOfNotNull(lastActivity?.takeIf { it.date.take(10) == today }) }
+
+/** The activity that leads Today: the plan run it fulfilled, else the highest training load, else the longest. */
+fun mainActivity(acts: List<Activity>, plan: PlanToday?): Activity? {
+    val runIds = plan?.daySessions.orEmpty().filter { it.kind == "run" }.flatMap { it.activityIds }.toSet()
+    return acts.firstOrNull { it.id in runIds }
+        ?: acts.maxWithOrNull(compareBy<Activity>({ it.trainingLoad ?: -1.0 }, { it.durationS ?: 0.0 }))
+}
+
 /**
- * Today's advice and chips. With a plan session today the plan leads, changed by [PlanAdjust] when HRV and RHR say
- * recovery is off. Readiness alone never changes it: Garmin undercounts split sleep. No session: Garmin's readiness advice.
+ * Today's advice and chips. With plan sessions today the plan leads: the next one still to do, changed by [PlanAdjust]
+ * when HRV and RHR say recovery is off. Rest is advised only when every session is done or partial. Readiness alone
+ * never changes the plan: Garmin undercounts split sleep. No session: Garmin's readiness advice, or null without a verdict.
  */
-fun todayAdvice(v: Verdict, plan: PlanToday?): Pair<String, List<String>> {
-    val s = plan?.session?.takeIf { it.kind != "rest" } ?: return v.advice to v.chips
-    if (s.status == "done") return tr("Today's session is done. ", "Sesi hari ini udah selesai. ") + restUp() to emptyList()
+fun todayAdvice(v: Verdict?, plan: PlanToday?): Pair<String, List<String>>? {
+    val all = plan?.daySessions.orEmpty()
+    if (all.isEmpty()) return v?.let { it.advice to it.chips }
+    val s = plan!!.pending()
+        ?: return tr(if (all.size > 1) "Today's sessions are done. " else "Today's session is done. ", "Sesi hari ini udah selesai. ") + restUp() to emptyList()
     val title = s.title.text
     val planned = targetText(s.target)
-    val a = plan.adjust
+    // the server reasons about one session (the run); its adjustment does not carry over to the strength after it
+    val a = plan.adjust?.takeIf { s == plan.session }
     if (a == null) {
-        val lead = tr("Per plan: $title", "Sesuai plan: $title") + (planned?.let { ", $it" } ?: "") + "."
-        val note = planStandsNote(v)?.let { " $it" } ?: ""
+        val lead = (if (all.any { it.finished }) tr("Next up: $title", "Berikutnya: $title") else tr("Per plan: $title", "Sesuai plan: $title")) +
+            (planned?.let { ", $it" } ?: "") + "."
+        val note = v?.let { planStandsNote(it) }?.let { " $it" } ?: ""
         val pace = s.pace?.let { "${paceSec(it.minSKm)}–${paceSec(it.maxSKm)} /km" }
         return lead + note to listOfNotNull(planned, pace)
     }
@@ -163,6 +188,14 @@ fun todayAdvice(v: Verdict, plan: PlanToday?): Pair<String, List<String>> {
             "${a.streak} hari belum pulih, jadi minggu ini dibikin ringan: semua sesi easy dan 30% lebih pendek. Hari ini: $now.")
     }
     return "$why $what" to listOfNotNull(now, tr("Easy", "Easy"))
+}
+
+/** "4 weeks ago" for a summary whose week ended more than 8 days before [today]; null while it is still recent. */
+fun summaryAge(to: String, today: LocalDate = LocalDate.now()): String? {
+    val days = runCatching { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(to), today) }.getOrNull() ?: return null
+    if (days <= 8) return null
+    val weeks = days / 7
+    return tr(if (weeks == 1L) "1 week ago" else "$weeks weeks ago", "$weeks minggu lalu")
 }
 
 /** Flag copy is built here from the key so it follows the app language; the backend's Indonesian text is only a fallback. */

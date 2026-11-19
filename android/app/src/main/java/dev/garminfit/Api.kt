@@ -312,6 +312,8 @@ data class Today(
     val spark: Spark = Spark(),
     val week: Week = Week(),
     @SerialName("last_activity") val lastActivity: Activity? = null,
+    /** Every activity dated today, newest first. Older servers do not send it; see [doneToday]. */
+    @SerialName("today_activities") val todayActivities: List<Activity> = emptyList(),
     val summary: Summary? = null,
     val plan: PlanToday? = null,
 )
@@ -381,7 +383,13 @@ data class PlanAdjust(
 )
 
 @Serializable
-data class PlanToday(val name: String, val session: PlanSession? = null, val week: PlanWeek? = null, val overall: Double? = null, val adjust: PlanAdjust? = null)
+data class PlanToday(
+    val name: String,
+    /** The one session [adjust] reasons about: today's run, else the first session. */
+    val session: PlanSession? = null,
+    /** All of today's sessions, rest included. Older servers send only [session]; see [daySessions]. */
+    val sessions: List<PlanSession> = emptyList(),
+    val week: PlanWeek? = null, val overall: Double? = null, val adjust: PlanAdjust? = null)
 
 @Serializable
 data class Me(val name: String? = null, val role: String? = null, val kind: String = "session", val profile: Profile? = null)
