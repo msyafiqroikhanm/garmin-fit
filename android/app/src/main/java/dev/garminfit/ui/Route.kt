@@ -65,6 +65,12 @@ private val slow = K.low
 private val mid = K.fair
 private val fast = K.good
 
+/** The run's own 10th and 90th percentile speed (cm/s): the ends of the pace gradient and of its legend. */
+fun paceSpread(pts: List<RoutePoint>): Pair<Double, Double> {
+    val sorted = pts.map { it.getOrElse(2) { 0.0 } }.sorted()
+    return sorted[sorted.size / 10] to sorted[sorted.size * 9 / 10]
+}
+
 /** Slow → fast relative to this run's own spread (10th..90th percentile), so every run shows contrast. */
 fun paceColor(speed: Double, lo: Double, hi: Double): Color {
     val t = ((speed - lo) / (hi - lo).coerceAtLeast(1.0)).coerceIn(0.0, 1.0).toFloat()
@@ -79,9 +85,7 @@ fun drawRoute(c: Canvas, left: Float, top: Float, w: Float, h: Float, pts: List<
     if (pts.size < 2) return
     val pad = stroke * 2
     val xy = project(pts, w - pad * 2, h - pad * 2).map { (x, y) -> left + pad + x to top + pad + y }
-    val sorted = pts.map { it.getOrElse(2) { 0.0 } }.sorted()
-    val lo = sorted[sorted.size / 10]
-    val hi = sorted[sorted.size * 9 / 10]
+    val (lo, hi) = paceSpread(pts)
     val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = stroke

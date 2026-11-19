@@ -87,6 +87,8 @@ data class Activity(
     val similar: Similar? = null,
     /** The app's workout log linked to this strength activity; preferred over [strength] when present. */
     val workout: LogView? = null,
+    /** Garmin did not answer for the route and charts yet; null from older servers. */
+    @SerialName("details_pending") val detailsPending: Boolean? = null,
 )
 
 @Serializable
@@ -96,6 +98,10 @@ data class Similar(
     @SerialName("avg_hr") val avgHr: Double? = null,
     val efficiency: Double? = null,
     @SerialName("this_efficiency") val thisEfficiency: Double? = null,
+    /** The plan session type the comparison was limited to (easy, tempo), when this run fulfilled one. */
+    @SerialName("plan_type") val planType: String? = null,
+    /** The runs compared; older servers leave it out. */
+    val runs: List<Activity> = emptyList(),
 )
 
 @Serializable

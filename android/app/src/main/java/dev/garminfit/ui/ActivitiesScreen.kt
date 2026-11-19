@@ -81,6 +81,15 @@ import dev.garminfit.activityIcon
 import dev.garminfit.dayLabel
 import dev.garminfit.dayMonth
 import dev.garminfit.dayMonthYear
+import dev.garminfit.kindOf
+import dev.garminfit.weekdayShort
+import androidx.compose.foundation.border
+import dev.garminfit.speedText
+import dev.garminfit.PlanSession
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.runtime.mutableIntStateOf
 import dev.garminfit.duration
 import dev.garminfit.int
 import dev.garminfit.km
@@ -115,13 +124,18 @@ import androidx.compose.ui.text.input.ImeAction
 @Composable
 fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit, onOpenPlanSession: (String) -> Unit) {
     val ctx = LocalContext.current
-    val loader = rememberCachedLoad("activities") {
+    // the list covers a year; "Load older" adds a year at a time
+    var years by rememberSaveable { mutableIntStateOf(1) }
+    val loader = rememberCachedLoad("activities", years) {
         coroutineScope {
             val profile = async { runCatching { Repo.me(ctx).profile }.getOrNull() }
-            Repo.api(ctx).activities(LocalDate.now().minusDays(365).toString()) to profile.await()
+            Repo.api(ctx).activities(LocalDate.now().minusDays(365L * years).toString()) to profile.await()
         }
     }
     var selected by rememberSaveable(initialId) { mutableStateOf(initialId) }
+    // activities opened from inside a detail (a compared run), so back walks out one at a time
+    var trail by rememberSaveable(initialId) { mutableStateOf(listOf<Long>()) }
+    var kind by rememberSaveable { mutableStateOf<String?>(null) }
     var sharing by remember { mutableStateOf<Activity?>(null) }
     var map by remember { mutableStateOf<List<List<Double>>?>(null) }
     // out here so the filter survives a trip into a detail and back
@@ -145,11 +159,14 @@ fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit,
             label = "detail",
         ) { id ->
             if (id == null) {
-                ActivityList(list, query, { query = it }, listState, loader) { selected = it }
+                ActivityList(list, query, { query = it }, kind, { kind = it }, years, { years++ }, listState, loader) { selected = it }
                 return@AnimatedContent
             }
             // clearing the caller's id too lets the same activity be opened again from another tab
-            val close = { selected = null; onClosed() }
+            val close = {
+                if (trail.isNotEmpty()) { selected = trail.last(); trail = trail.dropLast(1) }
+                else { selected = null; onClosed() }
+            }
             // an id outside the loaded year (a record, an older recap, a just-synced run) loads on its own
             ActivityById(id, list, close) { current ->
                 val share = sharing
@@ -159,12 +176,13 @@ fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit,
                     val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
                     ShareScreen(share.shareContent(plan), onBack = { sharing = null })
                 } else if (route != null) {
-                    MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend() }
+                    MapScreen(MapContent.Route(route), tr("Back to details", "Kembali ke detail"), onBack = { map = null }) { PaceLegend(route) }
                 } else {
                     BackHandler(onBack = close)
                     ActivityDetail(
-                        current, list, profile, backLabel ?: tr("All activities", "Semua aktivitas"),
+                        current, list, profile, if (trail.isNotEmpty()) tr("Back", "Kembali") else backLabel ?: tr("All activities", "Semua aktivitas"),
                         onBack = close, onShare = { sharing = it }, onMap = { map = it }, onOpenPlanSession = onOpenPlanSession,
+                        onOpenOther = { other -> trail = trail + current.id; selected = other },
                     )
                 }
             }
@@ -183,8 +201,34 @@ private fun ActivityById(id: Long, list: List<Activity>, onBack: () -> Unit, con
     }
 }
 
+private val KINDS = listOf(null, "run", "strength", "other")
+
+private fun kindChip(k: String?) = when (k) {
+    null -> tr("All", "Semua")
+    "run" -> tr("Run", "Lari")
+    "strength" -> "Strength"
+    else -> tr("Other", "Lainnya")
+}
+
+/** "10–16 Nov · 32.4 km · 5 sessions": one header per Monday week, with what that week held. */
+internal fun weekHeader(monday: LocalDate, acts: List<Activity>): String {
+    val sunday = monday.plusDays(6)
+    val range = if (monday.month == sunday.month) "${monday.dayOfMonth}–${dayMonthYear(sunday.toString())}" else "${dayMonth(monday.toString())}–${dayMonthYear(sunday.toString())}"
+    val km = acts.sumOf { it.distanceM ?: 0.0 }
+    return listOfNotNull(
+        range,
+        km.takeIf { it > 0 }?.let { "${km(it)} km" },
+        tr(if (acts.size == 1) "1 session" else "${acts.size} sessions", "${acts.size} sesi"),
+    ).joinToString(" · ")
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ActivityList(list: List<Activity>, query: String, onQuery: (String) -> Unit, listState: androidx.compose.foundation.lazy.LazyListState, stale: Loader<*>, onOpen: (Long) -> Unit) {
+private fun ActivityList(
+    list: List<Activity>, query: String, onQuery: (String) -> Unit, kind: String?, onKind: (String?) -> Unit,
+    years: Int, onOlder: () -> Unit,
+    listState: androidx.compose.foundation.lazy.LazyListState, stale: Loader<*>, onOpen: (Long) -> Unit,
+) {
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         item {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)) {
@@ -193,23 +237,57 @@ private fun ActivityList(list: List<Activity>, query: String, onQuery: (String) 
             }
         }
         item { SearchField(query) { onQuery(it) } }
-        val shown = list.filter { it.matches(query) }
-        if (shown.isEmpty() && query.isNotBlank()) item {
+        item {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                KINDS.forEach { k ->
+                    val on = k == kind
+                    Text(
+                        kindChip(k),
+                        Modifier.clip(CircleShape).background(if (on) K.ink else K.track).selectable(on, role = Role.Tab) { onKind(k) }
+                            .sizeIn(minHeight = 40.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = body(13.sp, FontWeight.SemiBold, 1.2f), color = if (on) K.onAccent else K.ink,
+                    )
+                }
+            }
+        }
+        val shown = list.filter { it.matches(query) && (kind == null || kindOf(it.type) == kind) }
+        if (shown.isEmpty() && (query.isNotBlank() || kind != null)) item {
             Text(
-                tr("Nothing matches \"${query.trim()}\" in the past year. Try a name like \"easy\" or a type like \"strength\".", "Tidak ada yang cocok dengan \"${query.trim()}\" dalam setahun terakhir. Coba nama seperti \"easy\" atau jenis seperti \"strength\"."),
+                if (query.isNotBlank()) tr("Nothing matches \"${query.trim()}\" here. Try a name like \"easy\" or a type like \"strength\".", "Tidak ada yang cocok dengan \"${query.trim()}\" di sini. Coba nama seperti \"easy\" atau jenis seperti \"strength\".")
+                else tr("No ${kindChip(kind).lowercase()} activities in this range.", "Tidak ada aktivitas ${kindChip(kind).lowercase()} di rentang ini."),
                 Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
                 style = T.body,
                 color = K.muted,
             )
         }
-        items(shown, key = { it.id }) { a ->
-            ActivityRow(a) { onOpen(a.id) }
-            HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
+        shown.groupBy { LocalDate.parse(it.date).let { d -> d.minusDays(d.dayOfWeek.value - 1L) } }.forEach { (monday, acts) ->
+            stickyHeader(key = "w$monday") {
+                Text(
+                    weekHeader(monday, acts),
+                    Modifier.fillMaxWidth().background(K.base).padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp),
+                    style = body(13.sp, FontWeight.SemiBold, 1.3f), color = K.body2,
+                )
+            }
+            items(acts, key = { it.id }) { a ->
+                ActivityRow(a) { onOpen(a.id) }
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = K.track)
+            }
+        }
+        item {
+            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                SecondaryButton(
+                    tr("Load older · before ${dayMonthYear(LocalDate.now().minusDays(365L * years).toString())}", "Muat yang lebih lama · sebelum ${dayMonthYear(LocalDate.now().minusDays(365L * years).toString())}"),
+                    onOlder,
+                )
+            }
         }
     }
 }
 
 private fun Activity.hasDistance() = (distanceM ?: 0.0) > 0
+private fun Activity.isRun() = "running" in type.orEmpty()
+/** Covered ground outdoors: a treadmill, indoor ride or pool has distance but no route worth a map card. */
+private fun Activity.hasGps() = hasDistance() && listOf("treadmill", "indoor", "lap_swimming", "virtual").none { it in type.orEmpty() }
 
 /** Name, shown type label and raw Garmin type, so "strength" finds "Latihan beban" in Indonesian too. */
 private fun Activity.matches(query: String): Boolean {
@@ -289,6 +367,7 @@ fun ActivityRow(a: Activity, hPad: androidx.compose.ui.unit.Dp = 20.dp, onClick:
 private fun ActivityDetail(
     a: Activity, all: List<Activity>, profile: Profile?, backLabel: String,
     onBack: () -> Unit, onShare: (Activity) -> Unit, onMap: (List<List<Double>>) -> Unit, onOpenPlanSession: (String) -> Unit,
+    onOpenOther: (Long) -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
@@ -305,8 +384,16 @@ private fun ActivityDetail(
             Label("${activityType(a.type)} · ${weekday(a.date)} ${dayMonthYear(a.date)}, ${time(a.startTime)}")
             Text(a.name ?: activityType(a.type), style = T.screenTitle.copy(fontSize = 28.sp), color = K.ink)
         }
+        PlanRow(a, onOpenPlanSession)
+        val full0 = (detail.state as? Load.Ok)?.data
+        if (full0?.detailsPending == true) Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(tr("Route and charts haven't come from Garmin yet.", "Rute dan grafik belum masuk dari Garmin."), Modifier.weight(1f), style = T.bodyS, color = K.muted)
+            Box(Modifier.sizeIn(minHeight = 48.dp).clickable(role = Role.Button, onClick = detail.reload).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                Text(tr("Try again", "Coba lagi"), style = body(14.sp, FontWeight.SemiBold), color = K.ink)
+            }
+        }
         val strength = a.type == "strength_training"
-        DetailCard(tr("Route", "Rute"), R.drawable.ic_route, detail, expected = a.hasDistance(), pick = { it.route }) { RouteView(it) { onMap(it) } }
+        DetailCard(tr("Route", "Rute"), R.drawable.ic_route, detail, expected = a.hasGps(), pick = { it.route }) { RouteView(it) { onMap(it) } }
         DetailCard(tr("Muscles worked", "Otot yang dilatih"), R.drawable.ic_fitness_center, detail, expected = strength, pick = { it.workout?.let { w -> Strength(muscles = w.muscles) } ?: it.strength }) { BodyView(it) }
         val full = (detail.state as? Load.Ok)?.data
         val extra = full?.extra
@@ -317,14 +404,40 @@ private fun ActivityDetail(
         } else full?.strength?.takeIf { it.exercises.isNotEmpty() }?.let {
             Panel(Modifier.fillMaxWidth()) { CardTitle(tr("Exercises", "Latihan"), icon = R.drawable.ic_fitness_center); ExercisesView(it) }
         }
-        full?.series?.let { SeriesCard(it, a.hasDistance(), a.distanceM) }
-        extra?.let { DynamicsCard(it) }
+        full?.series?.let { SeriesCard(it, a, extra) }
+        if (a.isRun()) extra?.let { DynamicsCard(it) }
         extra?.bestSplits?.takeIf { it.isNotEmpty() }?.let { BestSplitsCard(it, full.prs) }
-        full?.similar?.let { SimilarCard(a, it) }
+        full?.similar?.let { SimilarCard(a, it, onOpenOther) }
         EffectCard(a, all, teFocus(extra?.teLabel))
         extra?.let { ImpactCard(it) }
         a.hrZonesS?.let { ZonesCard(it, profile?.hrZoneFloors) }
-        a.splits?.let { SplitsCard(it) }
+        a.splits?.let { SplitsCard(it, a) }
+    }
+}
+
+/** The plan session this activity fulfilled, from the cached plan; opens that session. */
+@Composable
+private fun PlanRow(a: Activity, onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
+    val v = plan ?: return
+    val meta = v.plan ?: return
+    val s = v.sessions.firstOrNull { a.id in it.activityIds } ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(K.surface).border(1.dp, K.line, RoundedCornerShape(20.dp))
+                .clickable(role = Role.Button, onClickLabel = tr("Open plan session", "Buka sesi plan")) { onOpen(s.key) }
+                .sizeIn(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            PlanStatusMark(s)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(tr("Plan · W${weekNo(meta, weekOf(s.date))} ${weekdayShort(s.date)} · ${s.title.text}", "Plan · M${weekNo(meta, weekOf(s.date))} ${weekdayShort(s.date)} · ${s.title.text}"), style = body(15.sp, FontWeight.SemiBold), color = K.ink, maxLines = 2)
+                Text(sessionProgress(s), style = T.caption, color = K.muted)
+            }
+            Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
+        }
     }
 }
 
@@ -359,15 +472,17 @@ private fun <T : Any> DetailCard(
 @Composable
 private fun RouteView(route: List<List<Double>>, onExpand: () -> Unit) {
     MapPreview(MapContent.Route(route), tr("Route map, colored by pace", "Peta rute, diwarnai sesuai pace"), onExpand)
-    PaceLegend()
+    PaceLegend(route)
 }
 
+/** The gradient's two ends as real paces: this run's slow and fast tenths, so the colors read as numbers. */
 @Composable
-private fun PaceLegend() {
+private fun PaceLegend(route: List<List<Double>>) {
+    val (lo, hi) = paceSpread(route)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(tr("Slow", "Lambat"), style = T.caption, color = K.muted)
+        Text(if (lo > 0) pace(lo / 100) else tr("Slow", "Lambat"), style = T.mono, color = K.muted)
         Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Brush.horizontalGradient(listOf(K.low, K.fair, K.good))))
-        Text(tr("Fast", "Cepat"), style = T.caption, color = K.muted)
+        Text((if (hi > 0) pace(hi / 100) else tr("Fast", "Cepat")) + " /km", style = T.mono, color = K.muted)
     }
 }
 
@@ -401,7 +516,12 @@ private fun ExercisesView(s: Strength) {
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(exerciseLabel(e.category, e.sub), style = body(15.sp, FontWeight.SemiBold), color = if (e.category == "UNKNOWN") K.muted else K.ink, modifier = Modifier.weight(1f))
                 Text(
-                    if (e.category == "UNKNOWN") tr("${e.sets} sets", "${e.sets} set") else tr("${e.sets} sets · ${e.reps} reps", "${e.sets} set · ${e.reps} rep"),
+                    when {
+                        e.category == "UNKNOWN" -> tr("${e.sets} sets", "${e.sets} set")
+                        // holds (side plank, dead hang) have no reps, only time
+                        e.reps == 0 && e.durationS > 0 -> tr("${e.sets} sets · ${duration(e.durationS)}", "${e.sets} set · ${duration(e.durationS)}")
+                        else -> tr("${e.sets} sets · ${e.reps} reps", "${e.sets} set · ${e.reps} rep")
+                    },
                     style = num(18.sp, FontWeight.Bold),
                     color = K.ink,
                 )
@@ -410,19 +530,27 @@ private fun ExercisesView(s: Strength) {
     }
 }
 
+/**
+ * The session's numbers in two steps: the lead strip (time, pace or speed, average HR; sets and reps for strength)
+ * in the same style as Today, then the rest smaller and muted. Max-speed pace is left out: it is a GPS spike.
+ */
 @Composable
 private fun StatsCard(a: Activity, strength: Strength?, e: Extra?) {
-    val paused = (e?.elapsedS ?: 0.0) - (a.durationS ?: 0.0) > 60
-    val stats = listOfNotNull(
+    val moving = e?.movingS?.takeIf { abs(it - (a.durationS ?: 0.0)) > 60 }
+    val paused = e?.elapsedS?.takeIf { it - (a.durationS ?: 0.0) > 60 }
+    val lead = listOfNotNull(
         strength?.totalSets?.let { "$it" to tr("sets", "set") },
         strength?.totalReps?.let { "$it" to tr("reps", "rep") },
-        duration(a.durationS) to tr("duration", "durasi"),
-        e?.elapsedS?.takeIf { paused }?.let { duration(it) to tr("total with pauses", "total dengan jeda") },
-        a.avgSpeed?.takeIf { a.hasDistance() }?.let { pace(it) to "pace /km" },
-        e?.maxSpeed?.takeIf { a.hasDistance() }?.let { pace(it) to tr("fastest pace", "pace tercepat") },
-        // grade-adjusted pace only says something new on a hilly route
-        e?.gapSpeed?.takeIf { a.hasDistance() && (a.elevationGain ?: 0.0) >= 30 }?.let { pace(it) to tr("grade adjusted pace", "pace setara datar") },
+        duration(a.durationS) to tr("time", "waktu"),
+        a.avgSpeed?.takeIf { a.hasDistance() }?.let { speedText(a.type, it).let { (v, u) -> v to u } },
         a.avgHr?.let { it.int() to tr("avg HR", "HR rata-rata") },
+    ).take(3)
+    val rest = listOfNotNull(
+        a.avgHr?.takeIf { lead.size == 3 && strength?.totalSets != null }?.let { it.int() to tr("avg HR", "HR rata-rata") },
+        moving?.let { duration(it) to tr("moving", "bergerak") },
+        paused?.let { duration(it) to tr("total with pauses", "total dengan jeda") },
+        // grade-adjusted pace only says something new on a hilly route
+        e?.gapSpeed?.takeIf { a.isRun() && (a.elevationGain ?: 0.0) >= 30 }?.let { pace(it) to tr("grade adjusted pace", "pace setara datar") },
         a.maxHr?.let { it.int() to tr("max HR", "HR maks") },
         a.calories?.let { it.int() to tr("kcal", "kkal") },
         a.elevationGain?.takeIf { it > 0 }?.let { "${it.int()} m" to tr("elevation gain", "elevasi naik") },
@@ -431,11 +559,18 @@ private fun StatsCard(a: Activity, strength: Strength?, e: Extra?) {
     )
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
         if (a.hasDistance()) Value(km(a.distanceM), "km", T.hero, unitStyle = body(18.sp), gap = 6.dp, roll = true)
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            stats.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (v, l) -> Stat(v, l, num(24.sp, FontWeight.Bold), Modifier.weight(1f)) }
-                    repeat(3 - row.size) { Box(Modifier.weight(1f)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            lead.forEach { (v, l) -> Stat(v, l, num(26.sp, FontWeight.Bold), Modifier.weight(1f)) }
+            repeat(3 - lead.size) { Box(Modifier.weight(1f)) }
+        }
+        if (rest.isNotEmpty()) {
+            HorizontalDivider(color = K.line)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                rest.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (v, l) -> Stat(v, l, num(19.sp, FontWeight.Bold), Modifier.weight(1f), color = K.body2) }
+                        repeat(3 - row.size) { Box(Modifier.weight(1f)) }
+                    }
                 }
             }
         }
@@ -468,13 +603,17 @@ private fun EffectCard(a: Activity, all: List<Activity>, focus: String?) {
         a.trainingLoad?.let { load ->
             val weekStart = runCatching { LocalDate.parse(a.date).minusDays(6).toString() }.getOrDefault(a.date)
             val heaviest = all.filter { it.date in weekStart..a.date }.maxByOrNull { it.trainingLoad ?: 0.0 }?.id == a.id
+            val recent = runCatching { LocalDate.parse(a.date) >= LocalDate.now().minusDays(1) }.getOrDefault(true)
             Column {
                 HorizontalDivider(color = K.track)
                 Text(
                     buildAnnotatedString {
                         append("Training load ")
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = K.ink)) { append(load.int()) }
-                        if (heaviest) append(tr(" · hardest session of the last 7 days.", " · sesi terberat 7 hari terakhir."))
+                        if (heaviest) append(
+                            if (recent) tr(" · hardest session of the last 7 days.", " · sesi terberat 7 hari terakhir.")
+                            else tr(" · hardest session of the 7 days up to it.", " · sesi terberat dalam 7 hari sampai hari itu."),
+                        )
                     },
                     Modifier.padding(top = 12.dp),
                     style = T.bodyS,
@@ -504,18 +643,21 @@ private fun cumulativeKm(s: Series, totalM: Double?): List<Double>? {
 }
 
 @Composable
-private fun SeriesCard(s: Series, distance: Boolean, totalM: Double?) {
+private fun SeriesCard(s: Series, a: Activity, e: Extra?) {
+    val distance = a.hasDistance()
+    val totalM = a.distanceM
     fun List<Int?>?.d(scale: Double = 1.0) = this?.map { it?.div(scale) }
-    // values are bucket averages, so only averages are summarized here; true peaks live in the stat cards
     fun List<Double?>.stats() = filterNotNull().takeIf { it.isNotEmpty() }
+    // headers use the activity's own summary (the same numbers as the stat card); the buckets only draw the lines
+    fun sp(x: Double) = speedText(a.type, x).let { (v, u) -> "$v $u" }
     val tracks = listOfNotNull(
         s.speed.d(100.0)?.takeIf { distance }?.let { v ->
             // speed is plotted so faster sits higher; labels convert it back to pace
-            v.stats()?.let { Track("Pace", v, K.good, tr("avg ${pace(it.average())} /km", "rata-rata ${pace(it.average())} /km"), tr("Pace over the session", "Grafik pace sepanjang sesi")) { x -> "${pace(x)} /km" } }
+            v.stats()?.let { (a.avgSpeed ?: it.average()).let { avg -> Track(if (a.isRun()) "Pace" else tr("Speed", "Kecepatan"), v, K.good, tr("avg ${sp(avg)}", "rata-rata ${sp(avg)}"), tr("Pace over the session", "Grafik pace sepanjang sesi")) { x -> sp(x) } } }
         },
-        s.hr.d()?.let { v -> v.stats()?.let { Track(tr("Heart rate", "Detak jantung"), v, K.low, tr("avg ${it.average().int()} bpm", "rata-rata ${it.average().int()} bpm"), tr("Heart rate over the session", "Grafik detak jantung sepanjang sesi")) { x -> "${x.int()} bpm" } } },
-        s.cadence.d()?.takeIf { distance }?.let { v -> v.stats()?.let { Track(tr("Cadence", "Kadens"), v, K.blue, tr("avg ${it.average().int()} spm", "rata-rata ${it.average().int()} spm"), tr("Cadence over the session", "Grafik kadens sepanjang sesi")) { x -> "${x.int()} spm" } } },
-        s.power.d()?.let { v -> v.stats()?.let { Track("Power", v, K.fair, tr("avg ${it.average().int()} W", "rata-rata ${it.average().int()} W"), tr("Power over the session", "Grafik power sepanjang sesi")) { x -> "${x.int()} W" } } },
+        s.hr.d()?.let { v -> v.stats()?.let { (a.avgHr ?: it.average()).let { avg -> Track(tr("Heart rate", "Detak jantung"), v, K.low, tr("avg ${avg.int()} bpm", "rata-rata ${avg.int()} bpm"), tr("Heart rate over the session", "Grafik detak jantung sepanjang sesi")) { x -> "${x.int()} bpm" } } } },
+        s.cadence.d()?.takeIf { distance }?.let { v -> v.stats()?.let { (e?.cadence ?: it.average()).let { avg -> Track(tr("Cadence", "Kadens"), v, K.blue, tr("avg ${avg.int()} spm", "rata-rata ${avg.int()} spm"), tr("Cadence over the session", "Grafik kadens sepanjang sesi")) { x -> "${x.int()} spm" } } } },
+        s.power.d()?.let { v -> v.stats()?.let { (e?.power ?: it.average()).let { avg -> Track("Power", v, K.fair, tr("avg ${avg.int()} W", "rata-rata ${avg.int()} W"), tr("Power over the session", "Grafik power sepanjang sesi")) { x -> "${x.int()} W" } } } },
         s.elev.d(10.0)?.takeIf { distance }?.let { v ->
             v.stats()?.takeIf { it.max() - it.min() >= 3 }?.let { Track(tr("Elevation", "Elevasi"), v, K.muted, tr("${it.min().int()} to ${it.max().int()} m", "${it.min().int()} sampai ${it.max().int()} m"), tr("Elevation over the session", "Grafik elevasi sepanjang sesi")) { x -> "${x.int()} m" } }
         },
@@ -644,35 +786,78 @@ private fun PrChip(prs: List<Int>) {
     )
 }
 
+private fun planTypeName(t: String) = when (t) {
+    "easy" -> tr("easy", "easy")
+    "long" -> tr("long", "long")
+    "tempo" -> "tempo"
+    "interval" -> "interval"
+    "recovery" -> tr("recovery", "recovery")
+    "race" -> tr("race", "lomba")
+    else -> t
+}
+
+/** This run leads with its own numbers; the earlier runs are the comparison line under each, and listed below. */
 @Composable
-private fun SimilarCard(a: Activity, s: Similar) {
+private fun SimilarCard(a: Activity, s: Similar, onOpen: (Long) -> Unit) {
     val speed = a.avgSpeed ?: return
     // seconds per km: negative means this run was faster
     val paceDiff = (1000 / speed - 1000 / s.avgSpeed).roundToInt()
     val hrDiff = a.avgHr?.let { h -> s.avgHr?.let { (h - it).roundToInt() } }
-    val pacePart = when {
-        paceDiff < 0 -> tr("${-paceDiff} s/km faster", "${-paceDiff} detik/km lebih cepat")
-        paceDiff > 0 -> tr("$paceDiff s/km slower", "$paceDiff detik/km lebih lambat")
-        else -> tr("Same pace", "Pace sama")
-    }
-    val hrPart = hrDiff?.let {
-        when {
-            it < 0 -> tr(", HR ${-it} bpm lower", ", HR ${-it} bpm lebih rendah")
-            it > 0 -> tr(", HR $it bpm higher", ", HR $it bpm lebih tinggi")
-            else -> tr(", same HR", ", HR sama")
-        }
-    }.orEmpty()
+    var open by rememberSaveable(a.id) { mutableStateOf(false) }
     Panel(Modifier.fillMaxWidth(), gap = 16.dp) {
         CardTitle(tr("Compared with similar runs", "Dibanding run serupa"), icon = R.drawable.ic_bar_chart)
-        Text(tr("$pacePart$hrPart than the average of your last ${s.count} runs of similar distance.", "$pacePart$hrPart dari rata-rata ${s.count} run terakhir dengan jarak mirip."), style = T.body, color = K.body2)
-        InfoRow(tr("Avg pace", "Pace rata-rata"), pace(s.avgSpeed), "/km", tr("This run ${pace(speed)} /km.", "Run ini ${pace(speed)} /km."))
-        s.avgHr?.let { InfoRow(tr("Avg HR", "HR rata-rata"), it.int(), "bpm", tr("This run ${a.avgHr.int()} bpm.", "Run ini ${a.avgHr.int()} bpm.")) }
+        Text(
+            s.planType?.let { tr("Your last ${s.count} ${planTypeName(it)} runs of similar distance.", "${s.count} run ${planTypeName(it)} terakhir dengan jarak mirip.") }
+                ?: tr("Your last ${s.count} runs of similar distance.", "${s.count} run terakhir dengan jarak mirip."),
+            style = T.bodyS, color = K.muted,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Label(tr("This run's pace", "Pace run ini"))
+                Value(pace(speed), "/km", num(30.sp, FontWeight.Bold))
+                Text(
+                    when {
+                        paceDiff < 0 -> tr("${-paceDiff} s/km faster than their ${pace(s.avgSpeed)}", "${-paceDiff} dtk/km lebih cepat dari ${pace(s.avgSpeed)}")
+                        paceDiff > 0 -> tr("$paceDiff s/km slower than their ${pace(s.avgSpeed)}", "$paceDiff dtk/km lebih lambat dari ${pace(s.avgSpeed)}")
+                        else -> tr("Same as their ${pace(s.avgSpeed)}", "Sama dengan ${pace(s.avgSpeed)}")
+                    },
+                    style = T.caption, color = K.body2,
+                )
+            }
+            if (a.avgHr != null && s.avgHr != null && hrDiff != null) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Label(tr("This run's HR", "HR run ini"))
+                Value(a.avgHr.int(), "bpm", num(30.sp, FontWeight.Bold))
+                Text(
+                    when {
+                        hrDiff < 0 -> tr("${-hrDiff} lower than their ${s.avgHr.int()}", "${-hrDiff} lebih rendah dari ${s.avgHr.int()}")
+                        hrDiff > 0 -> tr("$hrDiff higher than their ${s.avgHr.int()}", "$hrDiff lebih tinggi dari ${s.avgHr.int()}")
+                        else -> tr("Same as their ${s.avgHr.int()}", "Sama dengan ${s.avgHr.int()}")
+                    },
+                    style = T.caption, color = K.body2,
+                )
+            }
+        }
         if (s.efficiency != null && s.thisEfficiency != null) {
             val better = s.thisEfficiency >= s.efficiency
             InfoRow(
                 tr("Efficiency", "Efisiensi"), s.thisEfficiency.two(), tr("m/beat", "m/detak"),
-                tr("Meters per heartbeat, similar runs average ${s.efficiency.two()}. Rising over time means you're getting fitter.", "Meter per detak jantung, rata-rata run serupa ${s.efficiency.two()}. Naik dari waktu ke waktu berarti makin bugar."),
+                tr("Meters per heartbeat, these runs average ${s.efficiency.two()}. Rising over time means you're getting fitter.", "Meter per detak jantung, rata-rata run tadi ${s.efficiency.two()}. Naik dari waktu ke waktu berarti makin bugar."),
             ) { StatusChip(if (better) tr("More efficient", "Lebih efisien") else tr("Less efficient", "Kurang efisien"), if (better) Status.GOOD else Status.FAIR) }
+        }
+        if (s.runs.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().sizeIn(minHeight = 44.dp).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button) { open = !open },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(tr("Runs compared", "Run yang dibandingkan"), Modifier.weight(1f), style = body(14.sp, FontWeight.SemiBold), color = K.ink)
+                Glyph(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more, K.ink, 20.dp)
+            }
+            if (open) Column {
+                s.runs.forEachIndexed { i, r ->
+                    if (i > 0) HorizontalDivider(color = K.track)
+                    ActivityRow(r, hPad = 0.dp) { onOpen(r.id) }
+                }
+            }
         }
     }
 }
@@ -702,7 +887,7 @@ private fun ZonesCard(zones: List<Double?>, floors: List<Double>?) {
     val total = secs.sum()
     if (total <= 0) return
     val bpm = floors?.takeIf { it.size == 5 }?.map { it.roundToInt() }?.let { f ->
-        listOf("< ${f[1]} bpm", "${f[1]}–${f[2]}", "${f[2]}–${f[3]}", "${f[3]}–${f[4]}", "> ${f[4]}")
+        listOf("< ${f[1]} bpm", "${f[1]}–${f[2]} bpm", "${f[2]}–${f[3]} bpm", "${f[3]}–${f[4]} bpm", "> ${f[4]} bpm")
     }
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
         CardTitle(tr("Heart rate zones", "Zona detak jantung"), icon = R.drawable.ic_monitor_heart)
@@ -729,31 +914,71 @@ private fun ZonesCard(zones: List<Double?>, floors: List<Double>?) {
     }
 }
 
+/** Garmin's auto-laps: every lap but the last about 1 km. Anything else is a structured workout's laps. */
+internal fun isKmSplits(splits: List<Split>): Boolean =
+    splits.size >= 2 && splits.dropLast(1).all { abs((it.distanceM ?: 0.0) - 1000) <= 10 && (it.durationS ?: 0.0) > 0 }
+
 @Composable
-private fun SplitsCard(splits: List<Split>) {
-    // ponytail: only full auto-laps count as km splits; structured-workout laps of other lengths hide the card
-    val laps = splits.filter { abs((it.distanceM ?: 0.0) - 1000) <= 10 && (it.durationS ?: 0.0) > 0 }
+private fun SplitsCard(splits: List<Split>, a: Activity) {
+    if (isKmSplits(splits)) KmSplits(splits.filter { (it.distanceM ?: 0.0) >= 100 && (it.durationS ?: 0.0) > 0 }, a)
+    else if (splits.size >= 2) LapTable(splits, a)
+}
+
+/** The watch's laps as recorded (intervals, manual laps): distance, time, pace and HR per lap. */
+@Composable
+private fun LapTable(splits: List<Split>, a: Activity) {
+    Panel(Modifier.fillMaxWidth(), gap = 6.dp) {
+        CardTitle(tr("Laps", "Lap"), icon = R.drawable.ic_flag)
+        Text(tr("Brighter rows are the laps near your fastest pace.", "Baris yang lebih terang adalah lap yang dekat pace tercepatmu."), style = T.caption, color = K.muted)
+        Row(Modifier.padding(top = 6.dp)) {
+            listOf("#" to 0.5f, "km" to 1f, tr("time", "waktu") to 1.2f, "pace" to 1f, "HR" to 0.8f).forEachIndexed { i, (h, w) ->
+                Text(h, Modifier.weight(w), style = T.mono, color = K.muted, textAlign = if (i == 0) TextAlign.Start else TextAlign.End)
+            }
+        }
+        // laps near the fastest pace are the work; the slow ones between them read quieter
+        val fastest = splits.mapNotNull { l -> l.distanceM?.takeIf { it > 0 }?.let { d -> l.durationS?.div(d) } }.minOrNull()
+        splits.forEachIndexed { i, l ->
+            HorizontalDivider(color = K.track)
+            val d = l.distanceM ?: 0.0
+            val t = l.durationS ?: 0.0
+            val work = fastest != null && d > 0 && t / d <= fastest * 1.15
+            val c = if (work) K.ink else K.muted
+            Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${i + 1}", Modifier.weight(0.5f), style = T.mono, color = K.muted)
+                Text(km(d), Modifier.weight(1f), style = num(17.sp, FontWeight.Bold), color = c, textAlign = TextAlign.End)
+                Text(raceTime(t), Modifier.weight(1.2f), style = num(17.sp, FontWeight.Bold), color = c, textAlign = TextAlign.End)
+                Text(if (d > 0 && t > 0) speedText(a.type, d / t).first else "–", Modifier.weight(1f), style = num(17.sp, FontWeight.Bold), color = c, textAlign = TextAlign.End)
+                Text(l.avgHr.int(), Modifier.weight(0.8f), style = num(17.sp, FontWeight.Bold), color = K.body2, textAlign = TextAlign.End)
+            }
+        }
+    }
+}
+
+@Composable
+private fun KmSplits(laps: List<Split>, a: Activity) {
     val paces = laps.map { it.durationS!! * 1000 / it.distanceM!! }
-    if (paces.size < 2 || paces.size < splits.size - 1) return
+    if (paces.size < 2) return
+    val full = paces.size - if (abs(laps.last().distanceM!! - 1000) > 10) 1 else 0
     val fast = paces.min()
     val slow = paces.max()
     val avg = paces.average()
-    val half = paces.size / 2
-    val negative = paces.drop(paces.size - half).average() < paces.take(half).average()
+    val half = full / 2
+    val negative = full >= 2 && paces.take(full).drop(full - half).average() < paces.take(half).average()
     var sel by remember { mutableStateOf<Int?>(null) }
     val reveal = rememberReveal(paces, durationMs = 600)
+    fun label(i: Int) = if (i < full) "${i + 1}" else laps[i].distanceM!!.div(1000).let { String.format(java.util.Locale.getDefault(), "%.1f", it) }
     Panel(Modifier.fillMaxWidth(), gap = 8.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CardTitle(tr("Km splits", "Split per km"), Modifier.weight(1f), icon = R.drawable.ic_flag)
             val i = sel
             when {
                 i != null -> Text(
-                    "Km ${i + 1} · ${minSec(laps[i].durationS!!)}" + (laps[i].avgHr?.let { " · HR ${it.int()}" } ?: ""),
+                    "Km ${label(i)} · ${minSec(laps[i].durationS!!)}" + (laps[i].avgHr?.let { " · HR ${it.int()}" } ?: ""),
                     style = num(16.sp, FontWeight.Bold), color = K.good,
                 )
                 negative -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Glyph(R.drawable.ic_check_circle, K.muted, 16.dp)
-                    Text("negative split", style = T.caption, color = K.muted)
+                    Text(tr("negative split", "negative split"), style = T.caption, color = K.muted)
                 }
             }
         }
@@ -764,11 +989,11 @@ private fun SplitsCard(splits: List<Split>) {
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
                     .clickable(role = Role.Button) { sel = if (sel == i) null else i }
                     .padding(vertical = 3.dp)
-                    .semantics(mergeDescendants = true) { contentDescription = "Km ${i + 1}, ${paceSec(p)} per km" },
+                    .semantics(mergeDescendants = true) { contentDescription = "Km ${label(i)}, ${paceSec(p)} per km" },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("${i + 1}", Modifier.width(22.dp), style = T.mono, color = if (sel == i) K.good else K.muted)
+                Text(label(i), Modifier.width(26.dp), style = T.mono, color = if (sel == i) K.good else K.muted)
                 Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(K.track)) {
                     // bars grow in one after another, 30 ms apart
                     val grow = ((reveal.value * (paces.size + 8) - i) / 8f).coerceIn(0f, 1f)

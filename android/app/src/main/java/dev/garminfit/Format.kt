@@ -21,6 +21,7 @@ fun tr(en: String, id: String): String = if (isId()) id else en
 // Getters, not vals: a language change recreates the activity but keeps the process, so cached formatters would keep the old locale.
 private val loc: Locale get() = Locale.getDefault()
 private val dayMonth get() = DateTimeFormatter.ofPattern("EEEE, d MMM", loc)
+private val dayMonthYearFmt get() = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", loc)
 private val shortDay get() = DateTimeFormatter.ofPattern("EEE d", loc)
 private val fullDate get() = DateTimeFormatter.ofPattern("d MMM yyyy", loc)
 private val weekdayFmt get() = DateTimeFormatter.ofPattern("EEEE", loc)
@@ -115,7 +116,10 @@ fun readinessReason(d: Daily, rhrMean: Double?, loadRatio: Double?, good: Boolea
     return listOfNotNull(tr("Driven by $list.", "Penyebabnya $list."), markers).joinToString(" ")
 }
 
-fun dayLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(dayMonth) }.getOrDefault(iso)
+/** "Thursday, 19 Nov", with the year when it is not this year's. */
+fun dayLabel(iso: String): String = runCatching {
+    LocalDate.parse(iso.take(10)).let { it.format(if (it.year == LocalDate.now().year) dayMonth else dayMonthYearFmt) }
+}.getOrDefault(iso)
 fun shortLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(shortDay) }.getOrDefault(iso)
 fun dateLabel(iso: String): String = runCatching { LocalDate.parse(iso.take(10)).format(fullDate) }.getOrDefault(iso)
 fun time(start: String): String = start.drop(11).take(5)

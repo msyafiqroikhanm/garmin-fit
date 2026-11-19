@@ -130,9 +130,9 @@ private fun MapView.draw(content: MapContent, stroke: Float) {
     when (content) {
         is MapContent.Route -> {
             val pts = content.points
-            val sorted = pts.map { it.getOrElse(2) { 0.0 } }.sorted()
-            val lo = sorted[sorted.size / 10]
-            val hi = sorted[sorted.size * 9 / 10]
+            val (lo, hi) = paceSpread(pts)
+            
+            
             // ponytail: one Polyline per segment (~300), merge runs of similar colour if the map ever stutters
             for (i in 1 until pts.size) overlays += line(listOf(pts[i - 1], pts[i]), paceColor(pts[i].getOrElse(2) { 0.0 }, lo, hi), stroke)
             overlays += EndsOverlay(GeoPoint(pts.first()[0], pts.first()[1]), GeoPoint(pts.last()[0], pts.last()[1]), stroke * 1.2f)
