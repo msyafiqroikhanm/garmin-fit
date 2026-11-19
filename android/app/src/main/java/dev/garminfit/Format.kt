@@ -239,13 +239,6 @@ fun PlanToday.pending(): PlanSession? = daySessions.firstOrNull { !it.finished }
 fun Today.doneToday(today: String = LocalDate.now().toString()): List<Activity> =
     todayActivities.ifEmpty { listOfNotNull(lastActivity?.takeIf { it.date.take(10) == today }) }
 
-/** The activity that leads Today: the plan run it fulfilled, else the highest training load, else the longest. */
-fun mainActivity(acts: List<Activity>, plan: PlanToday?): Activity? {
-    val runIds = plan?.daySessions.orEmpty().filter { it.kind == "run" }.flatMap { it.activityIds }.toSet()
-    return acts.firstOrNull { it.id in runIds }
-        ?: acts.maxWithOrNull(compareBy<Activity>({ it.trainingLoad ?: -1.0 }, { it.durationS ?: 0.0 }))
-}
-
 /**
  * Today's advice and chips. With plan sessions today the plan leads: the next one still to do, changed by [PlanAdjust]
  * when HRV and RHR say recovery is off. Rest is advised only when every session is done or partial. Readiness alone

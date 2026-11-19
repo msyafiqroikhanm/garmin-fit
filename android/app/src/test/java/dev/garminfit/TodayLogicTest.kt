@@ -17,16 +17,6 @@ class TodayLogicTest {
         target = PlanTarget(durationS = 1800.0), status = status, activityIds = ids,
     )
 
-    @Test fun mainActivityIsThePlanRunThenLoadThenLength() {
-        val run = act(1, 40.0, 1800.0)
-        val gym = act(2, 90.0, 3100.0)
-        val plan = PlanToday("p", sessions = listOf(session("strength", "done", listOf(2)), session("run", "done", listOf(1))))
-        assertEquals(run, mainActivity(listOf(gym, run), plan))
-        assertEquals(gym, mainActivity(listOf(run, gym), null))
-        assertEquals(2L, mainActivity(listOf(act(1, null, 600.0), gym.copy(trainingLoad = null)), null)!!.id)
-        assertNull(mainActivity(emptyList(), plan))
-    }
-
     @Test fun restOnlyOnceEverySessionIsDone() {
         val pending = PlanToday("p", session = session("run", "done"), sessions = listOf(session("run", "done"), session("strength", "today")))
         val advice = todayAdvice(null, pending)!!.first
