@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,7 +123,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 
 @Composable
-fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit, onOpenPlanSession: (String) -> Unit) {
+fun ActivitiesScreen(
+    initialId: Long?, backLabel: String?, onClosed: () -> Unit, onOpenPlanSession: (String) -> Unit,
+    jumpTo: String? = null, onJumped: () -> Unit = {}, onListBack: (() -> Unit)? = null,
+) {
     val ctx = LocalContext.current
     // the list covers a year; "Load older" adds a year at a time
     var years by rememberSaveable { mutableIntStateOf(1) }
@@ -159,6 +163,13 @@ fun ActivitiesScreen(initialId: Long?, backLabel: String?, onClosed: () -> Unit,
             label = "detail",
         ) { id ->
             if (id == null) {
+                if (onListBack != null) BackHandler(onBack = onListBack)
+                LaunchedEffect(jumpTo) {
+                    val d = jumpTo ?: return@LaunchedEffect
+                    query = ""; kind = null
+                    listIndexOfWeek(list, LocalDate.parse(d))?.let { listState.scrollToItem(it) }
+                    onJumped()
+                }
                 ActivityList(list, query, { query = it }, kind, { kind = it }, years, { years++ }, listState, loader) { selected = it }
                 return@AnimatedContent
             }
@@ -208,6 +219,17 @@ private fun kindChip(k: String?) = when (k) {
     "run" -> tr("Run", "Lari")
     "strength" -> "Strength"
     else -> tr("Other", "Lainnya")
+}
+
+/** The list row of the week holding [date] (or the newest week before it), for a Recap bar to jump to. */
+internal fun listIndexOfWeek(list: List<Activity>, date: LocalDate): Int? {
+    val target = date.minusDays(date.dayOfWeek.value - 1L)
+    var i = 3 // title, search, chips
+    for ((monday, acts) in list.groupBy { LocalDate.parse(it.date).let { d -> d.minusDays(d.dayOfWeek.value - 1L) } }) {
+        if (monday <= target) return i
+        i += 1 + acts.size
+    }
+    return null
 }
 
 /** "10–16 Nov · 32.4 km · 5 sessions": one header per Monday week, with what that week held. */

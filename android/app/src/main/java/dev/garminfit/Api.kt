@@ -111,6 +111,7 @@ data class Totals(
     @SerialName("duration_s") val durationS: Double = 0.0,
     @SerialName("active_days") val activeDays: Int = 0,
     @SerialName("by_kind") val byKind: Map<String, Int> = emptyMap(),
+    @SerialName("run_distance_m") val runDistanceM: Double? = null,
 )
 
 @Serializable
@@ -128,6 +129,10 @@ data class Recap(
     @SerialName("streak_weeks") val streakWeeks: Int = 0,
     val buckets: List<Bucket> = emptyList(),
     val prs: List<RecapPr> = emptyList(),
+    /** Run km only; older servers leave it out and [distanceM] (every sport) stands in. */
+    @SerialName("run_distance_m") val runDistanceM: Double? = null,
+    /** The days the previous period covers in the comparison (the same elapsed days while this one runs). */
+    @SerialName("previous_range") val previousRange: List<String> = emptyList(),
 )
 
 @Serializable
@@ -140,7 +145,10 @@ data class LongestRun(
 )
 
 @Serializable
-data class Bucket(val key: String, @SerialName("distance_m") val distanceM: Double = 0.0, @SerialName("duration_s") val durationS: Double = 0.0, val count: Int = 0)
+data class Bucket(
+    val key: String, @SerialName("distance_m") val distanceM: Double = 0.0, @SerialName("duration_s") val durationS: Double = 0.0, val count: Int = 0,
+    @SerialName("run_distance_m") val runDistanceM: Double? = null,
+)
 
 @Serializable
 data class RecapPr(@SerialName("activity_id") val activityId: Long, val date: String, val name: String? = null, val distances: List<Int> = emptyList())

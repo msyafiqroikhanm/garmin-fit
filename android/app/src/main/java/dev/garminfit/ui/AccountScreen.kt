@@ -55,6 +55,11 @@ import dev.garminfit.Repo
 import dev.garminfit.dayLabel
 import dev.garminfit.friendly
 import dev.garminfit.syncTime
+import dev.garminfit.dayMonth
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import dev.garminfit.tr
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -64,13 +69,13 @@ import retrofit2.HttpException
  * a token is added or removed so Root can re-check the role; [onSignOut] leaves for the sign-in screen.
  */
 @Composable
-fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: () -> Unit) {
+fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: () -> Unit, backLabel: String = tr("Today", "Hari Ini")) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val loader = rememberLoad { Repo.api(ctx).account() }
     var adding by remember { mutableStateOf(false) }
     var inviting by remember { mutableStateOf(false) }
-    var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
+    var confirm by remember { mutableStateOf<Triple<String, String, suspend () -> Unit>?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
 
     fun act(block: suspend () -> Unit) {
@@ -81,23 +86,31 @@ fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: ()
         }
     }
 
-    Column(Modifier.fillMaxSize().background(K.base).statusBarsPadding()) {
-        LoadView(loader, loadingText = tr("Loading your account", "Memuat akun kamu")) { a ->
-            val owner = a.access?.role == "owner"
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                BackLink(tr("Today", "Hari Ini"), onBack)
-                ScreenTitle(tr("Account", "Akun"))
+    Column(
+        Modifier.fillMaxSize().background(K.base).statusBarsPadding().verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        BackLink(backLabel, onBack)
+        ScreenTitle(tr("Account", "Akun"))
+        // the account part needs the server; language and sign out below work offline too
+        when (val st = loader.state) {
+            Load.Loading -> Shimmer(Modifier.fillMaxWidth().height(160.dp))
+            is Load.Err -> Panel(Modifier.fillMaxWidth(), gap = 10.dp) {
+                Text(st.message, style = T.body, color = K.ink)
+                SecondaryButton(tr("Try again", "Coba lagi"), loader.reload)
+            }
+            is Load.Ok -> {
+                val a = st.data
                 Profile(a)
                 DataAccess(
                     a,
                     onAdd = { adding = true },
                     onRemove = {
-                        confirm = tr("Stop seeing this data? You'll need the token again to get it back.",
-                            "Berhenti melihat data ini? Kamu butuh token lagi untuk mengembalikannya.") to {
+                        confirm = Triple(
+                            tr("Stop seeing this data? You'll need the token again to get it back.", "Berhenti melihat data ini? Kamu butuh token lagi untuk mengembalikannya."),
+                            tr("Stop seeing it", "Berhenti melihat"),
+                        ) {
                             Repo.api(ctx).removeAccess()
                             clearLoadMemo(ctx)
                             onAccessChanged()
@@ -110,42 +123,54 @@ fun AccountScreen(onBack: () -> Unit, onAccessChanged: () -> Unit, onSignOut: ()
                         invites,
                         onCreate = { inviting = true },
                         onRevoke = { inv ->
-                            confirm = tr("Revoke ${inv.name}? Everyone who added this token loses access right away.",
-                                "Cabut ${inv.name}? Semua yang memakai token ini langsung kehilangan akses.") to {
-                                Repo.api(ctx).revokeInvite(inv.id)
-                            }
+                            confirm = Triple(
+                                tr("Revoke ${inv.name}? Everyone who added this token loses access right away.", "Cabut ${inv.name}? Semua yang memakai token ini langsung kehilangan akses."),
+                                tr("Revoke access", "Cabut akses"),
+                            ) { Repo.api(ctx).revokeInvite(inv.id) }
                         },
                     )
                 }
-                actionError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
-                Panel(Modifier.fillMaxWidth(), gap = 4.dp) {
-                    Text(tr("Language", "Bahasa"), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-                    Text(
-                        tr("Change it in Android Settings › Apps › garmin-fit › Language.", "Ubah di Setelan Android › Aplikasi › garmin-fit › Bahasa."),
-                        style = T.caption,
-                        color = K.muted,
-                    )
-                }
-                SecondaryButton(tr("Sign out", "Keluar"), onSignOut, Modifier.fillMaxWidth(), color = K.low, icon = R.drawable.ic_logout)
-                Text(
-                    tr("Signing out clears the cached data on this phone. Your access stays on the account.",
-                        "Keluar menghapus data tersimpan di HP ini. Akses kamu tetap tersimpan di akun."),
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    style = T.caption,
-                    color = K.muted,
-                )
             }
         }
+        actionError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
+        // Android 13+ has a per-app language page; older versions only have the system language
+        val langIntent = if (android.os.Build.VERSION.SDK_INT >= 33)
+            android.content.Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}")) else null
+        Panel(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                .then(if (langIntent != null) Modifier.clickable(role = Role.Button) { runCatching { ctx.startActivity(langIntent) } } else Modifier),
+            gap = 4.dp,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(tr("Language", "Bahasa"), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+                    Text(
+                        if (langIntent != null) tr("English or Bahasa Indonesia, in Android's app settings.", "English atau Bahasa Indonesia, di setelan aplikasi Android.")
+                        else tr("Change it in Android Settings › Apps › garmin-fit › Language.", "Ubah di Setelan Android › Aplikasi › garmin-fit › Bahasa."),
+                        style = T.caption, color = K.muted,
+                    )
+                }
+                if (langIntent != null) Glyph(R.drawable.ic_chevron_right, K.muted)
+            }
+        }
+        SecondaryButton(tr("Sign out", "Keluar"), onSignOut, Modifier.fillMaxWidth(), color = K.low, icon = R.drawable.ic_logout)
+        Text(
+            tr("Signing out clears the cached data on this phone. Your access stays on the account, and workouts not uploaded yet stay until you sign back in.",
+                "Keluar menghapus data tersimpan di HP ini. Akses kamu tetap di akun, dan workout yang belum terunggah tetap ada sampai kamu masuk lagi."),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            style = T.caption,
+            color = K.muted,
+        )
     }
 
     if (adding) AddTokenSheet(onDismiss = { adding = false }, onAdded = { adding = false; loader.reload(); onAccessChanged() })
     if (inviting) InviteSheet(onDismiss = { inviting = false; loader.reload() })
-    confirm?.let { (text, action) ->
+    confirm?.let { (text, label, action) ->
         AlertDialog(
             onDismissRequest = { confirm = null },
             containerColor = K.surface,
             text = { Text(text, style = T.body, color = K.ink) },
-            confirmButton = { TextButton({ confirm = null; act(action) }) { Text(tr("Yes, remove", "Ya, hapus"), color = K.low) } },
+            confirmButton = { TextButton({ confirm = null; act(action) }) { Text(label, color = K.low) } },
             dismissButton = { TextButton({ confirm = null }) { Text(tr("Cancel", "Batal"), color = K.ink) } },
         )
     }
@@ -192,15 +217,33 @@ private fun DataAccess(a: Account, onAdd: () -> Unit, onRemove: () -> Unit) {
     }
 }
 
+/** Hours since a naive UTC timestamp from the server; null when it does not parse. */
+internal fun hoursSince(utc: String?, now: java.time.Instant = java.time.Instant.now()): Long? = utc?.let {
+    runCatching { java.time.Duration.between(java.time.LocalDateTime.parse(it.take(19)).toInstant(java.time.ZoneOffset.UTC), now).toHours() }.getOrNull()
+}
+
 @Composable
 private fun GarminCard(connected: Boolean, lastSync: String?) {
+    // "connected" only means a saved Garmin session exists; the last sync says whether it still works
+    val hours = hoursSince(lastSync)
+    val late = hours != null && hours > 30
     Panel(Modifier.fillMaxWidth()) {
         CardTitle(tr("Garmin connection", "Koneksi Garmin"), icon = R.drawable.ic_refresh)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(10.dp).background(if (connected) K.good else K.low, CircleShape))
-            Text(if (connected) tr("Connected", "Terhubung") else tr("Not connected", "Belum terhubung"), Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-            syncTime(lastSync)?.let { Text("Sync $it", style = T.caption, color = K.muted) }
+            Box(Modifier.size(10.dp).background(if (!connected) K.low else if (late) K.fair else K.good, CircleShape))
+            Text(
+                if (!connected) tr("Not connected", "Belum terhubung") else if (late) tr("Not syncing", "Tidak sinkron") else tr("Syncing", "Sinkron jalan"),
+                Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink,
+            )
+            syncTime(lastSync)?.let { t ->
+                val day = lastSync!!.take(10).takeIf { hours != null && hours >= 20 }?.let { "${dayMonth(it)} " } ?: ""
+                Text("Sync $day$t", style = T.caption, color = K.muted)
+            }
         }
+        if (late && hours != null) Text(
+            tr("Last sync ${hours / 24} days ago. Run `cli.py login` on the laptop.", "Sync terakhir ${hours / 24} hari lalu. Jalankan `cli.py login` di laptop."),
+            style = T.bodyS, color = K.fair,
+        )
         Text(
             tr("Daily sync runs at 10:00. Signing in to Garmin still happens from the laptop, so your Garmin password never reaches the server.",
                 "Sync harian jalan jam 10:00. Login Garmin tetap dari laptop, jadi password Garmin kamu tidak pernah sampai ke server."),

@@ -783,12 +783,13 @@ fun rememberReveal(key: Any?, durationMs: Int = 700, delayMs: Int = 0): Animatab
     return a
 }
 
+/** Dates under a chart; [end] is the last reading's date when it is not today's (before the morning sync). */
 @Composable
-fun ChartDates(start: String) {
+fun ChartDates(start: String, end: String? = null) {
     Row(Modifier.fillMaxWidth()) {
         Text(start, style = T.mono, color = K.muted)
         Spacer(Modifier.weight(1f))
-        Text(tr("Today", "Hari ini"), style = T.mono, color = K.muted)
+        Text(end ?: tr("Today", "Hari ini"), style = T.mono, color = K.muted)
     }
 }
 

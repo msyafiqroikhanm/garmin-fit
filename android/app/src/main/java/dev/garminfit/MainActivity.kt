@@ -164,7 +164,10 @@ private fun Root(launch: Intent?) {
             }
         }
         waitForMe -> Centered { CircularProgressIndicator(color = K.ink) }
-        accountOpen -> AccountScreen(onBack = { accountOpen = false }, onAccessChanged = { meVersion++ }, onSignOut = ::signOut)
+        accountOpen -> AccountScreen(
+            onBack = { accountOpen = false }, onAccessChanged = { meVersion++ }, onSignOut = ::signOut,
+            backLabel = if (me != null && me?.role == null) tr("Back", "Kembali") else tr("Today", "Hari Ini"),
+        )
         me?.role == null && me != null -> NoAccessScreen(me?.name, onOpenAccount = { accountOpen = true }, onAdded = {
             scope.launch { Widgets.updateAll(ctx) }
             meVersion++
@@ -182,6 +185,9 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     var planOpen by rememberSaveable { mutableStateOf(false) }
     var planSession by rememberSaveable { mutableStateOf<String?>(null) }
     var planFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
+    // a date the Activities list should scroll to (a Recap bar), and the tab to go back to from that list
+    var activitiesAt by rememberSaveable { mutableStateOf<String?>(null) }
+    var listFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
     // a workout Today asked to open; the Workout tab shows its preview once and clears it
     var workoutKey by rememberSaveable { mutableStateOf<String?>(null) }
     // a workout log another tab asked to open; closing it goes back to [logFrom]
@@ -213,7 +219,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null; logFrom = null } },
+        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null; logFrom = null; listFrom = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             val reduce = LocalReduceMotion.current
@@ -258,6 +264,9 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                     activityFrom = null
                                 },
                                 onOpenPlanSession = { openPlan(it) },
+                                jumpTo = activitiesAt,
+                                onJumped = { activitiesAt = null },
+                                onListBack = listFrom?.let { from -> { tab = from; listFrom = null } },
                             )
                             Tab.TRAINING -> TrainingScreen(
                                 onOpenActivity = ::openActivity,
@@ -271,6 +280,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                 },
                                 onOpenLog = { workoutLog = it; logFrom = Tab.TRAINING; tab = Tab.WORKOUT },
                                 onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
+                                onOpenActivitiesAt = { activitiesAt = it; listFrom = Tab.TRAINING; activityId = null; tab = Tab.ACTIVITIES },
                                 onOpenToday = { planOpen = false; tab = Tab.TODAY },
                             )
                         }

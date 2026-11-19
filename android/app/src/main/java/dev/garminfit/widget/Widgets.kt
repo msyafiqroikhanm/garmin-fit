@@ -338,7 +338,13 @@ class WeekWidget : TodayWidget() {
         val w = t.week
         val h = LocalSize.current.height
         Column(GlanceModifier.fillMaxSize()) {
-            Header(tr("This week", "Minggu ini"), null, right = tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"))
+            // on Monday morning before a sync the cached week is last week's; say so instead of showing it as this one
+            val monday = LocalDate.now().let { it.minusDays(it.dayOfWeek.value - 1L) }.toString()
+            val lastWeek = w.dailyLoad.firstOrNull()?.date?.let { it < monday } == true
+            Header(
+                if (lastWeek) tr("Last week", "Minggu lalu") else tr("This week", "Minggu ini"), t.latest,
+                right = if (lastWeek) freshness(t.latest) else tr(if (w.activeDays == 1) "1 active day" else "${w.activeDays} active days", "${w.activeDays} hari aktif"),
+            )
             Spacer(GlanceModifier.height(6.dp))
             Row(GlanceModifier.fillMaxWidth()) {
                 Stat(tr("Activities", "Aktivitas"), w.count.toString(), null, GlanceModifier.defaultWeight())
@@ -592,13 +598,16 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
     val compact = h < 100.dp
     val header = h >= 170.dp
     val full = h >= 200.dp
-    val p = t.plan
+    // a cached /today from yesterday carries yesterday's sessions; never show them as today's
+    val stalePlan = t.plan?.let { pl -> (pl.daySessions.firstOrNull() ?: pl.session)?.date?.let { it != LocalDate.now().toString() } } == true
+    val p = t.plan.takeUnless { stalePlan }
     val day = p?.daySessions.orEmpty()
     // the session in focus: the first still to do, else the last one done; a rest day keeps its rest row
     val s = p?.pending() ?: day.lastOrNull() ?: p?.session
     val allDone = day.size > 1 && p?.pending() == null
     val color = s?.let { c(statusColor(it.status)) } ?: Muted
     val (title, sub) = when {
+        stalePlan -> tr("Not synced today", "Belum sinkron hari ini") to freshness(t.latest)
         p == null -> tr("No plan yet", "Belum ada plan") to tr("Tap to open Training", "Ketuk untuk buka Latihan")
         s == null -> tr("Nothing planned", "Tidak ada sesi") to tr("Rest or move easy", "Istirahat atau gerak santai")
         compact && allDone -> tr("${day.size} sessions done", "${day.size} sesi selesai") to null
@@ -609,7 +618,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
         if (header) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Caps(tr("Today's plan", "Plan hari ini"), GlanceModifier.defaultWeight().padding(end = 8.dp))
-                SyncControl(t.latest, syncing, showTime = true)
+                SyncControl(t.latest, syncing, showTime = true, owner = t.role == "owner")
             }
             Spacer(GlanceModifier.defaultWeight())
         }
@@ -618,7 +627,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
             Column(GlanceModifier.fillMaxWidth()) {
                 day.take(2).forEachIndexed { i, r ->
                     if (i > 0) Spacer(GlanceModifier.height(6.dp))
-                    SessionRow(r, sync = if (i == 0 && !header) ({ SyncControl(t.latest, syncing, showTime = false) }) else null)
+                    SessionRow(r, sync = if (i == 0 && !header) ({ SyncControl(t.latest, syncing, showTime = false, owner = t.role == "owner") }) else null)
                 }
                 if (day.size > 2) Text(tr("+${day.size - 2} more", "+${day.size - 2} lagi"), style = body, maxLines = 1, modifier = GlanceModifier.padding(top = 2.dp))
             }
@@ -635,7 +644,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
                 sub?.let { Text(it, style = body, maxLines = 1) }
             }
             s?.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(if (compact) 22 else 32, color)) }
-            if (!header) SyncControl(t.latest, syncing, showTime = false)
+            if (!header) SyncControl(t.latest, syncing, showTime = false, owner = t.role == "owner")
         }
         if (compact) return@Column
         // adjust line and session bar each sit in one child, so the column stays under Glance's 10
@@ -737,14 +746,17 @@ private fun WeekStrip(days: List<Pair<String, PlanSession?>>) {
     }
 }
 
-/** Last sync time with a refresh icon; tapping it pulls Garmin now. Reads "Syncing" until the worker finishes. */
+/**
+ * Last sync time with a refresh icon; for the owner tapping it pulls Garmin now, for a viewer it reloads what the
+ * server has. Reads "Syncing" (or "Reloading") until the worker finishes.
+ */
 @Composable
-private fun SyncControl(d: Daily?, syncing: Boolean, showTime: Boolean) {
-    val text = if (syncing) tr("Syncing", "Menyinkron") else if (showTime) freshness(d) else null
+private fun SyncControl(d: Daily?, syncing: Boolean, showTime: Boolean, owner: Boolean) {
+    val text = if (syncing) (if (owner) tr("Syncing", "Menyinkron") else tr("Reloading", "Memuat ulang")) else if (showTime) freshness(d) else null
     Row(
         GlanceModifier.height(40.dp).padding(start = 8.dp).cornerRadius(20.dp)
             .clickable(actionRunCallback<SyncAction>())
-            .semantics { contentDescription = tr("Sync with Garmin now", "Sinkron dengan Garmin sekarang") },
+            .semantics { contentDescription = if (owner) tr("Sync with Garmin now", "Sinkron dengan Garmin sekarang") else tr("Reload", "Muat ulang") },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         text?.let { Text(it, style = body, maxLines = 1) }

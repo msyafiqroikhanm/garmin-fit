@@ -42,6 +42,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.garminfit.Daily
+import dev.garminfit.PlanSession
+import dev.garminfit.PlanView
+import dev.garminfit.weekdayShort
+import androidx.compose.runtime.collectAsState
 import dev.garminfit.Profile
 import dev.garminfit.Repo
 import androidx.compose.ui.graphics.nativeCanvas
@@ -88,65 +92,99 @@ private fun from(days: Int) = LocalDate.now().minusDays(days - 1L).toString()
 
 private fun List<Daily>.hasAny(pick: (Daily) -> Double?) = any { pick(it) != null }
 
+private val RANGES = listOf(7, 30, 90, 180, 365)
+
+/** Planned run km per Monday week, from session targets (the adjusted target when there is one). */
+internal fun plannedKm(sessions: List<PlanSession>): Map<String, Double> =
+    sessions.filter { it.kind == "run" && it.status != "skipped" }
+        .groupBy { LocalDate.parse(it.date).let { d -> d.minusDays(d.dayOfWeek.value - 1L).toString() } }
+        .mapValues { (_, l) -> l.sumOf { ((it.adjust?.target ?: it.target)?.distanceM ?: 0.0) / 1000 } }
+
 @Composable
 fun TrendsScreen() {
     val ctx = LocalContext.current
     var range by rememberSaveable { mutableIntStateOf(30) }
-    var picked by rememberSaveable { mutableIntStateOf(0) }
+    // by id, so a metric missing in another range does not shift the pick to a different one
+    var picked by rememberSaveable { mutableStateOf("hrv") }
     val loader = rememberCachedLoad("daily", range) { Repo.api(ctx).daily(from(range)) }
-    // weekly technique needs a few weeks to say anything, so 7/30/90 days map to 4/8/13 weeks
-    val dynamics = rememberCachedLoad("dynamics", range) { Repo.api(ctx).runningTrends(mapOf(7 to 4, 30 to 8, 90 to 13)[range] ?: 8) }
+    // weekly technique needs a few weeks to say anything, so the day ranges map to 4 to 52 weeks
+    val weeksFor = mapOf(7 to 4, 30 to 8, 90 to 13, 180 to 26, 365 to 52)
+    val dynamics = rememberCachedLoad("dynamics", range) { Repo.api(ctx).runningTrends(weeksFor[range] ?: 8) }
+    val runs = rememberCachedLoad("trend_runs", range) {
+        Repo.api(ctx).activities(LocalDate.now().minusDays((weeksFor[range] ?: 8) * 7L).toString()).filter { "running" in it.type.orEmpty() }
+    }
+    val plan by remember { Repo.planFlow(ctx) }.collectAsState(null)
     Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenTitle(tr("Trends", "Tren"))
         StaleNote(loader, dynamics)
-        Segmented(listOf(7, 30, 90), range, { tr("$it days", "$it hari") }) { range = it }
+        Segmented(RANGES, range, { tr("${it}d", "${it}h") }) { range = it }
         LoadView(
             loader,
             loadingText = tr("Loading $range day trends", "Memuat tren $range hari"),
             isEmpty = { it.isEmpty() },
             emptyText = tr("No data in this range yet. Pick a longer range or wait for the next sync.", "Belum ada data di rentang ini. Pilih rentang lebih panjang atau tunggu sync berikutnya."),
         ) { days ->
-            val start = dayMonth(days.first().date)
+            val dates = days.map { it.date }
             val hrvBase = days.lastOrNull { it.hrvLow != null && it.hrvHigh != null }
             val rhr = days.map { it.rhr }
             val rhrMean = rhr.filterNotNull().takeIf { it.isNotEmpty() }?.average()
-            val metrics = listOf(
+            val per = tr("$range-day", "$range hari")
+            val weekly = (runs.state as? Load.Ok)?.data?.let { weeklyKm(it, weeksFor[range] ?: 8) }
+            val metrics = listOfNotNull(
                 TrendMetric(
-                    tr("Overnight HRV", "HRV semalam"), "ms", K.good, true,
+                    "hrv", tr("Overnight HRV", "HRV semalam"), "ms", K.good, true,
                     tr("The green band is your normal range. Staying inside it means steady recovery.", "Pita hijau = rentang normal kamu. Tetap di dalam pita artinya pemulihan stabil."),
-                    days.map { it.hrv }, hrvBase?.let { it.hrvLow!!..it.hrvHigh!! }, bandIsNormal = true,
+                    days.map { it.hrv }, dates, per, hrvBase?.let { it.hrvLow!!..it.hrvHigh!! }, bandIsNormal = true,
                 ),
                 TrendMetric(
-                    "Resting HR", "bpm", K.ink, false,
+                    "rhr", "Resting HR", "bpm", K.ink, false,
                     tr("Lower usually means fitter. A slow decline means a more efficient heart. The band is ±4 around the range average.", "Makin rendah biasanya makin bugar. Turun pelan-pelan = jantung makin efisien. Pita = ±4 dari rata-rata rentang."),
-                    rhr, rhrMean?.let { (it - 4)..(it + 4) },
+                    rhr, dates, per, rhrMean?.let { (it - 4)..(it + 4) },
                 ),
                 TrendMetric(
-                    tr("Sleep score", "Skor tidur"), "/100", K.blue, true,
+                    "sleep", tr("Sleep score", "Skor tidur"), "/100", K.blue, true,
                     tr("A score above 70 lifts your readiness the next day. The band marks 70 to 100.", "Skor di atas 70 bikin readiness naik keesokan harinya. Pita menandai 70 sampai 100."),
-                    days.map { it.sleepScore }, 70.0..100.0,
+                    days.map { it.sleepScore }, dates, per, 70.0..100.0,
                 ),
                 TrendMetric(
-                    tr("Peak Body Battery", "Body Battery tertinggi"), "", K.fair, true,
+                    "bb", tr("Peak Body Battery", "Body Battery tertinggi"), "", K.fair, true,
                     tr("Daily energy peak after sleep. Below 60 means sleep didn't fully recharge you.", "Puncak energi harian setelah tidur. Di bawah 60 berarti tidur belum cukup mengisi ulang."),
-                    days.map { it.bbHigh },
+                    days.map { it.bbHigh }, dates, per,
                 ),
+                weekly?.let { (weeks, km) ->
+                    val planned = plan?.sessions?.let { plannedKm(it) }
+                    TrendMetric(
+                        "km", tr("Weekly running", "Lari per minggu"), "km", K.good, true,
+                        tr("Running km per Monday week. The dashed line is what the plan set for those weeks.", "Km lari per minggu (mulai Senin). Garis putus-putus adalah target plan untuk minggu itu."),
+                        km, weeks, tr("${weeks.size}-week", "${weeks.size} minggu"),
+                        dashed = planned?.let { p -> weeks.map { p[it] } }?.takeIf { d -> d.any { it != null } },
+                        weekly = true,
+                    )
+                },
             ).filter { m -> m.values.any { it != null } }
             Column(
                 Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (metrics.isNotEmpty()) {
-                    val current = metrics[picked.coerceIn(0, metrics.lastIndex)]
-                    TrendMain(current, days, start, range)
+                    val current = metrics.firstOrNull { it.id == picked } ?: metrics.first()
+                    TrendMain(current, range)
                     Column(Modifier.selectableGroup()) {
-                        metrics.forEachIndexed { i, m -> TrendRow(m, m === current) { picked = i } }
+                        metrics.forEach { m -> TrendRow(m, m === current) { picked = m.id } }
                     }
                 }
                 CardLoad(dynamics, isEmpty = { w -> w.none { it.cadence != null } }) { DynamicsTrendCard(it) }
             }
         }
     }
+}
+
+/** Run km per Monday week over the last [weeks] weeks, oldest first, with each week's Monday. */
+internal fun weeklyKm(runs: List<dev.garminfit.Activity>, weeks: Int, today: LocalDate = LocalDate.now()): Pair<List<String>, List<Double?>> {
+    val monday = today.minusDays(today.dayOfWeek.value - 1L)
+    val starts = (weeks - 1 downTo 0).map { monday.minusWeeks(it.toLong()).toString() }
+    val by = runs.groupBy { LocalDate.parse(it.date).let { d -> d.minusDays(d.dayOfWeek.value - 1L).toString() } }
+    return starts to starts.map { w -> (by[w]?.sumOf { it.distanceM ?: 0.0 } ?: 0.0) / 1000 }
 }
 
 @Composable
@@ -183,77 +221,107 @@ private fun DynamicsTrendCard(weeks: List<DynamicsWeek>) {
 }
 
 private class TrendMetric(
+    val id: String,
     val title: String,
     val unit: String,
     val color: Color,
     val higherIsBetter: Boolean,
     val help: String,
     val values: List<Double?>,
+    /** One date per value: days, or week starts for a weekly metric. */
+    val dates: List<String>,
+    /** "30-day", "12-week": what the average covers. */
+    val per: String,
     val band: ClosedFloatingPointRange<Double>? = null,
     /** true when [band] is Garmin's recorded normal range, not a drawn reference. */
     val bandIsNormal: Boolean = false,
+    val dashed: List<Double?>? = null,
+    val weekly: Boolean = false,
 )
 
-/** One sentence from the numbers on screen: latest against the recorded normal range, or against the range average. */
-private fun trendInsight(m: TrendMetric, days: Int): String {
-    val present = m.values.filterNotNull()
-    val last = present.last()
+private fun fmt(v: Double, m: TrendMetric) = if (m.weekly) v.one() else v.roundToInt().toString()
+
+/** One sentence from the numbers on screen: latest against the recorded normal range, or against the period average. */
+private fun trendInsight(m: TrendMetric): String {
+    val i = m.values.indexOfLast { it != null }
+    val last = m.values[i]!!
     val u = if (m.unit.isEmpty()) "" else " ${m.unit.trim()}"
+    // data before the morning sync is yesterday's; say whose reading it is
+    val day = m.dates.getOrNull(i)
+    val prefix = when {
+        m.weekly -> if (day == LocalDate.now().let { it.minusDays(it.dayOfWeek.value - 1L) }.toString()) tr("This week: ", "Minggu ini: ") else ""
+        day != null && day != LocalDate.now().toString() -> "${weekdayShort(day)}: "
+        else -> ""
+    }
+    // a week still running is compared with its plan, not with whole past weeks
+    if (m.weekly && prefix.isNotEmpty()) {
+        val planned = m.dashed?.getOrNull(i)
+        return if (planned != null && planned > 0) tr("This week so far: ${fmt(last, m)}$u of the planned ${fmt(planned, m)}.", "Minggu ini sejauh ini: ${fmt(last, m)}$u dari rencana ${fmt(planned, m)}.")
+        else tr("This week so far: ${fmt(last, m)}$u.", "Minggu ini sejauh ini: ${fmt(last, m)}$u.")
+    }
     val band = m.band?.takeIf { m.bandIsNormal }
     if (band != null) {
         val lo = band.start.roundToInt()
         val hi = band.endInclusive.roundToInt()
-        return when {
-            last < band.start -> tr("${last.roundToInt()}$u, below your normal $lo–$hi.", "${last.roundToInt()}$u, di bawah normal kamu $lo–$hi.")
-            last > band.endInclusive -> tr("${last.roundToInt()}$u, above your normal $lo–$hi.", "${last.roundToInt()}$u, di atas normal kamu $lo–$hi.")
-            else -> tr("${last.roundToInt()}$u, inside your normal $lo–$hi.", "${last.roundToInt()}$u, di dalam normal kamu $lo–$hi.")
+        return prefix + when {
+            last < band.start -> tr("${fmt(last, m)}$u, below your normal $lo–$hi.", "${fmt(last, m)}$u, di bawah normal kamu $lo–$hi.")
+            last > band.endInclusive -> tr("${fmt(last, m)}$u, above your normal $lo–$hi.", "${fmt(last, m)}$u, di atas normal kamu $lo–$hi.")
+            else -> tr("${fmt(last, m)}$u, inside your normal $lo–$hi.", "${fmt(last, m)}$u, di dalam normal kamu $lo–$hi.")
         }
     }
-    val avg = present.average().roundToInt()
-    val d = last.roundToInt() - avg
-    val n = present.size
-    return when {
-        d > 0 -> tr("${last.roundToInt()}$u, $d above the $days-day average of $avg.", "${last.roundToInt()}$u, $d di atas rata-rata $days hari ($avg).")
-        d < 0 -> tr("${last.roundToInt()}$u, ${-d} below the $days-day average of $avg.", "${last.roundToInt()}$u, ${-d} di bawah rata-rata $days hari ($avg).")
-        else -> tr("${last.roundToInt()}$u, right at the $days-day average (from $n days).", "${last.roundToInt()}$u, pas di rata-rata $days hari (dari $n hari).")
+    val present = m.values.filterNotNull()
+    val avg = present.average()
+    val d = last - avg
+    val near = if (m.weekly) kotlin.math.abs(d) < 0.5 else d.roundToInt() == 0
+    return prefix + when {
+        near -> tr("${fmt(last, m)}$u, right at the ${m.per} average.", "${fmt(last, m)}$u, pas di rata-rata ${m.per}.")
+        d > 0 -> tr("${fmt(last, m)}$u, ${fmt(d, m)} above the ${m.per} average of ${fmt(avg, m)}.", "${fmt(last, m)}$u, ${fmt(d, m)} di atas rata-rata ${m.per} (${fmt(avg, m)}).")
+        else -> tr("${fmt(last, m)}$u, ${fmt(-d, m)} below the ${m.per} average of ${fmt(avg, m)}.", "${fmt(last, m)}$u, ${fmt(-d, m)} di bawah rata-rata ${m.per} (${fmt(avg, m)}).")
     }
 }
 
 @Composable
-private fun TrendMain(m: TrendMetric, days: List<Daily>, start: String, range: Int) {
+private fun TrendMain(m: TrendMetric, range: Int) {
     val present = m.values.filterNotNull()
-    var sel by remember(m.title, range) { mutableStateOf<Int?>(null) }
-    var help by remember(m.title) { mutableStateOf(false) }
-    val last = present.last().roundToInt()
-    val diff = last - present.first().roundToInt()
+    var sel by remember(m.id, range) { mutableStateOf<Int?>(null) }
+    var help by remember(m.id) { mutableStateOf(false) }
+    val last = present.last()
+    val avg = present.average()
+    // the pill and the headline compare the same two things: the latest reading and the period average
+    val diff = if (m.weekly) ((last - avg) * 10).roundToInt() / 10.0 else (last - avg).roundToInt().toDouble()
     val deltaText = when {
-        diff > 0 -> "+$diff"
-        diff < 0 -> "−${-diff}"
-        else -> "= 0"
+        diff > 0 -> "+${fmt(diff, m)} " + tr("vs avg", "vs rata-rata")
+        diff < 0 -> "−${fmt(-diff, m)} " + tr("vs avg", "vs rata-rata")
+        else -> tr("= avg", "= rata-rata")
     }
     val deltaStatus = when {
-        diff == 0 -> null
+        diff == 0.0 -> null
         (diff > 0) == m.higherIsBetter -> Status.GOOD
         else -> Status.FAIR
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(trendInsight(m, range), style = T.headline, color = K.ink)
+        Text(trendInsight(m), style = T.headline, color = K.ink)
         Row(verticalAlignment = Alignment.Top) {
             val i = sel
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Label(m.title)
-                Value(if (i == null) last.toString() else m.values[i]?.roundToInt()?.toString() ?: "–", m.unit, num(36.sp), unitStyle = T.bodyS)
+                Value(if (i == null) fmt(last, m) else m.values[i]?.let { fmt(it, m) } ?: "–", m.unit, num(36.sp), unitStyle = T.bodyS)
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (i == null) DeltaPill(deltaText, deltaStatus, up = if (diff == 0) null else diff > 0) else NeutralChip(weekday(days[i].date).take(3) + " " + dayMonth(days[i].date))
-                Text(tr("avg ${present.average().int()}", "rata-rata ${present.average().int()}"), style = T.caption, color = K.muted)
+                if (i == null) DeltaPill(deltaText, deltaStatus)
+                else NeutralChip((if (m.weekly) tr("Week of ", "Minggu ") else weekday(m.dates[i]).take(3) + " ") + dayMonth(m.dates[i]))
+                Text(tr("avg ${fmt(avg, m)}", "rata-rata ${fmt(avg, m)}"), style = T.caption, color = K.muted)
             }
         }
         LineChart(
-            m.values, tr("${m.title} chart over ${days.size} days, latest $last ${m.unit}, change $diff", "Grafik ${m.title} ${days.size} hari, terakhir $last ${m.unit}, berubah $diff"),
-            color = m.color, band = m.band, selected = sel, onSelect = { sel = it },
+            m.values, tr("${m.title} chart, latest ${fmt(last, m)} ${m.unit}, average ${fmt(avg, m)}", "Grafik ${m.title}, terakhir ${fmt(last, m)} ${m.unit}, rata-rata ${fmt(avg, m)}"),
+            color = m.color, band = m.band, secondDashed = m.dashed, selected = sel, onSelect = { sel = it },
         )
-        ChartDates(start)
+        ChartDates(dayMonth(m.dates.first()), m.dates.lastOrNull()?.takeIf { !m.weekly && it != LocalDate.now().toString() }?.let { dayMonth(it) })
+        if (m.dashed != null) Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            LineKey(tr("Done", "Dilakukan"), m.color)
+            LineKey(tr("Plan", "Plan"), K.muted)
+        }
         Text(
             if (help) tr("Hide explanation", "Sembunyikan penjelasan") else tr("What does this show?", "Ini menunjukkan apa?"),
             Modifier.heightIn(min = 48.dp).wrapContentHeight(Alignment.CenterVertically)
@@ -279,7 +347,7 @@ private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
             m.title, Modifier.weight(1f).padding(start = 12.dp),
             style = body(15.sp, if (selected) FontWeight.Bold else FontWeight.Medium), color = if (selected) K.ink else K.body2,
         )
-        Value(last.roundToInt().toString(), m.unit, num(22.sp, FontWeight.Bold), color = if (selected) K.ink else K.body2, unitStyle = T.caption)
+        Value(fmt(last, m), m.unit, num(22.sp, FontWeight.Bold), color = if (selected) K.ink else K.body2, unitStyle = T.caption)
     }
 }
 
@@ -287,6 +355,7 @@ private fun TrendRow(m: TrendMetric, selected: Boolean, onClick: () -> Unit) {
 fun TrainingScreen(
     onOpenActivity: (Long) -> Unit, planOpen: Boolean, onPlanOpen: (Boolean) -> Unit,
     planSession: String?, onPlanSession: (String?) -> Unit, onOpenLog: (String) -> Unit, onStartWorkout: (String) -> Unit, onOpenToday: () -> Unit,
+    onOpenActivitiesAt: (String) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val loader = rememberCachedLoad("training") {
@@ -301,30 +370,39 @@ fun TrainingScreen(
     val plan = rememberCachedLoad("plan") { Repo.api(ctx).plan() }
     var recap by rememberSaveable { mutableStateOf(false) }
     val role by androidx.compose.runtime.produceState<String?>(null) { value = Repo.role(ctx) }
-    if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity)
+    if (recap) return RecapScreen(onBack = { recap = false }, onOpenActivity = onOpenActivity, onOpenWeek = onOpenActivitiesAt)
     if (planOpen) return PlanScreen(planSession, onPlanSession, onBack = { onPlanOpen(false) }, onOpenActivity = onOpenActivity, onOpenLog = onOpenLog, onStartWorkout = onStartWorkout, onOpenToday = onOpenToday)
-    LoadView(loader, loadingText = tr("Loading 90 days of training", "Memuat data latihan 90 hari")) { (days, profile) ->
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { ScreenTitle(tr("Training", "Latihan")) }
-                SyncButton { loader.reload(); plan.reload(); muscles.reload(); predictions.reload() }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { ScreenTitle(tr("Training", "Latihan")) }
+            SyncButton { loader.reload(); plan.reload(); muscles.reload(); predictions.reload() }
+        }
+        StaleNote(loader, plan, predictions)
+        // the plan leads and never waits for the 90 days of load below
+        CardLoad(plan) { PlanWeekCard(it, owner = role == "owner") { onPlanOpen(true) } }
+        when (val st = loader.state) {
+            Load.Loading -> Shimmer(Modifier.fillMaxWidth().height(220.dp))
+            is Load.Err -> Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(st.message, style = T.body, color = K.muted)
+                SecondaryButton(tr("Try again", "Coba lagi"), loader.reload)
             }
-            StaleNote(loader, plan, predictions)
-            CardLoad(plan) { PlanWeekCard(it, owner = role == "owner") { onPlanOpen(true) } }
-            days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it.trainingStatus) }
-            RecapEntry { recap = true }
-            CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }
-            CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
-            CardLoad(muscles) { WeekMusclesCard(it) }
-            if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
-            if (days.hasAny { it.acuteLoad }) LoadCard(days)
-            if (!days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad }) {
-                Text(tr("VO2max and training load show up after a few runs or rides.", "Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda."), style = T.body, color = K.muted)
+            is Load.Ok -> {
+                val (days, profile) = st.data
+                days.lastOrNull { it.trainingStatus != null }?.let { StatusCard(it, days) }
+                if (days.hasAny { it.vo2max }) Vo2Card(days, profile)
+                if (days.hasAny { it.acuteLoad }) LoadCard(days, (plan.state as? Load.Ok)?.data)
+                if (!days.hasAny { it.vo2max } && !days.hasAny { it.acuteLoad }) {
+                    Text(tr("VO2max and training load show up after a few runs or rides.", "Data VO2max dan beban latihan muncul setelah beberapa sesi lari atau sepeda."), style = T.body, color = K.muted)
+                }
             }
         }
+        RecapEntry { recap = true }
+        CardLoad(predictions, isEmpty = { p -> p.none { it.half != null } }) { PredictionsCard(it) }
+        CardLoad(records, isEmpty = { it.isEmpty() }) { RecordsCard(it, onOpenActivity) }
+        CardLoad(muscles) { WeekMusclesCard(it) }
     }
 }
 
@@ -332,6 +410,7 @@ fun TrainingScreen(
 private fun PredictionsCard(rows: List<Prediction>) {
     val last = rows.last()
     val month = rows.lastOrNull { it.date <= LocalDate.parse(last.date).minusDays(30).toString() } ?: rows.first()
+    val gap = ChronoUnit.DAYS.between(LocalDate.parse(month.date), LocalDate.parse(last.date))
     val items = listOf(
         Triple("5K", last.k5, month.k5),
         Triple("10K", last.k10, month.k10),
@@ -348,15 +427,15 @@ private fun PredictionsCard(rows: List<Prediction>) {
                 Text(name, Modifier.weight(1f), style = body(15.sp, FontWeight.SemiBold), color = K.ink)
                 before?.let { b ->
                     val d = (now - b).roundToInt()
-                    // a lower predicted time is the improvement
-                    if (d != 0) DeltaPill("${if (d < 0) "−" else "+"}${raceTime(kotlin.math.abs(d).toDouble())}", if (d < 0) Status.GOOD else Status.FAIR, up = d > 0)
+                    // words, not arrows: a lower time is faster, and an up arrow would read as better
+                    if (d != 0) DeltaPill(predictionDelta(d), if (d < 0) Status.GOOD else Status.FAIR)
                 }
                 Text(raceTime(now), Modifier.padding(start = 10.dp), style = num(22.sp, FontWeight.Bold), color = K.ink)
             }
         }
         val half = rows.map { it.half }
         if (half.count { it != null } > 2) {
-            Text(tr("Half marathon, last ${rows.size} days", "Half marathon, ${rows.size} hari terakhir"), Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
+            Text(tr("Half marathon, last ${spanDays(rows.map { it.date })} days", "Half marathon, ${spanDays(rows.map { it.date })} hari terakhir"), Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
             // negated so a faster prediction draws higher
             var sel by remember { mutableStateOf<Int?>(null) }
             LineChart(
@@ -364,7 +443,11 @@ private fun PredictionsCard(rows: List<Prediction>) {
                 selected = sel, onSelect = { sel = it }, label = { i -> "${dayMonth(rows[i].date)} · ${half[i]?.let { raceTime(it) } ?: "–"}" },
             )
         }
-        Text(tr("Change compared with 30 days ago.", "Perubahan dibanding 30 hari lalu."), Modifier.padding(top = 6.dp), style = T.caption, color = K.muted)
+        Text(
+            if (gap >= 28) tr("Change compared with 30 days ago.", "Perubahan dibanding 30 hari lalu.")
+            else tr("Change compared with ${dayMonth(month.date)}, the oldest prediction here.", "Perubahan dibanding ${dayMonth(month.date)}, prediksi terlama di sini."),
+            Modifier.padding(top = 6.dp), style = T.caption, color = K.muted,
+        )
     }
 }
 
@@ -428,19 +511,39 @@ private fun RecordsCard(records: List<Record>, onOpen: (Long) -> Unit) {
     }
 }
 
+/** "25 s slower" or "12 s faster" for a change in a predicted race time (seconds, positive is slower). */
+internal fun predictionDelta(d: Int): String {
+    val t = if (kotlin.math.abs(d) >= 60) raceTime(kotlin.math.abs(d).toDouble()) else "${kotlin.math.abs(d)} s"
+    return if (d > 0) tr("$t slower", "$t lebih lambat") else tr("$t faster", "$t lebih cepat")
+}
+
+/** "VO2max 48.7, −1.4 in 90 days · load ratio 1.38": the readings behind Garmin's status word. */
+internal fun statusEvidence(days: List<Daily>): String? {
+    val vo2 = days.filter { it.vo2max != null }
+    val last = days.lastOrNull { it.acuteLoad != null && (it.chronicLoad ?: 0.0) > 0 }
+    return listOfNotNull(
+        vo2.lastOrNull()?.vo2max?.let { v ->
+            val d = v - vo2.first().vo2max!!
+            "VO2max ${v.one()}" + if (vo2.size > 1 && kotlin.math.abs(d) >= 0.05) tr(", ${if (d > 0) "+" else "−"}${kotlin.math.abs(d).one()} in ${spanDays(vo2.map { it.date })} days", ", ${if (d > 0) "+" else "−"}${kotlin.math.abs(d).one()} dalam ${spanDays(vo2.map { it.date })} hari") else ""
+        },
+        last?.let { tr("load ratio ${(it.acuteLoad!! / it.chronicLoad!!).two()}", "rasio beban ${(it.acuteLoad!! / it.chronicLoad!!).two()}") },
+    ).joinToString(" · ").ifEmpty { null }
+}
+
 @Composable
-private fun StatusCard(status: String?) {
-    val (label, desc) = trainingStatus(status) ?: return
+private fun StatusCard(day: Daily, days: List<Daily>) {
+    val (label, desc) = trainingStatus(day.trainingStatus) ?: return
     Panel(Modifier.fillMaxWidth(), padding = 16.dp, gap = 4.dp) {
-        Label(tr("Training status", "Status latihan"))
-        Text(label.uppercase(), style = num(24.sp, italic = true, lh = 1f), color = trainingTone(status).color())
+        Label(tr("Training status", "Status latihan") + if (day.date != LocalDate.now().toString()) tr(" · as of ${weekdayShort(day.date)}", " · per ${weekdayShort(day.date)}") else "")
+        Text(label.uppercase(), style = num(24.sp, italic = true, lh = 1f), color = trainingTone(day.trainingStatus).color())
         if (desc.isNotEmpty()) Text(desc, style = T.bodyS, color = K.body3)
+        statusEvidence(days)?.let { Text(it, Modifier.padding(top = 4.dp), style = T.caption, color = K.muted) }
     }
 }
 
-/** Days actually covered, so a young history does not claim the full 90-day window. */
-private fun spanDays(days: List<Daily>): Long =
-    runCatching { ChronoUnit.DAYS.between(LocalDate.parse(days.first().date), LocalDate.parse(days.last().date)) + 1 }.getOrDefault(90)
+/** Days actually covered, so a young history does not claim the full window. */
+private fun spanDays(dates: List<String>): Long =
+    runCatching { ChronoUnit.DAYS.between(LocalDate.parse(dates.first()), LocalDate.parse(dates.last())) + 1 }.getOrDefault(90)
 
 private fun age(profile: Profile?): Int? =
     profile?.birthDate?.let { runCatching { Period.between(LocalDate.parse(it), LocalDate.now()).years }.getOrNull() }
@@ -456,7 +559,7 @@ private fun Vo2Card(days: List<Daily>, profile: Profile?) {
                 Label("VO2max")
                 Value(v.one(), tr("ml/kg/min", "ml/kg/mnt"), num(56.sp, lh = 0.9f), unitStyle = T.bodyS, gap = 6.dp, roll = true)
             }
-            DeltaPill((if (delta >= 0) "+" else "") + delta.one() + tr(" / ${spanDays(present)} days", " / ${spanDays(present)} hari"), if (delta >= 0) Status.GOOD else Status.FAIR, up = delta >= 0)
+            DeltaPill((if (delta >= 0) "+" else "") + delta.one() + tr(" / ${spanDays(present.map { it.date })} days", " / ${spanDays(present.map { it.date })} hari"), if (delta >= 0) Status.GOOD else Status.FAIR, up = delta >= 0)
         }
         val a = age(profile)
         val g = profile?.gender
@@ -495,7 +598,7 @@ private fun Vo2Card(days: List<Daily>, profile: Profile?) {
 private val GAUGE = listOf(0.3f to K.blue, 0.5f to K.good, 0.2f to K.fair, 0.3f to K.low)
 
 @Composable
-private fun LoadCard(days: List<Daily>) {
+private fun LoadCard(days: List<Daily>, plan: PlanView?) {
     var sel by remember { mutableStateOf<Int?>(null) }
     // the stat row follows the scrubbed day, the gauge and advice stay on today
     val now = days.last { it.acuteLoad != null }
@@ -505,8 +608,8 @@ private fun LoadCard(days: List<Daily>) {
     Panel(Modifier.fillMaxWidth(), gap = 12.dp) {
         CardTitle(tr("Training load", "Beban latihan"), icon = R.drawable.ic_speed)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Stat(latest.acuteLoad.int(), tr("acute (7 days)", "akut (7 hari)"), num(30.sp), Modifier.weight(1f))
-            Stat(latest.chronicLoad.int(), tr("chronic (28 days)", "kronis (28 hari)"), num(30.sp), Modifier.weight(1f))
+            Stat(latest.acuteLoad.int(), tr("7-day load", "beban 7 hari"), num(30.sp), Modifier.weight(1f))
+            Stat(latest.chronicLoad.int(), tr("4-week normal", "normal 4 minggu"), num(30.sp), Modifier.weight(1f))
             Stat(ratio.two(), tr("ratio", "rasio"), num(30.sp), Modifier.weight(1f), color = ratio?.let { loadStatus(it).color() } ?: K.ink)
         }
         if (nowRatio != null) {
@@ -546,14 +649,30 @@ private fun LoadCard(days: List<Daily>) {
             LineKey(tr("Acute", "Akut"), K.good)
             LineKey(tr("Chronic", "Kronis"), K.muted)
             Spacer(Modifier.weight(1f))
-            Text(tr("${spanDays(days)} days", "${spanDays(days)} hari"), style = T.caption, color = K.muted)
+            Text(tr("${spanDays(days.map { it.date })} days", "${spanDays(days.map { it.date })} hari"), style = T.caption, color = K.muted)
         }
-        nowRatio?.let { Text(loadAdvice(it), style = T.bodyS, color = K.body3) }
+        // with a plan, the advice is the plan's own next week, so the two screens never disagree
+        val next = plan?.let { planWeekChange(it.sessions) }
+        if (next != null) Text(next.first, style = T.bodyS, color = if (next.second) K.fair else K.body3)
+        else nowRatio?.let { Text(loadAdvice(it), style = T.bodyS, color = K.body3) }
     }
 }
 
+/** "Next week's plan: 32 km, +8% on this week's 30 km." Second is true when the jump is over 10%. Null without both weeks. */
+internal fun planWeekChange(sessions: List<PlanSession>, today: LocalDate = LocalDate.now()): Pair<String, Boolean>? {
+    val km = plannedKm(sessions)
+    val monday = today.minusDays(today.dayOfWeek.value - 1L)
+    val now = km[monday.toString()]?.takeIf { it > 0 } ?: return null
+    val next = km[monday.plusWeeks(1).toString()]?.takeIf { it > 0 } ?: return null
+    val pct = ((next / now - 1) * 100).roundToInt()
+    val change = if (pct >= 0) "+$pct%" else "−${-pct}%"
+    val big = pct > 10
+    return tr("Next week's plan: ${next.one()} km, $change on this week's ${now.one()} km", "Plan minggu depan: ${next.one()} km, $change dari ${now.one()} km minggu ini") +
+        (if (big) tr(", more than the usual +10%. Keep an eye on recovery.", ", lebih dari +10% biasanya. Perhatikan pemulihan.") else ".") to big
+}
+
 @Composable
-private fun LineKey(name: String, color: Color) {
+internal fun LineKey(name: String, color: Color) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(14.dp).height(3.dp).background(color))
         Text(name, style = T.caption, color = K.muted)
