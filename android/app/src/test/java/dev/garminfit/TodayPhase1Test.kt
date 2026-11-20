@@ -39,4 +39,15 @@ class TodayPhase1Test {
         val ride = Activity(3, "2026-11-19", type = "road_biking", distanceM = 20000.0, durationS = 3600.0, avgSpeed = 20000 / 3600.0)
         assertEquals("1h 0m · 20.0 km/h", doneSecondary(ride, null))
     }
+
+    @Test fun yesterdaysCacheDoesNotReadAsToday() {
+        val yday = "2026-11-19"
+        val s = PlanSession(yday, "run", "easy", Bi("E", "E"), status = "done")
+        val t = Today("owner", todayActivities = listOf(Activity(1, yday)), lastActivity = Activity(1, yday), plan = PlanToday("p", session = s, sessions = listOf(s)))
+        val now = t.asOf("2026-11-20")
+        assertEquals(emptyList<Activity>(), now.todayActivities)
+        assertNull(now.plan)
+        assertEquals(emptyList<Activity>(), now.doneToday("2026-11-20"))
+        assertEquals(1, t.asOf(yday).todayActivities.size)
+    }
 }

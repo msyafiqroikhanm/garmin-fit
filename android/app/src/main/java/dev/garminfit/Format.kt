@@ -237,7 +237,19 @@ fun PlanToday.pending(): PlanSession? = daySessions.firstOrNull { !it.finished }
 
 /** Activities dated today. Older servers only send the newest activity, so that one stands in when it is today's. */
 fun Today.doneToday(today: String = LocalDate.now().toString()): List<Activity> =
-    todayActivities.ifEmpty { listOfNotNull(lastActivity?.takeIf { it.date.take(10) == today }) }
+    todayActivities.filter { it.date.take(10) == today }.ifEmpty { listOfNotNull(lastActivity?.takeIf { it.date.take(10) == today }) }
+
+/**
+ * This /today as of [today]: a copy cached yesterday (offline, before the first sync) keeps its numbers but loses
+ * yesterday's activities and plan sessions, which would otherwise read as today's.
+ */
+fun Today.asOf(today: String = LocalDate.now().toString()): Today {
+    val planDay = plan?.let { p -> (p.sessions.firstOrNull() ?: p.session)?.date }
+    return copy(
+        todayActivities = todayActivities.filter { it.date.take(10) == today },
+        plan = plan?.takeIf { planDay == null || planDay == today },
+    )
+}
 
 /**
  * Today's advice and chips. With plan sessions today the plan leads: the next one still to do, changed by [PlanAdjust]

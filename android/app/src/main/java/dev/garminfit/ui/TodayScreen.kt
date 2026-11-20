@@ -74,6 +74,7 @@ import dev.garminfit.readinessStatus
 import dev.garminfit.readinessVerdict
 import dev.garminfit.daySessions
 import dev.garminfit.doneToday
+import dev.garminfit.asOf
 import dev.garminfit.speedText
 import dev.garminfit.readinessReason
 import dev.garminfit.loadBreakdown
@@ -114,7 +115,8 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
     var refreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
 
-    LoadView(loader, loadingText = tr("Loading today's data", "Memuat data hari ini")) { today ->
+    LoadView(loader, loadingText = tr("Loading today's data", "Memuat data hari ini")) { cached ->
+        val today = cached.asOf()
         fun refresh() {
             if (refreshing) return
             scope.launch {
@@ -147,7 +149,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                     when {
                         done.isNotEmpty() -> DoneFocus(done, today, verdict, onOpenActivity, onOpenPlan, startWorkout)
                         session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, startWorkout)
-                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, today, restDay = today.plan?.session != null, onOpenPlan)
+                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, today, restDay = today.plan?.session != null, planUnknown = cached.plan != null && today.plan == null, onOpenPlan)
                     }
                 }
                 if (latest == null) {
@@ -306,10 +308,18 @@ private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit, onSta
 
 /** No session today (or a rest day): Garmin's readiness verdict is the message. */
 @Composable
-private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, restDay: Boolean, onOpenPlan: () -> Unit) {
+private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, restDay: Boolean, planUnknown: Boolean, onOpenPlan: () -> Unit) {
     val c = v.status.color()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Label(if (restDay) tr("Rest day in your plan", "Hari istirahat di plan") else tr("No session planned today", "Tidak ada sesi hari ini"), modifier = Modifier.padding(horizontal = 4.dp))
+        Label(
+            when {
+                // a cache from yesterday cannot say what today holds
+                planUnknown -> tr("Today's plan shows after a sync", "Plan hari ini muncul setelah sync")
+                restDay -> tr("Rest day in your plan", "Hari istirahat di plan")
+                else -> tr("No session planned today", "Tidak ada sesi hari ini")
+            },
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
         Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ReadinessRing(d.readiness!!.roundToInt(), c, 112.dp)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
