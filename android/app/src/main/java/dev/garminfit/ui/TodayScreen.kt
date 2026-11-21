@@ -49,6 +49,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -112,6 +115,7 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
     val loader = rememberCachedLoad("today") {
         Repo.fetchToday(ctx).also { scope.launch { runCatching { Repo.fetchPlan(ctx) }; Widgets.updateAll(ctx) } }
     }
+    val planView by remember { Repo.planFlow(ctx) }.collectAsState(null)
     var refreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
 
@@ -139,18 +143,22 @@ fun TodayScreen(onOpenActivity: (Long) -> Unit, onOpenPlan: () -> Unit, onOpenAc
                 val done = today.doneToday()
                 val verdict = latest?.takeIf { it.readiness != null }?.let { readinessVerdict(it.readinessLevel, it.readiness, it.recoveryMin) }
                 val session = today.plan?.daySessions?.firstOrNull()
+                val planUnknown = cached.plan != null && today.plan == null
+                // a rest day or a day with nothing dated: readiness leads and one plan row says what the day is
+                val free = today.plan?.freeDay()?.takeIf { done.isEmpty() }
                 val startWorkout = onStartWorkout.takeIf { today.role == "owner" }
                 Header(today, onSync = ::refresh, onOpenAccount = onOpenAccount)
                 StaleNote(loader)
                 syncError?.let { Text(it, Modifier.padding(horizontal = 4.dp), style = T.bodyS, color = K.low) }
                 // the focus: one block on the background, chosen by where the day stands
                 val readinessLeads = done.isEmpty() && session == null
-                Column(Modifier.padding(top = 12.dp)) {
+                Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     when {
                         done.isNotEmpty() -> DoneFocus(done, today, verdict, onOpenActivity, onOpenPlan, startWorkout)
                         session != null -> PlanTodayFocus(today.plan!!, verdict, onOpenPlan, startWorkout)
-                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, today, restDay = today.plan?.session != null, planUnknown = cached.plan != null && today.plan == null, onOpenPlan)
+                        verdict != null && latest != null -> ReadinessFocus(latest, verdict, today, planUnknown)
                     }
+                    if (free != null) FreeDayRow(free, freeDayCaption(today.plan!!, planView, LocalDate.now(), withWeek = true), onOpenPlan)
                 }
                 if (latest == null) {
                     Text(
@@ -306,20 +314,36 @@ private fun WhatsNext(t: Today, verdict: Verdict?, onOpenPlan: () -> Unit, onSta
     }
 }
 
-/** No session today (or a rest day): Garmin's readiness verdict is the message. */
+/** Rest day or nothing dated today: one plan row under readiness that says what the day is and what comes next. */
 @Composable
-private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, restDay: Boolean, planUnknown: Boolean, onOpenPlan: () -> Unit) {
+private fun FreeDayRow(free: FreeDay, caption: String?, onOpenPlan: () -> Unit) {
+    val shape = RoundedCornerShape(20.dp)
+    val title = freeDayTitle(free)
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(K.surface).border(1.dp, K.line, shape)
+            .clickable(role = Role.Button, onClickLabel = tr("Open plan", "Buka plan"), onClick = onOpenPlan)
+            // read as one button; the dots in the caption become pauses
+            .semantics { contentDescription = listOfNotNull(title, caption?.replace(" · ", ", ")).joinToString(", ") }
+            .sizeIn(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Glyph(if (free == FreeDay.REST) R.drawable.ic_bedtime else R.drawable.ic_radio_button_unchecked, K.muted, 24.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = body(15.sp, FontWeight.SemiBold), color = K.ink)
+            caption?.let { Text(it, style = T.caption, color = K.muted) }
+        }
+        Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
+    }
+}
+
+/** Garmin's readiness verdict is the message when there is no session to do. */
+@Composable
+private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, planUnknown: Boolean) {
     val c = v.status.color()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Label(
-            when {
-                // a cache from yesterday cannot say what today holds
-                planUnknown -> tr("Today's plan shows after a sync", "Plan hari ini muncul setelah sync")
-                restDay -> tr("Rest day in your plan", "Hari istirahat di plan")
-                else -> tr("No session planned today", "Tidak ada sesi hari ini")
-            },
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
+        // a cache from yesterday cannot say what today holds
+        if (planUnknown) Label(tr("Today's plan shows after a sync", "Plan hari ini muncul setelah sync"), modifier = Modifier.padding(horizontal = 4.dp))
         Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             ReadinessRing(d.readiness!!.roundToInt(), c, 112.dp)
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -331,11 +355,6 @@ private fun ReadinessFocus(d: Daily, v: Verdict, t: Today, restDay: Boolean, pla
         ReasonLine(d, t, v)
         Text(v.advice, Modifier.padding(horizontal = 4.dp), style = T.body, color = K.ink)
         Box(Modifier.padding(horizontal = 4.dp)) { ChipRow(v.chips) }
-        if (restDay) Text(
-            tr("Open plan", "Buka plan"),
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onOpenPlan).sizeIn(minHeight = 48.dp).padding(horizontal = 4.dp, vertical = 14.dp),
-            style = body(14.sp, FontWeight.SemiBold), color = K.ink,
-        )
     }
 }
 

@@ -96,6 +96,16 @@ import dev.garminfit.ui.Status
 import dev.garminfit.ui.color
 import dev.garminfit.weekdayShort
 import java.time.LocalDate
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import dev.garminfit.asOf
+import dev.garminfit.day
+import dev.garminfit.share
+import dev.garminfit.ui.FreeDay
+import dev.garminfit.ui.freeDay
+import dev.garminfit.ui.freeDayCaption
+import dev.garminfit.ui.freeDayTitle
+import dev.garminfit.ui.resultText
 
 // Kinetik palette from the app theme (dark only), so a widget reads like a card from the app.
 private fun c(color: Color) = ColorProvider(color, color)
@@ -107,6 +117,9 @@ private val AccentDim = c(K.good.copy(alpha = 0.45f))
 private val Track = c(K.track)
 
 private fun Status.provider(): GColor = c(color())
+
+/** The cached plan for the Today-family widgets, so a free day can name what comes next without new Content parameters. */
+private val LocalPlan = staticCompositionLocalOf<PlanView?> { null }
 
 // Glance cannot load bundled fonts; the system condensed face is the nearest to Barlow Condensed.
 private val Condensed = FontFamily("sans-serif-condensed")
@@ -207,34 +220,57 @@ private fun Steps(d: Daily) {
     }
 }
 
-/** Today's planned session in one line, with its score once something is done; tapping it opens the plan. */
+/** Today's plan in one line: the session still to do with its score, done, short, a free day with what's next, or no plan. */
 @Composable
-private fun PlanLine(ctx: Context, plan: PlanToday) {
-    // the first session still to do; once every one is done the line says so instead of naming the last
-    val day = plan.daySessions
-    val p = plan.pending() ?: plan.session.takeIf { day.isEmpty() }
+private fun PlanLine(ctx: Context, plan: PlanToday?) {
+    val day = plan?.daySessions.orEmpty()
+    val p = plan?.pending()
+    val free = plan?.freeDay()
     Row(GlanceModifier.fillMaxWidth().clickable(open(ctx, Tab.TRAINING, plan = true)), verticalAlignment = Alignment.Bottom) {
         Caps("Plan ")
-        if (p == null) {
-            // the mark leads, like a ticked list row; at the text's own height so the 2×2 card keeps its fit
-            Image(ImageProvider(R.drawable.ic_check_circle), contentDescription = null, colorFilter = ColorFilter.tint(Accent), modifier = GlanceModifier.size(12.dp).padding(end = 2.dp))
-            Text(tr(" Done today", " Selesai hari ini"), style = value(13, Accent), maxLines = 1, modifier = GlanceModifier.defaultWeight())
-            return@Row
+        when {
+            plan == null -> {
+                Mark(R.drawable.ic_event_available, Muted)
+                Text(tr(" No plan yet", " Belum ada plan"), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            }
+            free != null -> {
+                Mark(if (free == FreeDay.REST) R.drawable.ic_bedtime else R.drawable.ic_radio_button_unchecked, Muted)
+                Text(" " + freeDayTitle(free), style = value(13), maxLines = 1)
+                Text(freeDayCaption(plan, LocalPlan.current, LocalDate.now(), withWeek = false)?.let { " · $it" } ?: "", style = body, maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            }
+            p == null && day.all { it.status == "done" } -> {
+                Mark(R.drawable.ic_check_circle, Accent)
+                Text(tr(" Done today", " Selesai hari ini"), style = value(13, Accent), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            }
+            p == null -> {
+                val short = day.count { it.status == "partial" }
+                Mark(R.drawable.ic_partial, c(K.fair))
+                Text(tr(" Finished · $short short", " Selesai · $short kurang"), style = value(13, c(K.fair)), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+            }
+            else -> {
+                Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+                p.share?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, c(statusColor(p.status)))) }
+            }
         }
-        Text(listOf(p.title.text, planTarget(p)).filter { it.isNotEmpty() }.joinToString(" · "), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
-        p.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(13, c(statusColor(p.status)))) }
     }
 }
+
+/** A status mark at the text's own height, so the 2×2 card keeps its fit. */
+@Composable
+private fun Mark(res: Int, tint: GColor) =
+    Image(ImageProvider(res), contentDescription = null, colorFilter = ColorFilter.tint(tint), modifier = GlanceModifier.size(12.dp).padding(end = 2.dp))
 
 abstract class TodayWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(SIZES)
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val first = Repo.cachedToday(context)
+        val plan = Repo.planFlow(context).first()
         provideContent {
             // collected rather than read once: Glance keeps a session alive after an update and only recomposes it
             val t by remember { Repo.todayFlow(context) }.collectAsState(first)
-            Content(context, t)
+            val v by remember { Repo.planFlow(context) }.collectAsState(plan)
+            CompositionLocalProvider(LocalPlan provides v) { Content(context, t) }
         }
     }
 
@@ -272,7 +308,7 @@ class RecoveryWidget : TodayWidget() {
                     }
                     HrvBand(d, hrv, status?.second)
                 }
-                t.plan?.takeIf { it.session != null }?.let { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, it) }
+                t.asOf().let { pt -> if (pt.plan != null || t.plan == null) { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, pt.plan) } }
             }
             Spacer(GlanceModifier.defaultWeight())
         }
@@ -306,7 +342,7 @@ class MorningWidget : TodayWidget() {
             }
             Spacer(GlanceModifier.defaultWeight())
             // grouped: Glance caps a Column at 10 children and the tallest size reaches that
-            t.plan?.takeIf { it.session != null && h >= 150.dp }?.let { Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) { PlanLine(ctx, it) } }
+            t.asOf().let { pt -> if (h >= 150.dp && (pt.plan != null || t.plan == null)) Column(GlanceModifier.fillMaxWidth().padding(bottom = 6.dp)) { PlanLine(ctx, pt.plan) } }
             Steps(d)
             if (h >= 220.dp) {
                 val flag = t.flags.firstOrNull()
@@ -599,19 +635,22 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
     val header = h >= 170.dp
     val full = h >= 200.dp
     // a cached /today from yesterday carries yesterday's sessions; never show them as today's
-    val stalePlan = t.plan?.let { pl -> (pl.daySessions.firstOrNull() ?: pl.session)?.date?.let { it != LocalDate.now().toString() } } == true
+    val stalePlan = t.plan?.day?.let { it != LocalDate.now().toString() } == true
     val p = t.plan.takeUnless { stalePlan }
     val day = p?.daySessions.orEmpty()
-    // the session in focus: the first still to do, else the last one done; a rest day keeps its rest row
-    val s = p?.pending() ?: day.lastOrNull() ?: p?.session
+    val free = p?.freeDay()
+    // the session in focus: the first still to do, else the last one done; none on a free day
+    val s = if (free != null) null else p?.pending() ?: day.lastOrNull()
     val allDone = day.size > 1 && p?.pending() == null
     val color = s?.let { c(statusColor(it.status)) } ?: Muted
     val (title, sub) = when {
         stalePlan -> tr("Not synced today", "Belum sinkron hari ini") to freshness(t.latest)
         p == null -> tr("No plan yet", "Belum ada plan") to tr("Tap to open Training", "Ketuk untuk buka Latihan")
-        s == null -> tr("Nothing planned", "Tidak ada sesi") to tr("Rest or move easy", "Istirahat atau gerak santai")
-        compact && allDone -> tr("${day.size} sessions done", "${day.size} sesi selesai") to null
-        else -> s.title.text to planTarget(s).ifEmpty { null }
+        free != null -> freeDayTitle(free) to freeDayCaption(p, v, LocalDate.now(), withWeek = false)
+        compact && allDone && day.all { it.status == "done" } -> tr("${day.size} sessions done", "${day.size} sesi selesai") to null
+        compact && allDone -> tr("${day.count { it.status == "done" }} done · ${day.count { it.status == "partial" }} short", "${day.count { it.status == "done" }} selesai · ${day.count { it.status == "partial" }} kurang") to null
+        s == null -> tr("Nothing planned today", "Tidak ada sesi hari ini") to null
+        else -> s.title.text to (if (s.finished) resultText(s) else planTarget(s).ifEmpty { null })
     }
     val days = p?.let { weekDays(it, v) }
     Column(GlanceModifier.fillMaxSize()) {
@@ -633,7 +672,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
             }
         } else Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Image(
-                ImageProvider(s?.let { statusIcon(it.status) } ?: if (p == null) R.drawable.ic_event_available else R.drawable.ic_bedtime),
+                ImageProvider(s?.let { statusIcon(it.status) } ?: when { p == null || stalePlan -> R.drawable.ic_event_available; free == FreeDay.REST -> R.drawable.ic_bedtime; else -> R.drawable.ic_radio_button_unchecked }),
                 contentDescription = null,
                 colorFilter = ColorFilter.tint(color),
                 modifier = GlanceModifier.size(if (compact) 24.dp else 30.dp),
@@ -643,7 +682,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
                 Text(title, style = value(if (compact) 18 else 24), maxLines = 1)
                 sub?.let { Text(it, style = body, maxLines = 1) }
             }
-            s?.pct?.let { Text(" ${(it * 100).roundToInt()}%", style = value(if (compact) 22 else 32, color)) }
+            s?.share?.let { Text(" ${(it * 100).roundToInt()}%", style = value(if (compact) 22 else 32, color)) }
             if (!header) SyncControl(t.latest, syncing, showTime = false, owner = t.role == "owner")
         }
         if (compact) return@Column
@@ -651,7 +690,7 @@ private fun PlanBody(ctx: Context, t: Today, v: PlanView?, syncing: Boolean) {
         p?.adjust?.takeIf { s != null && s == p.session && !s.finished }?.let { a -> targetText(a.target) }?.let {
             Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = label(Status.FAIR.provider()), maxLines = 1, modifier = GlanceModifier.padding(top = 4.dp))
         }
-        if (full) s?.pct?.let {
+        if (full) s?.share?.let {
             Column(GlanceModifier.fillMaxWidth().padding(top = 8.dp)) { Bar(it.toFloat(), color) }
         }
         Spacer(GlanceModifier.defaultWeight())
@@ -686,9 +725,9 @@ private fun SessionRow(s: PlanSession, sync: (@Composable () -> Unit)?) {
         )
         Spacer(GlanceModifier.width(10.dp))
         Text(s.title.text, style = value(18), maxLines = 1, modifier = GlanceModifier.defaultWeight())
-        val pct = s.pct
+        val pct = s.share
         if (pct != null) Text(" ${(pct * 100).roundToInt()}%", style = value(18, c(statusColor(s.status))))
-        else planTarget(s).ifEmpty { null }?.let { Text(" $it", style = body, maxLines = 1) }
+        else if (!s.finished) planTarget(s).ifEmpty { null }?.let { Text(" $it", style = body, maxLines = 1) }
         sync?.invoke()
     }
 }
