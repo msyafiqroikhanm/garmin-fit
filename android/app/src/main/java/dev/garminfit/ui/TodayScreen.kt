@@ -50,7 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -323,7 +323,7 @@ private fun FreeDayRow(free: FreeDay, caption: String?, onOpenPlan: () -> Unit) 
         Modifier.fillMaxWidth().clip(shape).background(K.surface).border(1.dp, K.line, shape)
             .clickable(role = Role.Button, onClickLabel = tr("Open plan", "Buka plan"), onClick = onOpenPlan)
             // read as one button; the dots in the caption become pauses
-            .semantics { contentDescription = listOfNotNull(title, caption?.replace(" · ", ", ")).joinToString(", ") }
+            .clearAndSetSemantics { contentDescription = listOfNotNull(title, caption?.replace(" · ", ", ")).joinToString(", ") }
             .sizeIn(minHeight = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
