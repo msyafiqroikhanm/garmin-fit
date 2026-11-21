@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
  * Debug only: switches the plan fixture, refreshes the caches and widgets, then reopens the app on Today.
  *   adb shell am start -n dev.garminfit/.FixtureActivity --es state rest
  * States: rest | none | noplan | lastday | ending | stale | short; anything else (or "off") goes back to live data.
- * Turning a state on snapshots the cached live /today into filesDir/fixture-base.json (kept across process death, so no
+ * Turning a state on snapshots the cached live /today into filesDir/fixture-snapshot.json (kept across process death, so no
  * backend is needed once one exists); the fixture rewrites that copy and never calls /today.
  */
 class FixtureActivity : ComponentActivity() {
