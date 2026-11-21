@@ -546,7 +546,7 @@ data class ProgramInfo(
 data class WorkoutPrefs(val difficulty: Int = 0, @SerialName("rest_s") val restS: Int = 20)
 
 @Serializable
-data class WorkoutWeek(val sessions: Int = 0, val minutes: Int = 0, val reps: Int = 0, val dates: List<String> = emptyList(), val watch: Int = 0)
+data class WorkoutWeek(val sessions: Int = 0, val minutes: Int = 0, val reps: Int = 0, val sets: Int = 0, val dates: List<String> = emptyList(), val watch: Int = 0)
 
 /** One earlier session of an exercise: reps or seconds per set done, heaviest kg. */
 @Serializable

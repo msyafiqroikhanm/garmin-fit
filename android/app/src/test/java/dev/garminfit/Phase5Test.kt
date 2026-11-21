@@ -31,7 +31,7 @@ class Phase5Test {
     @Test fun nextWeeksPlanIsComparedWithThisWeeks() {
         val today = LocalDate.parse("2026-11-19")
         val s = listOf(run("2026-11-17", 10.0), run("2026-11-22", 20.0), run("2026-11-24", 12.0), run("2026-11-28", 20.0))
-        assertEquals("Next week's plan: 32.0 km, +7% on this week's 30.0 km." to false, planWeekChange(s, today))
+        assertEquals("Next week's plan: 32.0 km, +7% on this week's planned 30.0 km." to false, planWeekChange(s, today))
         val jump = s + run("2026-11-26", 6.0)
         assertEquals(true, planWeekChange(jump, today)!!.second)
         assertNull(planWeekChange(s.take(2), today))

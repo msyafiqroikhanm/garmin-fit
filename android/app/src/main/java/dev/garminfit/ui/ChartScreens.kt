@@ -420,6 +420,11 @@ private fun PredictionsCard(rows: List<Prediction>) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SectionHeader(tr("Race predictions", "Prediksi lomba"))
         Text(tr("Garmin's estimate if you raced today, based on VO2 max and training history.", "Perkiraan Garmin kalau kamu lomba hari ini, dari VO2 max dan riwayat latihan."), style = T.bodyS, color = K.muted)
+        Text(
+            if (gap >= 28) tr("Change compared with 30 days ago.", "Perubahan dibanding 30 hari lalu.")
+            else tr("Change compared with ${dayMonth(month.date)}, the oldest prediction here.", "Perubahan dibanding ${dayMonth(month.date)}, prediksi terlama di sini."),
+            Modifier.padding(top = 2.dp), style = T.caption, color = K.muted,
+        )
         items.forEach { (name, now, before) ->
             now ?: return@forEach
             HorizontalDivider(Modifier.padding(top = 8.dp), color = K.track)
@@ -435,7 +440,8 @@ private fun PredictionsCard(rows: List<Prediction>) {
         }
         val half = rows.map { it.half }
         if (half.count { it != null } > 2) {
-            Text(tr("Half marathon, last ${spanDays(rows.map { it.date })} days", "Half marathon, ${spanDays(rows.map { it.date })} hari terakhir"), Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
+            val n = spanDays(rows.map { it.date })
+            Text(tr("Garmin's half marathon prediction over the last $n days", "Prediksi half marathon Garmin, $n hari terakhir"), Modifier.padding(top = 14.dp), style = T.caption, color = K.muted)
             // negated so a faster prediction draws higher
             var sel by remember { mutableStateOf<Int?>(null) }
             LineChart(
@@ -443,11 +449,6 @@ private fun PredictionsCard(rows: List<Prediction>) {
                 selected = sel, onSelect = { sel = it }, label = { i -> "${dayMonth(rows[i].date)} · ${half[i]?.let { raceTime(it) } ?: "–"}" },
             )
         }
-        Text(
-            if (gap >= 28) tr("Change compared with 30 days ago.", "Perubahan dibanding 30 hari lalu.")
-            else tr("Change compared with ${dayMonth(month.date)}, the oldest prediction here.", "Perubahan dibanding ${dayMonth(month.date)}, prediksi terlama di sini."),
-            Modifier.padding(top = 6.dp), style = T.caption, color = K.muted,
-        )
     }
 }
 
@@ -658,7 +659,7 @@ private fun LoadCard(days: List<Daily>, plan: PlanView?) {
     }
 }
 
-/** "Next week's plan: 32 km, +8% on this week's 30 km." Second is true when the jump is over 10%. Null without both weeks. */
+/** "Next week's plan: 32 km, +8% on this week's planned 30 km." Second is true when the jump is over 10%. Null without both weeks. */
 internal fun planWeekChange(sessions: List<PlanSession>, today: LocalDate = LocalDate.now()): Pair<String, Boolean>? {
     val km = plannedKm(sessions)
     val monday = today.minusDays(today.dayOfWeek.value - 1L)
@@ -667,7 +668,7 @@ internal fun planWeekChange(sessions: List<PlanSession>, today: LocalDate = Loca
     val pct = ((next / now - 1) * 100).roundToInt()
     val change = if (pct >= 0) "+$pct%" else "−${-pct}%"
     val big = pct > 10
-    return tr("Next week's plan: ${next.one()} km, $change on this week's ${now.one()} km", "Plan minggu depan: ${next.one()} km, $change dari ${now.one()} km minggu ini") +
+    return tr("Next week's plan: ${next.one()} km, $change on this week's planned ${now.one()} km", "Plan minggu depan: ${next.one()} km, $change dari rencana ${now.one()} km minggu ini") +
         (if (big) tr(", more than the usual +10%. Keep an eye on recovery.", ", lebih dari +10% biasanya. Perhatikan pemulihan.") else ".") to big
 }
 
