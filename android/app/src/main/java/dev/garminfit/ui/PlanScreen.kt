@@ -752,7 +752,10 @@ internal fun resultText(s: PlanSession): String? {
         "skipped" -> listOfNotNull(tr("skipped", "dilewati"), s.skipped?.let { skipReason(it).lowercase() }).joinToString(" · ")
         "done" -> when {
             d?.sets != null -> tr("done · ${d.sets} of ${d.of} sets", "selesai · ${d.sets} dari ${d.of} set")
-            s.kind == "strength" && d?.durationS != null -> tr("done · ${duration(d.durationS)} on the watch", "selesai · ${duration(d.durationS)} di jam tangan")
+            s.kind == "strength" && d?.durationS != null -> listOfNotNull(
+                s.doneOn?.let { tr("done ${weekdayShort(it)}", "dikerjakan ${weekdayShort(it)}") } ?: tr("done", "selesai"),
+                tr("${duration(d.durationS)} on the watch", "${duration(d.durationS)} di jam tangan"),
+            ).joinToString(" · ")
             s.doneOn != null -> tr("done ${weekdayShort(s.doneOn)}", "dikerjakan ${weekdayShort(s.doneOn)}") +
                 (d?.distanceM?.takeIf { (s.target?.distanceM ?: 0.0) > 0 }?.let { " · ${km(it)} km" } ?: "")
             tgt?.distanceM != null && d?.distanceM != null -> tr("done ${km(d.distanceM)} km", "tercapai ${km(d.distanceM)} km")

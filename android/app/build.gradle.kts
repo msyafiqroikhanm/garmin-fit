@@ -42,6 +42,8 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+    testOptions { unitTests.isReturnDefaultValues = true }
+
     buildFeatures {
         compose = true
         buildConfig = true
