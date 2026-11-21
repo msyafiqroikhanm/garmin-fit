@@ -23,12 +23,12 @@ class FixtureActivity : ComponentActivity() {
             val snaps = FixtureSnapshot(filesDir)
             if (want != null) {
                 if (DebugFixture.base == null) {
-                    DebugFixture.base = snaps.resolve { Repo.cachedToday(this@FixtureActivity)?.let { json.encodeToString(Today.serializer(), it) } }
+                    DebugFixture.base = snaps.resolve { Repo.cachedToday(this@FixtureActivity)?.takeIf { it.plan?.name != DebugFixture.NAME }?.let { json.encodeToString(Today.serializer(), it) } }
                 }
                 if (DebugFixture.base == null) {
                     // refuse before any fetch: /today on the real backend may store a recovery adjustment
                     DebugFixture.state = null
-                    Log.i(TAG, "state=off refreshed=false reason=no live /today snapshot, open Today on live data with the fixture off first")
+                    Log.i(TAG, "state=off refreshed=false reason=no live /today snapshot, run state off with the backend reachable first")
                     finish()
                     return@launch
                 }

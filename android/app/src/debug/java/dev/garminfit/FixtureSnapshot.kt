@@ -3,20 +3,21 @@ package dev.garminfit
 import java.io.File
 
 /**
- * Where the fixture's live /today comes from. A flag file marks every moment a fixture was on; while it exists the
- * cached /today may be fixture output (including `noplan`, whose plan is null), so only the snapshot file of the last
- * live capture counts. The flag is removed once a fetch with the fixture off succeeds, which makes the cache live again.
+ * Where the fixture's live /today comes from. The cached /today counts as live only while the `fixture-live` marker
+ * exists, and only a successful fetch with the fixture off writes it ([markLive]); switching a state on removes it
+ * ([markOn]). A missing marker therefore means unknown provenance (an older debug build, or any fixture output), never
+ * live: then only the snapshot file of an earlier verified capture stands in, or there is none and the caller refuses.
  */
 class FixtureSnapshot(dir: File) {
     @PublishedApi internal val file = File(dir, "fixture-base.json")
-    @PublishedApi internal val flag = File(dir, "fixture-on")
+    @PublishedApi internal val live = File(dir, "fixture-live")
 
     /** The snapshot JSON to build on, or null when there is none (the caller must refuse). */
     inline fun resolve(cachedLive: () -> String?): String? {
-        if (!flag.exists()) cachedLive()?.let { file.writeText(it) }
+        if (live.exists()) cachedLive()?.let { file.writeText(it) }
         return file.takeIf { it.exists() }?.readText()
     }
 
-    fun markOn() { flag.writeText("1") }
-    fun markLive() { flag.delete() }
+    fun markOn() { live.delete() }
+    fun markLive() { live.writeText("1") }
 }

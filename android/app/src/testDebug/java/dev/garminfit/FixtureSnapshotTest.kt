@@ -1,6 +1,7 @@
 package dev.garminfit
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -13,14 +14,23 @@ class FixtureSnapshotTest {
         assertNull(FixtureSnapshot(tmp.root).resolve { null })
     }
 
-    @Test fun aLiveCacheIsCapturedAndKept() {
+    @Test fun aCacheOfUnknownProvenanceIsNeverCaptured() {
+        // upgrade from a build that wrote fixture output and no marker
         val s = FixtureSnapshot(tmp.root)
+        assertNull(s.resolve { """{"role":"owner","plan":{"name":"QA fixture block"},"today_activities":[]}""" })
+        assertFalse(java.io.File(tmp.root, "fixture-base.json").exists())
+    }
+
+    @Test fun aVerifiedLiveCacheIsCapturedAndKept() {
+        val s = FixtureSnapshot(tmp.root)
+        s.markLive()
         assertEquals("live", s.resolve { "live" })
         assertEquals("live", FixtureSnapshot(tmp.root).resolve { null })
     }
 
-    @Test fun whileAFixtureWasOnTheCacheIsNeverCaptured() {
+    @Test fun switchingAStateOnStopsCapturing() {
         val s = FixtureSnapshot(tmp.root)
+        s.markLive()
         assertEquals("live", s.resolve { "live" })
         s.markOn()
         assertEquals("live", s.resolve { """{"plan":null}""" }) // noplan output must not replace it
@@ -31,7 +41,7 @@ class FixtureSnapshotTest {
 
     @Test fun aLiveFetchWithTheFixtureOffReopensCapture() {
         val s = FixtureSnapshot(tmp.root)
-        s.markOn(); s.markLive()
+        s.markLive(); s.resolve { "old" }; s.markOn(); s.markLive()
         assertEquals("newer", s.resolve { "newer" })
     }
 }
