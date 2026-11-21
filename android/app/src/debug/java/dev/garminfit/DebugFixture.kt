@@ -9,36 +9,46 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import android.util.Log
 import java.time.LocalDate
 
 /**
- * Debug only: fakes plan states the owner's real plan does not have today. /plan answers a made-up block named
- * "QA fixture block"; /today keeps its real readings and gets that block's day as its plan. Set by FixtureActivity;
- * null passes every call through. The real plan, sessions and overrides in Mongo are never touched.
+ * Debug only: fakes plan states the owner's real plan does not have today. While a state is on, nothing that could
+ * write reaches the backend: /plan answers a made-up block named "QA fixture block", /today is rebuilt from [base]
+ * (the last live /today, captured when the fixture was switched on) and never forwarded, because the backend's
+ * /today may store a recovery adjustment; every non-GET call (sync, overrides, logs) is refused with 409.
+ * Other GETs pass through. Set by FixtureActivity; a null state passes every call through.
  */
 object DebugFixture : Interceptor {
     val STATES = setOf("rest", "none", "noplan", "lastday", "ending", "stale", "short")
+    const val NAME = "QA fixture block"
     @Volatile var state: String? = null
+    /** The live /today JSON the fixture rewrites; captured by FixtureActivity, cleared when the fixture goes off. */
+    @Volatile var base: String? = null
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val st = state
+        val st = state ?: return chain.proceed(chain.request())
         val req = chain.request()
         val path = req.url.encodedPath
-        if (st == null || req.method != "GET" || (path != "/today" && path != "/plan")) return chain.proceed(req)
+        if (req.method != "GET") {
+            Log.w("Fixture", "blocked ${req.method} $path")
+            return reply(req, 409, """{"detail":"fixture active: writes are blocked"}""")
+        }
+        if (path != "/today" && path != "/plan") return chain.proceed(req)
         val today = LocalDate.now()
         val v = view(st, today)
-        val body = if (path == "/plan") json.encodeToString(PlanView.serializer(), v) else {
-            val real = chain.proceed(req)
-            if (!real.isSuccessful) return real
-            val obj = json.parseToJsonElement(real.body!!.string()).jsonObject.toMutableMap()
-            obj["plan"] = planToday(st, v, today)?.let { json.encodeToJsonElement(PlanToday.serializer(), it) } ?: JsonNull
-            // free-day states need "nothing done today"; "short" keeps the real activities so Today shows its result
-            if (st != "short") { obj["today_activities"] = JsonArray(emptyList()); obj["last_activity"] = JsonNull }
-            JsonObject(obj).toString()
-        }
-        return Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(200).message("OK")
-            .body(body.toResponseBody("application/json".toMediaType())).build()
+        if (path == "/plan") return reply(req, 200, json.encodeToString(PlanView.serializer(), v))
+        val snap = base ?: return reply(req, 409, """{"detail":"fixture has no live /today to start from"}""")
+        val obj = json.parseToJsonElement(snap).jsonObject.toMutableMap()
+        obj["plan"] = planToday(st, v, today)?.let { json.encodeToJsonElement(PlanToday.serializer(), it) } ?: JsonNull
+        // free-day states need "nothing done today"; "short" keeps the real activities so Today shows its result
+        if (st != "short") { obj["today_activities"] = JsonArray(emptyList()); obj["last_activity"] = JsonNull }
+        return reply(req, 200, JsonObject(obj).toString())
     }
+
+    private fun reply(req: okhttp3.Request, code: Int, body: String) = Response.Builder()
+        .request(req).protocol(Protocol.HTTP_1_1).code(code).message(if (code == 200) "OK" else "Conflict")
+        .body(body.toResponseBody("application/json".toMediaType())).build()
 
     private fun s(d: LocalDate, kind: String, type: String, title: String, status: String, target: PlanTarget? = null) =
         PlanSession(date = d.toString(), kind = kind, type = type, title = Bi(title, title), target = target, status = status)
@@ -72,7 +82,7 @@ object DebugFixture : Interceptor {
             val rows = sessions.filter { LocalDate.parse(it.date) >= w && LocalDate.parse(it.date) < w.plusWeeks(1) && it.kind != "rest" }
             PlanWeek(w.toString(), planned = rows.size, done = rows.count { it.status == "done" }, partial = rows.count { it.status == "partial" }, missed = 0, skipped = 0)
         }.toList()
-        val meta = PlanMeta("QA fixture block", Bi("Fixture untuk status hari plan", "Fixture for plan day states"), start.toString(), end.toString(), id = "qa-fixture")
+        val meta = PlanMeta(NAME, Bi("Fixture untuk status hari plan", "Fixture for plan day states"), start.toString(), end.toString(), id = "qa-fixture")
         return PlanView(plan = meta, sessions = sessions, weeks = weeks)
     }
 

@@ -53,6 +53,8 @@ class PlanPhase2Test {
         assertEquals("short · 5.4 of 6 km", resultText(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
         assertEquals("short · 40m of 50m", resultText(s("2026-11-19", "partial", target = PlanTarget(durationS = 3000.0), done = PlanTarget(durationS = 2400.0))))
         assertEquals("short · 5.4 of 6 km · on Thu", resultText(s("2026-11-18", "partial", done = PlanTarget(5400.0, 2100.0)).copy(doneOn = "2026-11-19")))
+        val moved = s("2026-11-20", "done", "strength", PlanTarget(durationS = 1800.0), PlanTarget(0.0, 1200.0)).copy(doneOn = "2026-11-21")
+        assertEquals("done Sat · 20m on the watch", resultText(moved))
         assertEquals("short · 5.4 of 6 km", sessionProgress(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
         assertNull(s("2026-11-21", "done", "strength").copy(pct = 1.0).share)
         val shortRun = s("2026-11-21", "partial", done = PlanTarget(5400.0, 2100.0))
@@ -81,6 +83,7 @@ class PlanPhase2Test {
         Locale.setDefault(Locale("in"))
         try {
             assertEquals("kurang · 5,4 dari 6 km", resultText(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
+            assertEquals("dikerjakan Sab · 20m di jam tangan", resultText(s("2026-11-20", "done", "strength", PlanTarget(durationS = 1800.0), PlanTarget(0.0, 1200.0)).copy(doneOn = "2026-11-21")))
         } finally { Locale.setDefault(Locale.ENGLISH) }
     }
 }
