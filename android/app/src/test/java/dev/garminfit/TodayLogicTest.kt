@@ -25,7 +25,9 @@ class TodayLogicTest {
 
         val allDone = pending.copy(sessions = listOf(session("run", "done"), session("strength", "partial")))
         assertNull(allDone.pending())
-        assertEquals("Today's sessions are done. Rest up and eat well.", todayAdvice(null, allDone)!!.first)
+        assertEquals("That's it for today, a bit under target. Rest up and eat well.", todayAdvice(null, allDone)!!.first)
+        val bothDone = pending.copy(sessions = listOf(session("run", "done"), session("strength", "done")))
+        assertEquals("Today's sessions are done. Rest up and eat well.", todayAdvice(null, bothDone)!!.first)
     }
 
     @Test fun oldServerFallsBackToTheSingleSession() {

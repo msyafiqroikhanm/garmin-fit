@@ -381,14 +381,7 @@ private fun DoneStrength(s: PlanSession, onOpenActivity: (Long) -> Unit, onLog: 
         PlanStatusMark(s)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(s.title.text, style = body(15.sp, FontWeight.SemiBold), color = K.ink)
-            Text(
-                when {
-                    act != null -> tr("Done · ${duration(s.done?.durationS)} on the watch", "Selesai · ${duration(s.done?.durationS)} di jam tangan")
-                    s.done?.sets != null -> tr("Done · ${s.done.sets} of ${s.done.of} sets", "Selesai · ${s.done.sets} dari ${s.done.of} set")
-                    else -> tr("Done today", "Selesai hari ini")
-                },
-                style = T.caption, color = K.muted,
-            )
+            Text(resultText(s)?.replaceFirstChar { it.uppercase() } ?: tr("Done today", "Selesai hari ini"), style = T.caption, color = K.muted)
         }
         if (open != null) Glyph(R.drawable.ic_chevron_right, K.muted, 20.dp)
     }

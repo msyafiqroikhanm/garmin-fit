@@ -6,6 +6,7 @@ import dev.garminfit.ui.countableFor
 import dev.garminfit.ui.donePace
 import dev.garminfit.ui.linkCandidates
 import dev.garminfit.ui.resultText
+import dev.garminfit.ui.sessionProgress
 import dev.garminfit.ui.weekProgress
 import dev.garminfit.ui.workLaps
 import org.junit.Assert.assertEquals
@@ -47,7 +48,15 @@ class PlanPhase2Test {
 
     @Test fun resultSaysWhatHappened() {
         assertEquals("done Wed · 6.02 km", resultText(s("2026-11-17", "done", done = PlanTarget(6020.0, 2900.0)).copy(doneOn = "2026-11-18")))
-        assertEquals("12 of 14 sets", resultText(s("2026-11-20", "partial", "strength", done = PlanTarget(sets = 12, of = 14))))
+        assertEquals("done · 12 of 14 sets", resultText(s("2026-11-20", "done", "strength", done = PlanTarget(sets = 12, of = 14))))
+        assertEquals("done · 23m 24s on the watch", resultText(s("2026-11-21", "done", "strength", PlanTarget(durationS = 1500.0), PlanTarget(0.0, 1404.0))))
+        assertEquals("short · 5.4 of 6 km", resultText(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
+        assertEquals("short · 40m of 50m", resultText(s("2026-11-19", "partial", target = PlanTarget(durationS = 3000.0), done = PlanTarget(durationS = 2400.0))))
+        assertEquals("short · 5.4 of 6 km · on Thu", resultText(s("2026-11-18", "partial", done = PlanTarget(5400.0, 2100.0)).copy(doneOn = "2026-11-19")))
+        assertEquals("short · 5.4 of 6 km", sessionProgress(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
+        assertNull(s("2026-11-21", "done", "strength").copy(pct = 1.0).share)
+        val shortRun = s("2026-11-21", "partial", done = PlanTarget(5400.0, 2100.0))
+        assertEquals("That's it for today, a bit under target. Rest up and eat well.", todayAdvice(null, PlanToday("P", sessions = listOf(shortRun)))!!.first)
         assertEquals("skipped · sick", resultText(s("2026-11-19", "skipped").copy(skipped = "sick")))
         assertEquals("missed", resultText(s("2026-11-19", "missed")))
     }
@@ -66,5 +75,12 @@ class PlanPhase2Test {
     @Test fun repsAreTheLapsRunNearThePlannedPace() {
         val laps = listOf(Split(2000.0, 900.0), Split(2000.0, 656.0), Split(400.0, 150.0), Split(2000.0, 652.0), Split(1480.0, 830.0), Split(30.0, 5.0))
         assertEquals(listOf(328.0, 326.0), workLaps(laps, PlanPace(325.0, 335.0)))
+    }
+
+    @Test fun indonesianShortResult() {
+        Locale.setDefault(Locale("in"))
+        try {
+            assertEquals("kurang · 5,4 dari 6 km", resultText(s("2026-11-19", "partial", done = PlanTarget(5400.0, 2100.0))))
+        } finally { Locale.setDefault(Locale.ENGLISH) }
     }
 }

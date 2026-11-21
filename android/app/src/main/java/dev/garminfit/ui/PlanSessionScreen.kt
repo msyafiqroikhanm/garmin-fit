@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import dev.garminfit.share
 import dev.garminfit.PlanSession
 import dev.garminfit.PlanView
 import dev.garminfit.PlanExtra
@@ -197,7 +198,7 @@ private fun TargetCard(s: PlanSession, owner: Boolean, onOpenActivity: (Long) ->
                     if (sub.isNotEmpty()) Text(sub, style = T.caption, color = K.muted)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Label(tr("Done", "Tercapai"))
+                    Label(if (s.status == "partial") tr("You did", "Yang dikerjakan") else tr("Done", "Tercapai"))
                     Text(
                         when {
                             d == null -> "–"
@@ -210,7 +211,7 @@ private fun TargetCard(s: PlanSession, owner: Boolean, onOpenActivity: (Long) ->
                     if (d?.sets != null) Text(tr("sets from your workout log", "set dari catatan workout"), style = T.caption, color = K.muted)
                 }
             }
-            s.pct?.let {
+            s.share?.let {
                 SpanBar(0f, it.toFloat(), statusColor(s.status), height = 6.dp)
                 Text(targetShare(s, it), style = T.caption, color = K.muted)
             }
