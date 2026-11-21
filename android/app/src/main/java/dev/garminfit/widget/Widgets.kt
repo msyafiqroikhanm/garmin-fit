@@ -22,6 +22,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.ColorFilter
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
@@ -222,7 +223,7 @@ private fun Steps(d: Daily) {
 
 /** Today's plan in one line: the session still to do with its score, done, short, a free day with what's next, or no plan. */
 @Composable
-private fun PlanLine(ctx: Context, plan: PlanToday?) {
+private fun PlanLine(ctx: Context, plan: PlanToday?, compact: Boolean = false) {
     val day = plan?.daySessions.orEmpty()
     val p = plan?.pending()
     val free = plan?.freeDay()
@@ -235,8 +236,12 @@ private fun PlanLine(ctx: Context, plan: PlanToday?) {
             }
             free != null -> {
                 Mark(if (free == FreeDay.REST) R.drawable.ic_bedtime else R.drawable.ic_radio_button_unchecked, Muted)
-                Text(" " + freeDayTitle(free), style = value(13), maxLines = 1)
-                Text(freeDayCaption(plan, LocalPlan.current, LocalDate.now(), withWeek = false)?.let { " · $it" } ?: "", style = body, maxLines = 1, modifier = GlanceModifier.defaultWeight())
+                // a 2×2 has no room for the long title or the next session: the short label alone, never cut off
+                if (compact) Text(" " + shortFreeDay(free), style = value(13), maxLines = 1, modifier = GlanceModifier.defaultWeight())
+                else {
+                    Text(" " + freeDayTitle(free), style = value(13), maxLines = 1)
+                    Text(freeDayCaption(plan, LocalPlan.current, LocalDate.now(), withWeek = false)?.let { " · $it" } ?: "", style = body, maxLines = 1, modifier = GlanceModifier.defaultWeight())
+                }
             }
             p == null && day.all { it.status == "done" } -> {
                 Mark(R.drawable.ic_check_circle, Accent)
@@ -253,6 +258,11 @@ private fun PlanLine(ctx: Context, plan: PlanToday?) {
             }
         }
     }
+}
+
+private fun shortFreeDay(f: FreeDay) = when (f) {
+    FreeDay.REST -> tr("Rest day", "Istirahat")
+    FreeDay.NONE -> tr("No session", "Tidak ada sesi")
 }
 
 /** A status mark at the text's own height, so the 2×2 card keeps its fit. */
@@ -287,6 +297,8 @@ class RecoveryWidget : TodayWidget() {
         if (d == null) return@Card Placeholder(t)
         if (verdict == null) return@Card Text(tr("No readiness score yet today.", "Belum ada skor readiness hari ini."), style = body)
         val tall = LocalSize.current.height >= 190.dp
+        val fontScale = LocalContext.current.resources.configuration.fontScale
+        val planFits = tall && LocalSize.current.height >= (170 * fontScale).dp
         Column(GlanceModifier.fillMaxSize()) {
             // a 2-wide header fits the time but not the word "Sync"
             val narrow = LocalSize.current.width < 200.dp
@@ -295,7 +307,8 @@ class RecoveryWidget : TodayWidget() {
             // stacked, since a 2-wide widget has no room for the number and the word side by side
             Text(d.readiness.int(), style = value(44))
             Text(verdict.word.uppercase(), style = value(20, verdict.status.provider()), maxLines = 1)
-            Text(verdict.tagline, style = body, maxLines = 1)
+            // Trade the tagline for the plan at larger fonts; omit the plan if even that cannot fit.
+            if (!(planFits && fontScale > 1.05f)) Text(verdict.tagline, style = body, maxLines = 1)
             // one child for the tall extras: Glance caps a Column at 10 and HRV plus the plan line passed it
             if (tall) Column(GlanceModifier.fillMaxWidth().padding(top = 8.dp)) {
                 d.hrv?.let { hrv ->
@@ -308,7 +321,7 @@ class RecoveryWidget : TodayWidget() {
                     }
                     HrvBand(d, hrv, status?.second)
                 }
-                t.asOf().let { pt -> if (pt.plan != null || t.plan == null) { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, pt.plan) } }
+                if (planFits) t.asOf().let { pt -> if (pt.plan != null || t.plan == null) { Spacer(GlanceModifier.height(8.dp)); PlanLine(ctx, pt.plan, compact = true) } }
             }
             Spacer(GlanceModifier.defaultWeight())
         }
