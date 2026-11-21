@@ -185,6 +185,8 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     var planOpen by rememberSaveable { mutableStateOf(false) }
     var planSession by rememberSaveable { mutableStateOf<String?>(null) }
     var planFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
+    // the tab the plan list itself was opened from; closing the list returns there
+    var planBase by rememberSaveable { mutableStateOf<Tab?>(null) }
     // a date the Activities list should scroll to (a Recap bar), and the tab to go back to from that list
     var activitiesAt by rememberSaveable { mutableStateOf<String?>(null) }
     var listFrom by rememberSaveable { mutableStateOf<Tab?>(null) }
@@ -199,7 +201,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     LaunchedEffect(launch) {
         launch?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name }?.let { tab = it } }
         launch?.getLongExtra(EXTRA_ACTIVITY, -1L)?.takeIf { it >= 0 }?.let { activityId = it; activityFrom = null; tab = Tab.ACTIVITIES }
-        if (launch?.getBooleanExtra(EXTRA_PLAN, false) == true) { tab = Tab.TRAINING; planOpen = true }
+        if (launch?.getBooleanExtra(EXTRA_PLAN, false) == true) { tab = Tab.TRAINING; planOpen = true; planBase = null }
         // handled once: a rotation or language change must not reopen the widget's target
         launch?.run { removeExtra(EXTRA_TAB); removeExtra(EXTRA_ACTIVITY); removeExtra(EXTRA_PLAN) }
     }
@@ -210,6 +212,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     }
     fun openPlan(session: String? = null) {
         planFrom = if (session != null) tab.takeIf { it != Tab.TRAINING } else null
+        planBase = if (session == null) tab.takeIf { it != Tab.TRAINING } else null
         planOpen = true
         planSession = session
         tab = Tab.TRAINING
@@ -219,7 +222,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
     BackHandler(enabled = tab != Tab.TODAY && !playing) { tab = Tab.TODAY }
     Scaffold(
         containerColor = K.base,
-        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null; logFrom = null; listFrom = null } },
+        bottomBar = { if (!playing) BottomNav(tab) { t -> tab = t; activityFrom = null; planFrom = null; planBase = null; logFrom = null; listFrom = null } },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             val reduce = LocalReduceMotion.current
@@ -271,7 +274,10 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                             Tab.TRAINING -> TrainingScreen(
                                 onOpenActivity = ::openActivity,
                                 planOpen = planOpen,
-                                onPlanOpen = { planOpen = it; if (!it) planSession = null },
+                                onPlanOpen = {
+                                    planOpen = it
+                                    if (!it) { planSession = null; planBase?.let { from -> tab = from }; planBase = null }
+                                },
                                 planSession = planSession,
                                 onPlanSession = { k ->
                                     planSession = k
@@ -281,7 +287,7 @@ private fun Home(launch: Intent?, onOpenAccount: () -> Unit, onLogout: () -> Uni
                                 onOpenLog = { workoutLog = it; logFrom = Tab.TRAINING; tab = Tab.WORKOUT },
                                 onStartWorkout = { workoutKey = it; tab = Tab.WORKOUT },
                                 onOpenActivitiesAt = { activitiesAt = it; listFrom = Tab.TRAINING; activityId = null; tab = Tab.ACTIVITIES },
-                                onOpenToday = { planOpen = false; tab = Tab.TODAY },
+                                onOpenToday = { planOpen = false; planBase = null; tab = Tab.TODAY },
                             )
                         }
                     }
