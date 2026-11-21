@@ -18,7 +18,15 @@ class FixtureSnapshotTest {
         // upgrade from a build that wrote fixture output and no marker
         val s = FixtureSnapshot(tmp.root)
         assertNull(s.resolve { """{"role":"owner","plan":{"name":"QA fixture block"},"today_activities":[]}""" })
-        assertFalse(java.io.File(tmp.root, "fixture-base.json").exists())
+        assertFalse(java.io.File(tmp.root, "fixture-snapshot.json").exists())
+    }
+
+    @Test fun aLegacySnapshotFileIsIgnored() {
+        java.io.File(tmp.root, "fixture-base.json").writeText("""{"plan":{"name":"QA fixture block"}}""")
+        assertNull(FixtureSnapshot(tmp.root).resolve { null })
+        val s = FixtureSnapshot(tmp.root)
+        s.markLive()
+        assertEquals("live", s.resolve { "live" })
     }
 
     @Test fun aVerifiedLiveCacheIsCapturedAndKept() {
