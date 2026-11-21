@@ -3,5 +3,6 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application android:networkSecurityConfig="@xml/debug_network" tools:ignore="UnusedAttribute">
         <activity android:name=".WidgetPreviewActivity" android:exported="true" />
+        <activity android:name=".FixtureActivity" android:exported="true" />
     </application>
 </manifest>

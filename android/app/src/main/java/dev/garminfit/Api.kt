@@ -438,6 +438,8 @@ data class PlanAdjust(
 @Serializable
 data class PlanToday(
     val name: String,
+    /** The day this plan line is for; older servers leave it out, then a session's date stands in. */
+    val date: String? = null,
     /** The one session [adjust] reasons about: today's run, else the first session. */
     val session: PlanSession? = null,
     /** All of today's sessions, rest included. Older servers send only [session]; see [daySessions]. */
@@ -723,6 +725,7 @@ object Repo {
             .addInterceptor { chain ->
                 chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
             }
+            .addInterceptor(DebugFixture)
             .build()
         val api = Retrofit.Builder()
             .baseUrl(BuildConfig.API_BASE_URL)

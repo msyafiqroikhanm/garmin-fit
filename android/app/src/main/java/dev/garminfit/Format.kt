@@ -176,7 +176,7 @@ fun readinessVerdict(level: String?, score: Double?, recoveryMin: Double?): Verd
 }
 
 fun targetText(t: PlanTarget?): String? =
-    t?.distanceM?.let { "${km(it).trimEnd('0').trimEnd('.', ',')} km" } ?: t?.durationS?.let { duration(it) }
+    t?.distanceM?.let { "${kmTrim(it)} km" } ?: t?.durationS?.let { duration(it) }
 
 /** Why the plan still stands on a day Garmin's readiness is not good; null when readiness is good. */
 fun planStandsNote(v: Verdict): String? = if (v.status == Status.GOOD) null else tr(
@@ -188,6 +188,15 @@ fun planStandsNote(v: Verdict): String? = if (v.status == Status.GOOD) null else
 fun restUp(): String = tr("Rest up and eat well.", "Sisanya istirahat dan makan yang cukup.")
 
 val PlanSession.finished: Boolean get() = status == "done" || status == "partial"
+
+/** The share of target worth showing: strength counts as done whenever it was done, so its 100% says nothing. */
+val PlanSession.share: Double? get() = pct.takeIf { kind != "strength" }
+
+/** The day [PlanToday] is for: its own date, else the first session's (older servers). */
+val PlanToday.day: String? get() = date ?: (sessions.firstOrNull() ?: session)?.date
+
+/** "5.4" from 5400 m, "6" from 6000 m: km without trailing zeros. */
+fun kmTrim(m: Double): String = km(m).trimEnd('0').trimEnd('.', ',')
 
 /** run | strength | other, the way the backend's _kind sorts Garmin activity types. */
 fun kindOf(type: String?): String = when {
@@ -244,7 +253,7 @@ fun Today.doneToday(today: String = LocalDate.now().toString()): List<Activity> 
  * yesterday's activities and plan sessions, which would otherwise read as today's.
  */
 fun Today.asOf(today: String = LocalDate.now().toString()): Today {
-    val planDay = plan?.let { p -> (p.sessions.firstOrNull() ?: p.session)?.date }
+    val planDay = plan?.day
     return copy(
         todayActivities = todayActivities.filter { it.date.take(10) == today },
         plan = plan?.takeIf { planDay == null || planDay == today },

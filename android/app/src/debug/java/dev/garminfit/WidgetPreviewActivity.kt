@@ -27,7 +27,7 @@ import java.io.File
  *   adb shell am start -n dev.garminfit/.WidgetPreviewActivity
  *   adb pull /sdcard/Android/data/dev.garminfit/files/previews
  *
- * Sizes are the old previews at 440 dpi: 4×2 is 344×223 dp, 2×2 164×223, 4×1 344×104.
+ * Sizes are the old previews at 440 dpi: 4×2 is 344×223 dp, 2×2 164×223, 4×1 344×104 (used by plan_small, the 4×1 plan).
  */
 class WidgetPreviewActivity : ComponentActivity() {
     private val host by lazy { AppWidgetHost(this, 4711) }
@@ -39,6 +39,7 @@ class WidgetPreviewActivity : ComponentActivity() {
         Triple("trend", "TrendReceiver", SizeF(344f, 223f)),
         Triple("last", "LastActivityReceiver", SizeF(344f, 104f)),
         Triple("plan", "PlanReceiver", SizeF(344f, 223f)),
+        Triple("plan_small", "PlanReceiver", SizeF(344f, 104f)),
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

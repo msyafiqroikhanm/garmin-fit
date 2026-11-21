@@ -270,6 +270,49 @@ internal fun weekProgress(w: PlanWeek): String {
     return tr("This week · ", "Minggu ini · ") + progressLine(PlanCounts(w.done, w.partial, w.missed, w.skipped ?: 0, toGo))
 }
 
+/** What today is when the plan has nothing to do: a rest day, or no session dated today. */
+enum class FreeDay { REST, NONE }
+
+/** Null when today has a session to show (or there is no plan at all, which callers check first). */
+fun PlanToday.freeDay(): FreeDay? = when {
+    daySessions.isNotEmpty() -> null
+    sessions.ifEmpty { listOfNotNull(session) }.any { it.kind == "rest" } -> FreeDay.REST
+    else -> FreeDay.NONE
+}
+
+fun freeDayTitle(f: FreeDay): String = when (f) {
+    FreeDay.REST -> tr("Rest day", "Hari istirahat")
+    FreeDay.NONE -> tr("Nothing planned today", "Tidak ada sesi hari ini")
+}
+
+/** The next session to do after [today] in the cached plan, run first on a double day; null when the block has none left. */
+internal fun nextSession(sessions: List<PlanSession>, today: String): PlanSession? =
+    sessions.filter { it.date > today && it.kind != "rest" && it.status != "skipped" }
+        .sortedWith(compareBy<PlanSession>({ it.date }, { it.kind != "run" })).firstOrNull()
+
+/**
+ * Caption under a free day: "Week 3 · Next: Sun · Long run 17 km"; with nothing left, "Last day of this block" on the
+ * plan's last day, else "Block ends Mon 23 Nov". [withWeek] false drops the week (widgets). Without a cached plan of the
+ * same name, the week's counts stand in (or nothing, for widgets): never an empty "Next:".
+ */
+fun freeDayCaption(p: PlanToday, v: PlanView?, today: LocalDate, withWeek: Boolean): String? {
+    val meta = v?.plan?.takeIf { it.name == p.name }
+    if (v == null || meta == null) return if (withWeek) p.week?.let { weekProgress(it) } else null
+    val t = today.toString()
+    val n = nextSession(v.sessions, t)
+    val tail = when {
+        n != null -> {
+            val day = if (ChronoUnit.DAYS.between(today, LocalDate.parse(n.date)) <= 6) weekdayShort(n.date) else "${weekdayShort(n.date)} ${dayMonth(n.date)}"
+            val what = listOfNotNull(n.title.text, targetText(n.target)?.takeUnless { n.title.text.contains(it) }).joinToString(" ")
+            tr("Next: $day · $what", "Berikutnya: $day · $what")
+        }
+        t >= meta.end -> tr("Last day of this block", "Hari terakhir blok ini")
+        else -> tr("Block ends ${weekdayShort(meta.end)} ${dayMonth(meta.end)}", "Blok selesai ${weekdayShort(meta.end)} ${dayMonth(meta.end)}")
+    }
+    val week = weekNo(meta, weekOf(t)).takeIf { withWeek && it >= 1 }?.let { tr("Week $it", "Minggu $it") }
+    return listOfNotNull(week, tail).joinToString(" · ")
+}
+
 /** Average share of target, shown only when it says something the counts do not (below 90%). */
 internal fun averageLine(pct: Double?, scored: Int): String? = pct?.takeIf { it < 0.9 }?.let {
     tr("Average ${pctText(it)} of target across $scored scored sessions", "Rata-rata ${pctText(it)} dari target pada $scored sesi yang dinilai")
