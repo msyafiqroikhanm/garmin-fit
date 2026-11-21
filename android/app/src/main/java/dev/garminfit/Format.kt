@@ -268,8 +268,10 @@ fun Today.asOf(today: String = LocalDate.now().toString()): Today {
 fun todayAdvice(v: Verdict?, plan: PlanToday?): Pair<String, List<String>>? {
     val all = plan?.daySessions.orEmpty()
     if (all.isEmpty()) return v?.let { it.advice to it.chips }
-    val s = plan!!.pending()
-        ?: return tr(if (all.size > 1) "Today's sessions are done. " else "Today's session is done. ", "Sesi hari ini udah selesai. ") + restUp() to emptyList()
+    val s = plan!!.pending() ?: return (
+        if (all.any { it.status == "partial" }) tr("That's it for today, a bit under target. ", "Cukup untuk hari ini, sedikit di bawah target. ")
+        else tr(if (all.size > 1) "Today's sessions are done. " else "Today's session is done. ", "Sesi hari ini udah selesai. ")
+    ) + restUp() to emptyList()
     val title = s.title.text
     val planned = targetText(s.target)
     // the server reasons about one session (the run); its adjustment does not carry over to the strength after it

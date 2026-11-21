@@ -32,6 +32,8 @@ import dev.garminfit.targetShare
 import dev.garminfit.kindOf
 import dev.garminfit.dayMonthYear
 import dev.garminfit.friendly
+import dev.garminfit.kmTrim
+import dev.garminfit.share
 import dev.garminfit.widget.Widgets
 import android.widget.Toast
 import androidx.compose.runtime.produceState
@@ -111,7 +113,7 @@ fun planTarget(s: PlanSession): String = listOfNotNull(
 
 internal fun statusLabel(s: PlanSession) = when (s.status) {
     "done" -> tr("Done", "Selesai")
-    "partial" -> pctText(s.pct)
+    "partial" -> tr("Short", "Kurang")
     "missed" -> tr("Missed", "Terlewat")
     "skipped" -> tr("Skipped", "Dilewati")
     "today" -> tr("Today", "Hari ini")
@@ -152,17 +154,12 @@ fun PlanStatusMark(s: PlanSession, size: androidx.compose.ui.unit.Dp = 24.dp, ti
     )
 }
 
-/** "45m · 7:00–7:30 /km · 100% of time target": the target, then where the session stands. */
-internal fun sessionProgress(s: PlanSession): String = listOfNotNull(
-    planTarget(s).ifEmpty { null },
-    when (s.status) {
-        "done", "partial" -> s.pct?.let { targetShare(s, it) }
-        "missed" -> tr("missed", "terlewat")
-        "skipped" -> tr("skipped", "dilewati")
-        "today" -> tr("still to do", "belum dikerjakan")
-        else -> null
-    },
-).joinToString(" · ")
+/** Today's plan row: the target, then where the session stands; a short session's target sits inside its result. */
+internal fun sessionProgress(s: PlanSession): String = when (s.status) {
+    "partial" -> resultText(s).orEmpty()
+    "today" -> listOfNotNull(planTarget(s).ifEmpty { null }, tr("still to do", "belum dikerjakan")).joinToString(" · ")
+    else -> listOfNotNull(planTarget(s).ifEmpty { null }, resultText(s)).joinToString(" · ")
+}
 
 /**
  * Today before the session: the session is the headline, set on the background. The target follows, then
@@ -183,7 +180,7 @@ fun PlanTodayFocus(p: PlanToday, verdict: Verdict?, onOpen: () -> Unit, onStartW
             Text(s.title.text, style = T.headline, color = K.ink)
             planTarget(s).takeIf { it.isNotEmpty() }?.let { Text(it, style = body(16.sp, FontWeight.SemiBold, 1.35f), color = K.body2) }
             p.adjust?.takeIf { s == p.session }?.let { a -> targetText(a.target)?.let { Text(tr("Adjusted for recovery: $it", "Disesuaikan karena belum pulih: $it"), style = body(14.sp, FontWeight.SemiBold), color = K.fair) } }
-            s.pct?.let {
+            s.share?.let {
                 Text(targetShare(s, it), Modifier.padding(top = 4.dp), style = body(13.sp, FontWeight.SemiBold), color = statusColor(s.status))
                 SpanBar(0f, it.toFloat(), statusColor(s.status), height = 6.dp)
             }
@@ -743,17 +740,34 @@ private fun AgendaDay(date: String, list: List<PlanSession>, onOpen: (PlanSessio
     }
 }
 
-/** "done 8.01 km", "12 of 14 sets", "skipped · sick", "done Wed": what happened, after the target. */
+/**
+ * What happened, in the word the status mark means: "done 9.48 km", "done Wed", "done · 23m 24s on the watch",
+ * "done · 12 of 14 sets", "short · 5.4 of 6 km", "short · 40m of 50m", "skipped · sick", "missed". Partial never says done.
+ */
 internal fun resultText(s: PlanSession): String? {
-    val finished = s.status == "done" || s.status == "partial"
-    return when {
-        s.status == "missed" -> tr("missed", "terlewat")
-        s.status == "skipped" -> listOfNotNull(tr("skipped", "dilewati"), s.skipped?.let { skipReason(it).lowercase() }).joinToString(" · ")
-        finished && s.done?.sets != null -> tr("${s.done.sets} of ${s.done.of} sets", "${s.done.sets} dari ${s.done.of} set")
-        finished && s.doneOn != null -> tr("done ${weekdayShort(s.doneOn)}", "dikerjakan ${weekdayShort(s.doneOn)}") +
-            (s.done?.distanceM?.takeIf { (s.target?.distanceM ?: 0.0) > 0 }?.let { " · ${km(it)} km" } ?: "")
-        finished && s.target?.distanceM != null && s.done != null -> tr("done ${km(s.done.distanceM)} km", "tercapai ${km(s.done.distanceM)} km")
-        finished -> tr("done", "tercapai")
+    val tgt = s.adjust?.target ?: s.target
+    val d = s.done
+    return when (s.status) {
+        "missed" -> tr("missed", "terlewat")
+        "skipped" -> listOfNotNull(tr("skipped", "dilewati"), s.skipped?.let { skipReason(it).lowercase() }).joinToString(" · ")
+        "done" -> when {
+            d?.sets != null -> tr("done · ${d.sets} of ${d.of} sets", "selesai · ${d.sets} dari ${d.of} set")
+            s.kind == "strength" && d?.durationS != null -> tr("done · ${duration(d.durationS)} on the watch", "selesai · ${duration(d.durationS)} di jam tangan")
+            s.doneOn != null -> tr("done ${weekdayShort(s.doneOn)}", "dikerjakan ${weekdayShort(s.doneOn)}") +
+                (d?.distanceM?.takeIf { (s.target?.distanceM ?: 0.0) > 0 }?.let { " · ${km(it)} km" } ?: "")
+            tgt?.distanceM != null && d?.distanceM != null -> tr("done ${km(d.distanceM)} km", "tercapai ${km(d.distanceM)} km")
+            else -> tr("done", "tercapai")
+        }
+        "partial" -> listOfNotNull(
+            tr("short", "kurang"),
+            when {
+                d?.sets != null && d.of != null -> tr("${d.sets} of ${d.of} sets", "${d.sets} dari ${d.of} set")
+                tgt?.distanceM != null && d?.distanceM != null -> tr("${kmTrim(d.distanceM)} of ${kmTrim(tgt.distanceM)} km", "${kmTrim(d.distanceM)} dari ${kmTrim(tgt.distanceM)} km")
+                tgt?.durationS != null && d?.durationS != null -> tr("${duration(d.durationS)} of ${duration(tgt.durationS)}", "${duration(d.durationS)} dari ${duration(tgt.durationS)}")
+                else -> null
+            },
+            s.doneOn?.let { tr("on ${weekdayShort(it)}", "hari ${weekdayShort(it)}") },
+        ).joinToString(" · ")
         else -> null
     }
 }
@@ -776,7 +790,11 @@ internal fun adjustedText(s: PlanSession): String? {
 @Composable
 private fun SessionRow(s: PlanSession, onOpen: () -> Unit) {
     val rest = s.status == "rest"
-    val meta = if (rest) "" else listOfNotNull(planTarget(s).ifEmpty { null }, resultText(s)).joinToString(" · ")
+    val meta = when {
+        rest -> ""
+        s.status == "partial" -> resultText(s).orEmpty()
+        else -> listOfNotNull(planTarget(s).ifEmpty { null }, resultText(s)).joinToString(" · ")
+    }
     val open = s.kind != "rest" || s.notes != null
     Row(
         Modifier.fillMaxWidth().sizeIn(minHeight = 56.dp).clip(RoundedCornerShape(12.dp))
@@ -791,7 +809,7 @@ private fun SessionRow(s: PlanSession, onOpen: () -> Unit) {
             adjustedText(s)?.let { Text(it, style = T.caption, color = K.fair) }
             s.workout?.day?.let { Text(tr("Strength 28 · Day $it", "Strength 28 · Hari $it"), style = T.caption, color = K.muted) }
         }
-        s.pct?.let { Text(pctText(it), style = num(18.sp, FontWeight.Bold), color = if (s.status == "partial") K.fair else K.body2) }
+        s.share?.let { Text(pctText(it), style = num(18.sp, FontWeight.Bold), color = if (s.status == "partial") K.fair else K.body2) }
         PlanStatusMark(s, 22.dp)
         if (open) Glyph(R.drawable.ic_chevron_right, K.muted, 18.dp)
     }
