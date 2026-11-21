@@ -98,7 +98,7 @@ def test_plan_scores_strength_from_log():
     assert (s["status"], s["pct"]) == ("done", 1.0)
     part = {"date": "2026-11-03", "completed": False, "sets": [{"skipped": False}] * 3 + [{"skipped": True}]}
     s = plan_progress(PLAN, [], date(2026, 11, 4), [part])["sessions"][0]
-    assert (s["status"], s["pct"]) == ("partial", 0.75)
+    assert (s["status"], s["pct"]) == ("done", 1.0)
 
 
 def test_workout_only_on_strength_sessions():

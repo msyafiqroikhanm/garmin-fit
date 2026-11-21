@@ -106,3 +106,16 @@ def test_home_counts_watch_strength_and_plan_workouts(api, mdb, monkeypatch):
     assert home["week"]["sessions"] == 1 and home["week"]["watch"] == 1 and home["week"]["dates"] == ["2026-11-19"]
     assert home["recent"][0]["source"] == "watch"
     assert any(w["key"] == "plan:2026-11-21" for w in home["workouts"])
+
+
+def test_week_strength_agrees_between_workout_and_muscles(api, mdb, monkeypatch):
+    monkeypatch.setattr(core, "today", lambda: date(2026, 11, 21))
+    mdb.activities.insert_many([
+        {"_id": 7, "user_id": core.OWNER, "type": "strength_training", "date": "2026-11-18", "start_time": "2026-11-18 16:00:00",
+         "name": "Strength C", "duration_s": 3400, "raw": {"activeSets": 24}},
+        {"_id": 8, "user_id": core.OWNER, "type": "strength_training", "date": "2026-11-21", "start_time": "2026-11-21 07:00:00",
+         "name": "Strength B", "duration_s": 1404, "raw": {"totalSets": 20}},
+    ])
+    o = api("owner")
+    home, mus = o.get("/workouts").json()["week"], o.get("/muscles/week").json()
+    assert (home["sessions"], home["sets"]) == (mus["sessions"], mus["sets"]) == (2, 44)

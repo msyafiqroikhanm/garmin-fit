@@ -83,11 +83,19 @@ def test_two_runs_on_one_day_split_and_a_race_takes_its_longest():
     assert [e["_id"] for e in v["extras"]] == [3]
 
 
-def test_strength_from_the_app_log_reports_sets():
+def test_strength_from_an_incomplete_app_log_counts_as_done():
     log = {"_id": "L1", "date": "2026-11-20", "completed": False, "duration_s": 1500,
            "sets": [{"skipped": False}] * 12 + [{"skipped": True}] * 2}
     r = rows(plan_progress(PLAN, [], date(2026, 11, 21), logs=[log]))[("2026-11-20", 0)]
-    assert (r["status"], r["log_id"], r["done"]) == ("partial", "L1", {"sets": 12, "of": 14, "duration_s": 1500})
+    assert (r["status"], r["log_id"], r["done"], r["pct"]) == ("done", "L1", {"sets": 12, "of": 14, "duration_s": 1500}, 1.0)
+
+
+def test_strength_shorter_than_target_counts_as_done_and_a_short_run_stays_partial():
+    acts = [act(1, "2026-11-20", 0, "strength_training", secs=1200),   # 20 of 30 min
+            act(2, "2026-11-19", 7.2)]                                   # 90% of the 8 km tempo
+    r = rows(plan_progress(PLAN, acts, date(2026, 11, 21)))
+    assert (r[("2026-11-20", 0)]["status"], r[("2026-11-20", 0)]["pct"]) == ("done", 1.0)
+    assert (r[("2026-11-19", 0)]["status"], r[("2026-11-19", 0)]["pct"]) == ("partial", 0.9)
 
 
 def test_adjustment_is_stored_once(mdb):
