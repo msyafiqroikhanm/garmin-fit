@@ -566,10 +566,10 @@ private fun WeekCard(home: WorkoutsHome) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Stat("${w.sessions}", tr("sessions", "sesi"), num(28.sp), Modifier.weight(1f))
             Stat("${w.minutes}", tr("minutes", "menit"), num(28.sp), Modifier.weight(1f))
-            Stat("${w.reps}", tr("reps", "repetisi"), num(28.sp), Modifier.weight(1f))
+            Stat("${w.sets}", tr("sets", "set"), num(28.sp), Modifier.weight(1f))
         }
-        if (w.watch > 0) Text(tr(if (w.watch == 1) "Includes 1 session recorded only on the watch (no reps)." else "Includes ${w.watch} sessions recorded only on the watch (no reps).",
-            "Termasuk ${w.watch} sesi yang tercatat di jam saja (tanpa repetisi)."), style = T.caption, color = K.muted)
+        if (w.watch > 0) Text(tr(if (w.watch == 1) "Includes 1 session recorded only on the watch." else "Includes ${w.watch} sessions recorded only on the watch.",
+            "Termasuk ${w.watch} sesi yang tercatat di jam saja."), style = T.caption, color = K.muted)
         Row(Modifier.fillMaxWidth()) {
             (0..6).map { monday.plusDays(it.toLong()).toString() }.forEach { d ->
                 val on = d in w.dates
