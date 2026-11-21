@@ -241,13 +241,7 @@ def race_predictions(days: int = Query(90, ge=1, le=730), user: dict = Depends(a
 @app.get("/muscles/week")
 def muscles_week(user: dict = Depends(auth)):
     # Monday-based, the same week Workout counts, so the two screens agree on "this week"
-    uid, since = user["data_user_id"], core.week_start(core.today()).isoformat()
-    logs = list(core.db().workout_logs.find({"user_id": uid, "date": {"$gte": since}}, {"sets": 1, "activity_id": 1}))
-    linked = {l["activity_id"] for l in logs if l.get("activity_id")}
-    docs = core.db().activities.find({"user_id": uid, "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
-    catalog = core.muscle_catalog()
-    acts = [s for d in docs if d["_id"] not in linked and (s := core.strength_summary(d.get("raw") or {}, catalog))]
-    return core.merge_muscles([core.workout_muscles(l) for l in logs] + acts)
+    return core.strength_week(user["data_user_id"], core.week_start(core.today()).isoformat())
 
 
 @app.get("/trends/running")

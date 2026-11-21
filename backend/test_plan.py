@@ -131,3 +131,11 @@ def test_plan_today_lists_every_session_of_the_day(monkeypatch):
     assert [s["kind"] for s in out["sessions"]] == ["strength", "run"]
     assert out["session"]["kind"] == "run" and out["session"]["status"] == "done"
     assert next(s for s in out["sessions"] if s["kind"] == "strength")["status"] == "today"
+
+
+def test_plan_today_carries_its_date_on_an_empty_day(monkeypatch):
+    import core
+    monkeypatch.setattr(core, "today", lambda: date(2026, 10, 17))  # no session on Saturday 17 Oct
+    view = plan_progress(plan_doc(PLAN), [], date(2026, 10, 17))
+    out = core.plan_today({"plan": {"name": "HM build"}, **view})
+    assert out["date"] == "2026-10-17" and out["sessions"] == [] and out["session"] is None

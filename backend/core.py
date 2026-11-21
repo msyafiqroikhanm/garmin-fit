@@ -985,7 +985,8 @@ def plan_progress(plan: dict, acts: list[dict], today_: date, logs=(), overrides
     Matching, in order: the owner's overrides (linked activities, or skipped with a reason, which leaves the scores);
     activities of the same day and kind (two sessions of one kind on a day take one activity each, in start order; a
     race takes its longest); then a past session with nothing gets an unused same-kind activity from a day before or
-    after (done_on says when). A strength day with no watch activity is scored from the app's workout log of that day."""
+    after (done_on says when). A strength session with a matched activity or a workout log is done at 100%, whatever its
+    length or set count."""
     logs_by_day = {}
     for l in logs:
         logs_by_day.setdefault(l["date"], []).append(l)
@@ -1062,14 +1063,14 @@ def plan_progress(plan: dict, acts: list[dict], today_: date, logs=(), overrides
         if match:
             dist = sum(a.get("distance_m") or 0 for a in match)
             dur = sum(a.get("duration_s") or 0 for a in match)
-            pct = _score(target, dist, dur)
+            # the owner's call (21 Nov 2026): a strength session done is done, whatever its length
+            pct = 1.0 if r["kind"] == "strength" else _score(target, dist, dur)
             r.update(status="done" if pct >= DONE_AT else "partial", pct=round(pct, 3),
                      activity_ids=[a["_id"] for a in match], done={"distance_m": dist, "duration_s": dur})
         elif r["kind"] == "strength" and logs_by_day.get(r["date"]):
             log = max(logs_by_day[r["date"]], key=lambda l: len(_done_sets(l)))
             sets = len(_done_sets(log))
-            pct = 1.0 if log["completed"] else round(sets / len(log["sets"]), 3)
-            r.update(status="done" if log["completed"] else "partial", pct=pct, log_id=log.get("_id"),
+            r.update(status="done", pct=1.0, log_id=log.get("_id"),
                      done={"sets": sets, "of": len(log["sets"]), "duration_s": log.get("duration_s")})
         elif r["date"] > t:
             r["status"] = "upcoming"
@@ -1245,6 +1246,7 @@ def plan_today(view: dict, days: list[dict] | None = None) -> dict | None:
     session = next((s for s in sessions if s["kind"] == "run"), None) or next(iter(sessions), None)
     return {
         "name": view["plan"]["name"],
+        "date": t,
         "session": session,
         "sessions": sessions,
         "week": next((w for w in view["weeks"] if w["start"] == week), None),
@@ -1534,6 +1536,24 @@ def watch_strength(acts: list[dict], logs: list[dict]) -> list[dict]:
             for a in acts if a["_id"] not in linked]
 
 
+def strength_week(user_id: str, since: str) -> dict:
+    """This Monday week's strength: app logs plus watch sessions no log is linked to, summed by merge_muscles.
+    Workout's This week and Training's Muscles this week both read it, so they agree on sessions and sets."""
+    d = db()
+    logs = list(d.workout_logs.find({"user_id": user_id, "date": {"$gte": since}}, {"sets": 1, "activity_id": 1}))
+    linked = {l["activity_id"] for l in logs if l.get("activity_id")}
+    docs = [x for x in d.activities.find({"user_id": user_id, "type": "strength_training", "date": {"$gte": since}}, {"raw": 1})
+            if x["_id"] not in linked]
+    # the catalog may be fetched from Garmin, so only when a watch session has exercises to map
+    catalog = muscle_catalog() if any((x.get("raw") or {}).get("summarizedExerciseSets") for x in docs) else {}
+    acts = []
+    for x in docs:
+        raw = x.get("raw") or {}
+        # a watch session without exercise detail still counts as a session, with Garmin's set count
+        acts.append(strength_summary(raw, catalog) or {"muscles": {}, "total_sets": raw.get("activeSets") or raw.get("totalSets")})
+    return merge_muscles([workout_muscles(l) for l in logs] + acts)
+
+
 def workouts_home(user_id: str, role: str | None = None) -> dict:
     d, t = db(), today()
     prefs = workout_prefs(user_id)
@@ -1558,7 +1578,7 @@ def workouts_home(user_id: str, role: str | None = None) -> dict:
         "prefs": prefs,
         # Monday-based like Training's muscle card, and counting watch-only strength sessions too
         "week": {"sessions": len(week), "minutes": round(sum(l["duration_s"] or 0 for l in week) / 60),
-                 "reps": sum(l["reps"] for l in week), "dates": sorted({l["date"] for l in week}),
+                 "reps": sum(l["reps"] for l in week), "sets": strength_week(user_id, since_w)["sets"], "dates": sorted({l["date"] for l in week}),
                  "watch": sum(l["source"] == "watch" for l in week)},
         "recent": recent,
         "weights": weight_hints([l for l in logs if l["date"] >= since_kg]),
