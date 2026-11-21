@@ -20,23 +20,26 @@ class FixtureActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val want = intent.getStringExtra("state")?.takeIf { it in DebugFixture.STATES }
         lifecycleScope.launch {
-            var note = ""
-            val file = java.io.File(filesDir, "fixture-base.json")
-            if (want == null) { DebugFixture.state = null; DebugFixture.base = null }
-            else {
+            val snaps = FixtureSnapshot(filesDir)
+            if (want != null) {
                 if (DebugFixture.base == null) {
-                    // a cache written while a fixture was on is not live data; the snapshot file from the last live capture stands in
-                    val live = Repo.cachedToday(this@FixtureActivity)?.takeIf { it.plan?.name != DebugFixture.NAME }
-                    live?.let { file.writeText(json.encodeToString(Today.serializer(), it)) }
-                    DebugFixture.base = if (file.exists()) file.readText() else null
+                    DebugFixture.base = snaps.resolve { Repo.cachedToday(this@FixtureActivity)?.let { json.encodeToString(Today.serializer(), it) } }
                 }
-                if (DebugFixture.base == null) note = " reason=no live /today snapshot, open Today on live data first, then state off"
-                DebugFixture.state = want.takeIf { DebugFixture.base != null }
-            }
+                if (DebugFixture.base == null) {
+                    // refuse before any fetch: /today on the real backend may store a recovery adjustment
+                    DebugFixture.state = null
+                    Log.i(TAG, "state=off refreshed=false reason=no live /today snapshot, open Today on live data with the fixture off first")
+                    finish()
+                    return@launch
+                }
+                snaps.markOn()
+                DebugFixture.state = want
+            } else { DebugFixture.state = null; DebugFixture.base = null }
             val ok = runCatching { Repo.fetchToday(this@FixtureActivity); Repo.fetchPlan(this@FixtureActivity) }
                 .onFailure { Log.w(TAG, "refresh failed", it) }.isSuccess
+            if (want == null && ok) snaps.markLive()
             Widgets.updateAll(this@FixtureActivity)
-            Log.i(TAG, "state=${DebugFixture.state ?: "off"} refreshed=$ok$note")
+            Log.i(TAG, "state=${DebugFixture.state ?: "off"} refreshed=$ok")
             startActivity(Intent(this@FixtureActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
             finish()
         }
